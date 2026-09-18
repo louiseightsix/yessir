@@ -1,0 +1,5 @@
+# TransformAdder
+
+```bash
+./run.sh
+```
