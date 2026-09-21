@@ -1,6 +1,6 @@
 """End-to-end harness tests against a scripted oracle "model".
 
-The oracle decodes the harness's own prompts (all three tiers) and answers with the reference adder, so a
+The oracle decodes the harness's own prompts (all five tiers) and answers with the reference adder, so a
 passing test proves that prompt layout, harness control flow, halting, trace parsing, and scoring
 are mutually consistent; an adversarial variant proves that failures are reported, not hidden.
 """
@@ -13,6 +13,7 @@ from transformadder.core.constants import (
     DELIM_B,
     DELIM_CARRY,
     DELIM_GENERIC,
+    DELIM_ORIGIN,
     DELIM_OUT,
     FLAG_CLASS_CONTINUE,
     FLAG_CLASS_FINISHED,
@@ -53,15 +54,19 @@ def decode(seq):
     everything after operand b with block delimiters removed: [c_k] OUT_k [S] transients (SM)
     or [START] trace (AR)."""
     tokens = seq.tokens
-    if seq.roles is not None:                                   # Tier 1: blocks given by role
+    if seq.roles is not None and DELIM_GENERIC not in tokens:    # Tier 1: blocks given by role
         assert len(seq.roles) == len(seq.sigs) == len(tokens)
         axiom, a, b = ([t for t, r in zip(tokens, seq.roles) if r == role]
                        for role in (ROLE_AXIOM, ROLE_OPERAND_A, ROLE_OPERAND_B))
         return axiom, a, b, tokens[1 + len(axiom) + len(a) + len(b):]
-    if DELIM_AXIOM in tokens:                                   # Tier 2: role delimiters
+    if DELIM_ORIGIN in tokens:                                   # Tier 5: dual delimiters
+        cleaned = [t for t in tokens if t != DELIM_ORIGIN]
+        axiom, a, rest = split(cleaned, DELIM_AXIOM, DELIM_A, DELIM_B)
+        carry_delim, out_delim = DELIM_CARRY, DELIM_OUT
+    elif DELIM_AXIOM in tokens:                                  # Tier 2: role delimiters
         axiom, a, rest = split(tokens, DELIM_AXIOM, DELIM_A, DELIM_B)
         carry_delim, out_delim = DELIM_CARRY, DELIM_OUT
-    else:                                                       # Tier 3: generic delimiters
+    else:                                                       # Tier 3 and Tier 4: generic delimiters
         axiom, a, rest = split([DELIM_GENERIC] + tokens[1:], DELIM_GENERIC, DELIM_GENERIC, DELIM_GENERIC)
         carry_delim = out_delim = DELIM_GENERIC
     if START in rest:
@@ -84,7 +89,7 @@ class OracleModel:
         axiom, a, b, rest = decode(seq)
         carry, tail = rest[0], rest[1:]
         out, transient = tail[:tail.index(TOKEN_S)], tail[tail.index(TOKEN_S) + 1:]
-        if seq.roles is not None:                               # Tier 1: k is read off the [S] query
+        if seq.roles is not None and seq.sigs is not None:       # Tier 1: k is read off the [S] query
             s_at = seq.tokens.index(TOKEN_S)
             assert (seq.roles[s_at], seq.sigs[s_at]) == (ROLE_OUT, len(out))
         return reference_step(axiom, a, b, len(out), carry), transient
@@ -114,7 +119,7 @@ class OracleModel:
         return one_hot(FLAG_CONTINUE if self.never_finish else step["flag"])
 
 
-TIERS = (1, 2, 3)
+TIERS = (1, 2, 3, 4, 5)
 HARNESSES = {"sm_mh": run_state_machine_mh, "sm_seq": run_state_machine_seq, "ar": run_autoregressive_trace}
 
 
@@ -124,8 +129,8 @@ def instances(n=200):
 
 
 def test_oracle_rollouts_are_exact():
-    for tier in TIERS:
-        for paradigm, run in HARNESSES.items():
+    for paradigm, run in HARNESSES.items():
+        for tier in TIERS:
             for inst in instances():
                 carries = []
                 out, status = run(OracleModel(), inst["axiom"], inst["a"], inst["b"], tier, carries=carries)
@@ -135,8 +140,8 @@ def test_oracle_rollouts_are_exact():
 
 
 def test_oracle_scores_perfectly():
-    for tier in TIERS:
-        for paradigm in HARNESSES:
+    for paradigm in HARNESSES:
+        for tier in TIERS:
             metrics = free_running_metrics(OracleModel(), paradigm, tier, instances(50))
             assert metrics["em"] == 1.0 and metrics["digit_acc"] == 1.0 and metrics["carry_acc"] == 1.0
             assert metrics["out_of_axiom"] == 0
@@ -144,8 +149,8 @@ def test_oracle_scores_perfectly():
 
 def test_non_halting_model_is_bounded_and_scored_as_failure():
     expected_status = {"sm_mh": "max_steps_exceeded", "sm_seq": "max_steps_exceeded"}
-    for tier in TIERS:
-        for paradigm, run in HARNESSES.items():
+    for paradigm, run in HARNESSES.items():
+        for tier in TIERS:
             inst = instances(1)[0]
             out, status = run(OracleModel(never_finish=True), inst["axiom"], inst["a"], inst["b"], tier)
             assert status != "finished"

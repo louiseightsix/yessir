@@ -34,6 +34,8 @@ TIER_CHOICES = [
     ("1", "Tier 1: 2D Split PE (Learned Role 64d + Sinusoidal Significance 192d)"),
     ("2", "Tier 2: Role-Anchored Semantic Delimiters + NoPE (Zero Coordinates)"),
     ("3", "Tier 3: Generic Delimiters + NoPE (Zero Coordinates, Single Delimiter)"),
+    ("4", "Tier 4: Generic Delimiters + Role Embeddings (Hybrid: Scope Subspace + Single Anchor)"),
+    ("5", "Tier 5: Dual Delimiters [ROLE] [ORIGIN] + NoPE (Decoupled Scope and Zero Origin)"),
 ]
 
 FFN_CHOICES = [
@@ -424,7 +426,7 @@ echo "  gcloud ai custom-jobs stream-logs $JOB_RESOURCE_NAME --region=$REGION --
 def main():
     parser = argparse.ArgumentParser(description="Configure and run TransformAdder experiments.")
     parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "ar"], help="Mechanic / runtime paradigm")
-    parser.add_argument("--tier", type=int, choices=[1, 2, 3], help="Inductive bias tier")
+    parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5], help="Inductive bias tier")
     parser.add_argument("--n-layers", type=int, default=6, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default="swiglu", help="FFN non-linearity")
     parser.add_argument("--attn-type", choices=["causal", "prefix_lm"], default="causal", help="Attention visibility")

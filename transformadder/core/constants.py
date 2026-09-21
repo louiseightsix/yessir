@@ -24,18 +24,19 @@ SIGMA_POOL = list(range(0x00, 0xF0))
 # Canonical evaluation axiom: conventional ASCII digits '0'-'9', 'A', 'B' (truncated to the base)
 CANONICAL_AXIOM = list(b"0123456789AB")
 
-# Control & Delimiter Tokens V_ctrl (0xF0 - 0xFF); 0xFA and 0xFF are reserved
-DELIM_AXIOM = 0xF0     # Tier 2 axiom block delimiter
-DELIM_A = 0xF1         # Tier 2 operand A delimiter
-DELIM_B = 0xF2         # Tier 2 operand B delimiter
-DELIM_CARRY = 0xF3     # Tier 2 carry delimiter (SM only)
-DELIM_OUT = 0xF4       # Tier 2 output delimiter (SM only)
+# Control & Delimiter Tokens V_ctrl (0xF0 - 0xFF); 0xFF is reserved
+DELIM_AXIOM = 0xF0     # Tier 2/5 axiom block delimiter
+DELIM_A = 0xF1         # Tier 2/5 operand A delimiter
+DELIM_B = 0xF2         # Tier 2/5 operand B delimiter
+DELIM_CARRY = 0xF3     # Tier 2/5 carry delimiter (SM only)
+DELIM_OUT = 0xF4       # Tier 2/5 output delimiter (SM only)
 START = 0xF5           # AR trace trigger
 TOKEN_S = 0xF6         # Sum query: SM prompt tail / AR sum marker
 TOKEN_C = 0xF7         # Carry query: SM-Seq Pass 2 trigger / AR carry marker
 FLAG_CONTINUE = 0xF8   # Loop continuation flag (SM only)
 FLAG_FINISHED = 0xF9   # Loop termination flag (SM) / trace terminator (AR)
-DELIM_GENERIC = 0xFB   # Tier 3 neutral block delimiter, rendered as '|'
+DELIM_ORIGIN = 0xFA    # Tier 5 zero-origin spatial anchor
+DELIM_GENERIC = 0xFB   # Tier 3/4 neutral block delimiter, rendered as '|'
 TOKEN_FLAG = 0xFC      # SM-Seq Pass 3 flag trigger
 PAD = 0xFD             # Batch padding (right-padding only)
 BOS = 0xFE             # Sequence origin; attention sink and NoPE count anchor
@@ -68,6 +69,7 @@ TOKEN_NAMES = {
     TOKEN_C: "[C]",
     FLAG_CONTINUE: "[CONTINUE]",
     FLAG_FINISHED: "[FINISHED]",
+    DELIM_ORIGIN: "[ORIGIN]",
     DELIM_GENERIC: "|",
     TOKEN_FLAG: "[F]",
     PAD: "[PAD]",

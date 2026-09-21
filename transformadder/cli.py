@@ -29,7 +29,13 @@ def parse_args():
     )
     # Architectural parameters
     parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "ar"], default="sm_mh", help="Runtime paradigm")
-    parser.add_argument("--tier", type=int, choices=[1, 2, 3], default=1, help="Inductive bias tier")
+    parser.add_argument(
+        "--tier",
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        default=1,
+        help="Inductive bias tier (1: Split PE, 2: Role NoPE, 3: Generic NoPE, 4: Generic NoPE+Role, 5: Dual Delimiter)",
+    )
     parser.add_argument("--n-layers", type=int, default=6, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default="swiglu", help="FFN non-linearity")
     parser.add_argument("--attn-type", choices=["causal", "prefix_lm"], default="causal", help="Attention visibility")

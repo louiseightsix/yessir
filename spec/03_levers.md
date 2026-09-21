@@ -17,7 +17,7 @@ To execute addition, the model must solve two fundamental binding problems:
 1. **Stream Identification (Role)**: Which tokens belong to the axiom, operand $a$, operand $b$, incoming carry, and accumulated output?
 2. **Column Alignment (Significance)**: Which digits in $a$ and $b$ correspond to the current addition column, dynamically indexed by output length ($k = |OUT_k|$) in `SM` or by scratchpad column count in `AR`?
 
-We structure this design space as a **3-tier spectrum of inductive bias**, moving from hard-coded architectural coordinates down to fully emergent in-context coordinate tracking:
+We structure this design space as a **3-tier spectrum of inductive bias**, moving from hard-coded architectural coordinates down to fully emergent in-context coordinate tracking, plus two hybrid tiers (4 and 5, Sections 1.4 and 1.5) that decouple role from significance:
 
 ```mermaid
 flowchart TD
@@ -127,7 +127,30 @@ flowchart TD
 
 ---
 
-### 1.4 Pinned Design Decision: LSD-First (LSB-First) Directionality
+### 1.4 Tier 4: Hybrid Scope Bias (Generic Delimiters + Role Embeddings)
+* **Core Philosophy**: Supply **role** explicitly but leave **significance** emergent. Token layout is identical to Tier 3 (single neutral delimiter `|`); every token additionally carries the learned Tier 1 role embedding $e_{\text{role}}(r_t) \in \mathbb{R}^{64}$, while the 192-dim significance subspace is zero:
+  $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; e_{\text{role}}(r_t) \;\parallel\; \mathbf{0}_{192} \, ]$$
+* **Role Assignment**: As in Tier 1 for axiom, operand, carry, OUT, query and trace tokens; `[BOS]` and every `|` delimiter take `ROLE_CTRL`.
+* **Sequence Formats**: Identical to Tier 3 in both `SM` and `AR`.
+* **The Learning Hypothesis**: With role given, `|` need not be counted; it serves as a single shared anchor from which attention measures the column offset $k$.
+
+---
+
+### 1.5 Tier 5: Decoupled Bias (Dual Delimiters `[ROLE] [ORIGIN]` + NoPE)
+* **Core Philosophy**: **NoPE** as in Tier 2, but every role delimiter is followed by the shared zero-origin anchor `[ORIGIN]` (`DELIM_ORIGIN`), decoupling scope (which block) from origin (where offset 0 is):
+  * **Sequence Format in `SM`**:
+    ```text
+    [BOS] [AXIOM] [ORIGIN] 0 1 2 [A] [ORIGIN] 1 2 [B] [ORIGIN] 2 [CARRY] [ORIGIN] 1 [OUT] [ORIGIN] 0 [S]
+    ```
+  * **Sequence Format in `AR`** (trace grammar unchanged):
+    ```text
+    [BOS] [AXIOM] [ORIGIN] 0 1 2 [A] [ORIGIN] 1 2 [B] [ORIGIN] 2 [START] [S] 0 [C] 1 [S] 0 [C] 1 [S] 1 [C] 0 [FINISHED]
+    ```
+* **The Learning Hypothesis**: Role is read off the role delimiter; significance is measured as the offset from `[ORIGIN]`. Because `[ORIGIN]` is the same token in every block, a single shared column counter suffices, instead of one per role delimiter as in Tier 2.
+
+---
+
+### 1.6 Pinned Design Decision: LSD-First (LSB-First) Directionality
 * **Core Philosophy**: All operands ($a$, $b$, and accumulated $OUT$) are formatted strictly in **algorithmic reading order ($LSD \to MSD$)**, placing the least-significant digit at local offset 0.
 * **Theoretical Rationale**:
   * In conventional reading order ($MSD \to LSD$), column $k$ sits at index $\text{len}(\text{op}) - 1 - k$. Locating column $k$ requires first measuring total operand length and computing a reverse offset, introducing a length-dependent confounding difficulty unrelated to addition itself.
@@ -152,18 +175,18 @@ $$|\mathcal{V}| = 256 \quad (\texttt{0x00} \dots \texttt{0xFF})$$
 
     | Byte | Canonical Name | Alias | Purpose |
     | :--- | :--- | :--- | :--- |
-    | `0xF0` | `DELIM_AXIOM` | `[AXIOM]` | Tier 2 axiom block delimiter |
-    | `0xF1` | `DELIM_A` | `[A]` | Tier 2 operand A delimiter |
-    | `0xF2` | `DELIM_B` | `[B]` | Tier 2 operand B delimiter |
-    | `0xF3` | `DELIM_CARRY` | `[CARRY]` | Tier 2 carry delimiter (`SM` only) |
-    | `0xF4` | `DELIM_OUT` | `[OUT]` | Tier 2 output delimiter (`SM` only) |
+    | `0xF0` | `DELIM_AXIOM` | `[AXIOM]` | Tier 2/5 axiom block delimiter |
+    | `0xF1` | `DELIM_A` | `[A]` | Tier 2/5 operand A delimiter |
+    | `0xF2` | `DELIM_B` | `[B]` | Tier 2/5 operand B delimiter |
+    | `0xF3` | `DELIM_CARRY` | `[CARRY]` | Tier 2/5 carry delimiter (`SM` only) |
+    | `0xF4` | `DELIM_OUT` | `[OUT]` | Tier 2/5 output delimiter (`SM` only) |
     | `0xF5` | `START` | `[START]` | `AR` trace trigger |
     | `0xF6` | `TOKEN_S` | `[S]` | Sum query: `SM` prompt tail / `AR` sum marker |
     | `0xF7` | `TOKEN_C` | `[C]` | Carry query: `SM-Seq` Pass 2 trigger / `AR` carry marker |
     | `0xF8` | `FLAG_CONTINUE` | `[CONTINUE]` | Loop continuation flag (`SM` only) |
     | `0xF9` | `FLAG_FINISHED` | `[FINISHED]` | Loop termination flag (`SM`) / trace terminator (`AR`) |
-    | `0xFA` | — | — | Reserved |
-    | `0xFB` | `DELIM_GENERIC` | `\|` | Tier 3 neutral block delimiter |
+    | `0xFA` | `DELIM_ORIGIN` | `[ORIGIN]` | Tier 5 zero-origin spatial anchor |
+    | `0xFB` | `DELIM_GENERIC` | `\|` | Tier 3/4 neutral block delimiter |
     | `0xFC` | `TOKEN_FLAG` | `[F]` | `SM-Seq` Pass 3 flag trigger |
     | `0xFD` | `PAD` | `[PAD]` | Batch padding (right-padding only; never attended by real tokens, loss-masked) |
     | `0xFE` | `BOS` | `[BOS]` | Sequence origin; attention sink and NoPE count anchor |
@@ -181,7 +204,7 @@ How raw byte tokens ($b \in \{0, \dots, 255\}$) are converted into vector repres
   * The representation space is strictly partitioned into two orthogonal 256-dimensional blocks:
     $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; \mathbf{p}_t \, ] \in \mathbb{R}^{512}$$
     - **Dimensions $0 \dots 255$ (Symbol Identity)**: At the input, strictly contains the fixed one-hot byte vector $\mathbf{e}_{b_t}$, uncorrupted by positional encodings.
-    - **Dimensions $256 \dots 511$ (Positional & Algorithmic State)**: Holds positional vectors $\mathbf{p}_t = [e_{\text{role}}(r_t) \parallel e_{\text{sig}}(p_t)]$ in Tier 1. In Tiers 2 and 3 (NoPE), these dimensions are initialised to zero ($\mathbf{0}_{256}$), serving as dedicated working memory for attention heads and MLPs.
+    - **Dimensions $256 \dots 511$ (Positional & Algorithmic State)**: Holds positional vectors $\mathbf{p}_t = [e_{\text{role}}(r_t) \parallel e_{\text{sig}}(p_t)]$ in Tier 1. In Tier 4 only the role part is populated ($[e_{\text{role}}(r_t) \parallel \mathbf{0}_{192}]$). In Tiers 2, 3 and 5 (NoPE), these dimensions are initialised to zero ($\mathbf{0}_{256}$), serving as dedicated working memory for attention heads and MLPs.
 * **Theoretical Purpose**:
   * **No learned embedding table**: there is no trainable per-token vector in which a symbol's "meaning" could be stored at the input. This does *not* by itself prevent memorisation: the first-layer projections ($W_Q, W_K, W_V$, FFN input) read the one-hot block and can still learn per-byte associations. What removes the *incentive* to do so is per-instance random symbol sampling (Section 2.1), under which no byte has a stable value.
   * Guarantees that the tied copy slice (Section 4.1) reads from a subspace with a fixed, known symbol basis.

@@ -38,11 +38,24 @@ def test_embedding_tier1_unit_norm_components():
     assert torch.allclose(sig[0, 0, 1::2], torch.full((96,), 1 / math.sqrt(96)), atol=1e-6)
 
 
-def test_embedding_tier2_3_shapes_and_zeros():
-    for tier in [2, 3]:
+def test_embedding_tier2_3_5_shapes_and_zeros():
+    for tier in [2, 3, 5]:
         x = SubspaceEmbedding(tier=tier)(torch.randint(0, 256, (3, 7)))
         assert x.shape == (3, 7, 512)
         assert torch.all(x[:, :, D_SYMBOL:] == 0.0), f"Tier {tier} must have zero positional vectors"
+
+
+def test_embedding_tier4_role_subspace_and_zero_sig():
+    embed = SubspaceEmbedding(tier=4)
+    token_ids = torch.tensor([[0, 10, 48, 239, 255]])
+    role_ids = torch.tensor([[0, 1, 2, 3, 4]])
+    x = embed(token_ids, role_ids=role_ids)
+    assert x.shape == (1, 5, 512)
+
+    one_hot, role, sig = x[..., :D_SYMBOL], x[..., D_SYMBOL:D_SYMBOL + D_ROLE], x[..., D_SYMBOL + D_ROLE:]
+    assert torch.equal(one_hot.argmax(-1), token_ids) and torch.all(one_hot.sum(-1) == 1.0)
+    assert torch.allclose(role.norm(dim=-1), torch.ones(1, 5), atol=1e-5)
+    assert torch.all(sig == 0.0)
 
 
 def test_tied_identity_head_has_no_parameters():
@@ -72,10 +85,15 @@ def test_collate_right_pads():
     nope = collate([Seq([1, 2]), Seq([3])])
     assert nope["role_ids"] is None and nope["sig_ids"] is None
 
+    t4 = collate([Seq([1, 2], [0, 1], None), Seq([4], [4], None)])
+    assert t4["token_ids"].tolist() == [[1, 2], [4, PAD]]
+    assert t4["role_ids"].tolist() == [[0, 1], [4, ROLE_CTRL]]
+    assert t4["sig_ids"] is None
+
 
 def test_padding_invariance_under_causal_mask():
     """Right-padding must not change any real position's output (no padding mask needed)."""
-    for tier, head_type in [(1, "multi_head"), (2, "single_head")]:
+    for tier, head_type in [(1, "multi_head"), (2, "single_head"), (4, "multi_head"), (5, "single_head")]:
         model = small_model(tier, head_type).eval()
         gen = ProceduralArithmeticGenerator(bases=[2, 10], seed=3)
         batch = gen.sm_mh_batch(6, tier) if head_type == "multi_head" else gen.sm_seq_batch(6, tier)
@@ -133,7 +151,18 @@ def test_terminal_step_upweighting():
 
 
 def test_training_step_reduces_loss_each_paradigm():
-    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("ar", 3), ("ar", 1)]:
+    for paradigm, tier in [
+        ("sm_mh", 1),
+        ("sm_seq", 2),
+        ("ar", 3),
+        ("ar", 1),
+        ("sm_mh", 4),
+        ("sm_seq", 4),
+        ("sm_mh", 5),
+        ("sm_seq", 5),
+        ("ar", 4),
+        ("ar", 5),
+    ]:
         variant = Variant(name="t", paradigm=paradigm, tier=tier, log_dir="", n_layers=2)
         model = small_model(tier, "multi_head" if paradigm == "sm_mh" else "single_head")
         optimizer = build_optimizer(model, lr=1e-3)
@@ -176,7 +205,7 @@ def test_residual_projection_init_scaling():
 
 
 def test_evaluate_runs_end_to_end():
-    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("ar", 3)]:
+    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("ar", 3), ("sm_mh", 4), ("sm_seq", 5)]:
         model = small_model(tier, "multi_head" if paradigm == "sm_mh" else "single_head")
         results = evaluate(model, paradigm, tier, train_bases=[2, 10], num_problems=1)
         for cell in ("id", "ood_base3", "ood_base12", "extrap_len_base12", "canon_ood_base12"):
