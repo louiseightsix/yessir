@@ -5,18 +5,27 @@ each transition from the oracle state, isolating single-step fidelity from error
 
 import torch
 
-from transformadder.core.constants import FLAG_CLASS_FINISHED, FLAG_FINISHED, IGNORE_LABEL
+from transformadder.core.constants import (
+    FLAG_CLASS_FINISHED,
+    FLAG_FINISHED,
+    IGNORE_LABEL,
+    TOKEN_C,
+    TOKEN_FLAG,
+    TOKEN_S,
+)
 from transformadder.core.data import (
     ProceduralArithmeticGenerator,
     collate_labelled,
     collate_sm_mh,
     encode_ar,
+    encode_sm_fork,
     encode_sm_mh,
     encode_sm_seq,
     encode_sm_seq_rev,
 )
 from transformadder.harnesses.autoregressive import run_autoregressive_trace
 from transformadder.harnesses.state_machine import (
+    run_state_machine_fork,
     run_state_machine_mh,
     run_state_machine_seq,
     run_state_machine_seq_rev,
@@ -26,6 +35,7 @@ HARNESSES = {
     "sm_mh": run_state_machine_mh,
     "sm_seq": run_state_machine_seq,
     "sm_seq_rev": run_state_machine_seq_rev,
+    "sm_fork": run_state_machine_fork,
     "ar": run_autoregressive_trace,
 }
 
@@ -95,6 +105,13 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
 
     if paradigm == "ar":
         samples = [encode_ar(inst, tier) for inst in instances]
+    elif paradigm == "sm_fork":
+        samples = [
+            encode_sm_fork(inst, k, tier, q)
+            for inst in instances
+            for k in range(len(inst["steps"]))
+            for q in (TOKEN_S, TOKEN_C, TOKEN_FLAG)
+        ]
     else:
         if paradigm == "sm_mh":
             encode = encode_sm_mh
@@ -103,6 +120,9 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
         else:
             encode = encode_sm_seq
         samples = [encode(inst, k, tier) for inst in instances for k in range(len(inst["steps"]))]
+
+    if paradigm == "sm_fork":
+        chunk = max(3, (chunk // 3) * 3)
 
     for start in range(0, len(samples), chunk):
         part = samples[start:start + chunk]
@@ -122,6 +142,20 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
         batch = _to_device(collate_labelled(part), device)
         pred = model(batch["token_ids"], batch["role_ids"], batch["sig_ids"]).argmax(-1).tolist()
         labels = batch["labels"].tolist()
+
+        if paradigm == "sm_fork":
+            for i in range(0, len(pred), 3):
+                p_s, l_s = pred[i], labels[i]
+                p_c, l_c = pred[i + 1], labels[i + 1]
+                p_f, l_f = pred[i + 2], labels[i + 2]
+                idx_s = [t for t, y in enumerate(l_s) if y != IGNORE_LABEL][0]
+                idx_c = [t for t, y in enumerate(l_c) if y != IGNORE_LABEL][0]
+                idx_f = [t for t, y in enumerate(l_f) if y != IGNORE_LABEL][0]
+                sum_ok = (p_s[idx_s] == l_s[idx_s])
+                carry_ok = (p_c[idx_c] == l_c[idx_c])
+                flag_ok = (p_f[idx_f] == l_f[idx_f])
+                records.append((sum_ok and carry_ok and flag_ok, flag_ok, l_f[idx_f] == FLAG_FINISHED))
+            continue
 
         for row_pred, row_labels in zip(pred, labels):
             idx = [t for t, y in enumerate(row_labels) if y != IGNORE_LABEL]

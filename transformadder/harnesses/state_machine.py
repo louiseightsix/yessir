@@ -1,5 +1,5 @@
-"""State Machine runtime execution harnesses (Paradigm A: SM-MH, SM-Seq and SM-SeqRev).
-Implements Algorithms 1-2 of spec/02_mechanics.md Section 3.3; SM-SeqRev is Algorithm 2 with the
+"""State Machine runtime execution harnesses (Paradigm A: SM-MH, SM-Seq, SM-SeqRev and SM-Fork).
+Implements Algorithms 1-3 of spec/02_mechanics.md Section 3.3; SM-SeqRev is Algorithm 2 with the
 sum and carry micro-passes swapped (Section 3.2, Sub-variant A3).
 
 The harnesses contain no numeral arithmetic and no symbol translation, decode by unconstrained
@@ -143,3 +143,49 @@ def run_state_machine_seq_rev(model, axiom, a, b, tier_format: int, stepper=None
 
     return out_digits, "max_steps_exceeded"
 
+
+@torch.no_grad()
+def run_state_machine_fork(model, axiom, a, b, tier_format: int, stepper=None, carries=None) -> tuple[list[int], str]:
+    """Branching State Machine Driver (Paradigm A4: SM-Fork). Three independent parallel queries
+    branch directly off the base prompt: p_s -> o_k, p_c -> c_{k+1}, p_f -> FLAG.
+    Executed in a single batched forward pass via model.next_logits_batch if available.
+    """
+    model.eval()
+    max_steps = max(len(a), len(b)) + 1            # largest legal step count
+    carry, out_digits = axiom[0], []
+    axiom_set = set(axiom)
+
+    for k in range(max_steps):
+        p_s = build_sm_prompt(axiom, a, b, carry, out_digits, tier_format, query_token=TOKEN_S)
+        p_c = build_sm_prompt(axiom, a, b, carry, out_digits, tier_format, query_token=TOKEN_C)
+        p_f = build_sm_prompt(axiom, a, b, carry, out_digits, tier_format, query_token=TOKEN_FLAG)
+
+        if hasattr(model, "next_logits_batch"):
+            logits = model.next_logits_batch([p_s, p_c, p_f])
+            logits_s, logits_c, logits_f = logits[0], logits[1], logits[2]
+        else:
+            logits_s = model.next_logits(p_s)
+            logits_c = model.next_logits(p_c)
+            logits_f = model.next_logits(p_f)
+
+        o_k = int(torch.argmax(logits_s))
+        c_next = int(torch.argmax(logits_c))
+        flag = int(torch.argmax(logits_f))
+
+        if stepper:
+            stepper.step(k, p_s, o_k, c_next, flag, [logits_s, logits_c, logits_f],
+                         axiom=axiom, a=a, b=b, carry_in=carry)
+
+        out_digits.append(o_k)
+        if carries is not None:
+            carries.append(c_next)
+        carry = c_next
+
+        if flag == FLAG_FINISHED:
+            return out_digits, "finished"
+
+        # Early exit on invalid / out-of-alphabet tokens
+        if o_k not in axiom_set or c_next not in axiom_set:
+            return out_digits, "malformed"
+
+    return out_digits, "max_steps_exceeded"

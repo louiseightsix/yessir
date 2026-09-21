@@ -28,6 +28,8 @@ from transformadder.core.constants import (
     ROLE_OUT,
     ROLE_START,
     START,
+    TOKEN_C,
+    TOKEN_FLAG,
     TOKEN_S,
 )
 
@@ -115,7 +117,8 @@ def build_sm_prompt(
 ) -> Seq:
     """SM base prompt at step k = len(out_digits): [BOS] A a b c_k OUT_k [Q].
 
-    Identical for SM-MH and SM-Seq Pass 1 (Q = [S]); terminates on [C] for SM-SeqRev Pass 1.
+    Identical for SM-MH and SM-Seq Pass 1 (Q = [S]); terminates on [C] for SM-SeqRev Pass 1;
+    SM-Fork builds one prompt per query, Q in ([S], [C], [F]).
     """
     k = len(out_digits)
     seq = build_prefix(axiom, a, b, tier)
@@ -123,7 +126,14 @@ def build_sm_prompt(
         seq = seq.push(carry, ROLE_CARRY, k)
         for j, o in enumerate(out_digits):
             seq = seq.push(o, ROLE_OUT, j)
-        coords = sum_coords(k) if query_token == TOKEN_S else carry_coords(k)
+        if query_token == TOKEN_S:
+            coords = sum_coords(k)
+        elif query_token == TOKEN_C:
+            coords = carry_coords(k)
+        elif query_token == TOKEN_FLAG:
+            coords = flag_coords(k)
+        else:
+            raise ValueError(f"Unknown query_token: {query_token}")
         return seq.push(query_token, *coords)
     if tier == 2:
         return Seq(seq.tokens + [DELIM_CARRY, carry, DELIM_OUT] + out_digits + [query_token])
@@ -132,7 +142,14 @@ def build_sm_prompt(
     if tier == 4:
         tokens = seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [query_token]
         assert seq.roles is not None
-        query_role = ROLE_OUT if query_token == TOKEN_S else ROLE_CARRY
+        if query_token == TOKEN_S:
+            query_role = ROLE_OUT
+        elif query_token == TOKEN_C:
+            query_role = ROLE_CARRY
+        elif query_token == TOKEN_FLAG:
+            query_role = ROLE_FLAG
+        else:
+            raise ValueError(f"Unknown query_token: {query_token}")
         roles = (
             seq.roles
             + [ROLE_CTRL, ROLE_CARRY, ROLE_CTRL]

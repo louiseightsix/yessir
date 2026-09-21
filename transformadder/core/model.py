@@ -90,7 +90,7 @@ class TransformAdder(nn.Module):
         sig_ids: torch.Tensor | None = None,
         attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Tied-slice logits [B, T, 256] (SM-Seq, SM-SeqRev, AR).
+        """Tied-slice logits [B, T, 256] (SM-Seq, SM-SeqRev, SM-Fork, AR).
 
         role_ids is required for Tiers 1 and 4, sig_ids for Tier 1; both are None for Tiers 2, 3 and 5. attn_mask=None selects
         strict causal attention; a supplied mask must be complete (see blocks.prefix_lm_mask).
@@ -121,6 +121,13 @@ class TransformAdder(nn.Module):
         """Tied-slice logits at the final position of a single sequence: [256]."""
         batch = collate([seq], device=self._device())
         return self.forward(batch["token_ids"], batch["role_ids"], batch["sig_ids"])[0, -1, :]
+
+    def next_logits_batch(self, seqs: list[Seq]) -> torch.Tensor:
+        """Tied-slice logits at the final position of each sequence in seqs: [len(seqs), 256]."""
+        batch = collate(seqs, device=self._device())
+        lengths = batch["lengths"]
+        logits = self.forward(batch["token_ids"], batch["role_ids"], batch["sig_ids"])
+        return logits[torch.arange(len(seqs), device=self._device()), lengths - 1, :]
 
     def forward_sm_mh_single(self, seq: Seq) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """SM-MH logits for a single sequence: ([256], [256], [2])."""

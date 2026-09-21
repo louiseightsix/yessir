@@ -4,7 +4,7 @@ This document enumerates the architectural, representational, and algorithmic **
 
 The levers are defined separately from the runtime execution paradigms of [`02_mechanics.md`](02_mechanics.md) and most can be combined freely with either the Discrete State Machine (`SM`) or the Continuous Autoregressive Trace (`AR`). They are **not fully orthogonal**; the following couplings are binding:
 
-* **Head configuration (Section 4) is determined by the paradigm**: `SM-MH` uses parallel projection heads; `SM-Seq`, `SM-SeqRev` and `AR` use the tied single-head slice.
+* **Head configuration (Section 4) is determined by the paradigm**: `SM-MH` uses parallel projection heads; `SM-Seq`, `SM-SeqRev`, `SM-Fork` and `AR` use the tied single-head slice.
 * **Prefix-LM masking (Section 6, Option B) is valid only with Tier 1**: without positional encoding, bidirectional attention is permutation-invariant and destroys the axiom's order.
 
 Notation and token display aliases follow [`README.md`](README.md).
@@ -182,12 +182,12 @@ $$|\mathcal{V}| = 256 \quad (\texttt{0x00} \dots \texttt{0xFF})$$
     | `0xF4` | `DELIM_OUT` | `[OUT]` | Tier 2/5 output delimiter (`SM` only) |
     | `0xF5` | `START` | `[START]` | `AR` trace trigger |
     | `0xF6` | `TOKEN_S` | `[S]` | Sum query: `SM` prompt tail / `SM-SeqRev` Pass 2 trigger / `AR` sum marker |
-    | `0xF7` | `TOKEN_C` | `[C]` | Carry query: `SM-Seq` Pass 2 trigger / `SM-SeqRev` prompt tail / `AR` carry marker |
+    | `0xF7` | `TOKEN_C` | `[C]` | Carry query: `SM-Seq` Pass 2 trigger / `SM-SeqRev`, `SM-Fork` prompt tail / `AR` carry marker |
     | `0xF8` | `FLAG_CONTINUE` | `[CONTINUE]` | Loop continuation flag (`SM` only) |
     | `0xF9` | `FLAG_FINISHED` | `[FINISHED]` | Loop termination flag (`SM`) / trace terminator (`AR`) |
     | `0xFA` | `DELIM_ORIGIN` | `[ORIGIN]` | Tier 5 zero-origin spatial anchor |
     | `0xFB` | `DELIM_GENERIC` | `\|` | Tier 3/4 neutral block delimiter |
-    | `0xFC` | `TOKEN_FLAG` | `[F]` | `SM-Seq` / `SM-SeqRev` Pass 3 flag trigger |
+    | `0xFC` | `TOKEN_FLAG` | `[F]` | `SM-Seq` / `SM-SeqRev` Pass 3 flag trigger / `SM-Fork` prompt tail |
     | `0xFD` | `PAD` | `[PAD]` | Batch padding (right-padding only; never attended by real tokens, loss-masked) |
     | `0xFE` | `BOS` | `[BOS]` | Sequence origin; attention sink and NoPE count anchor |
     | `0xFF` | — | — | Reserved |
@@ -245,11 +245,12 @@ The head topology is fixed by the paradigm (it is not an independent lever):
 * **Copy-Preserving Alternative (ablation, see [`05_ablation_variants.md`](05_ablation_variants.md))**: In place of learned linear projections, `SM-MH` can deploy dual in-context copy heads, where two distinct query projections attend across $\mathcal{A}$ to retrieve one-hot symbol representations without learned token logits. Not part of the primary matrix.
 * **Computational Trade-off**: $3\times$ fewer forward passes per column, at the cost of dedicated trainable output projections.
 
-#### Configuration 2: Unified Single-Head Decoder (`SM-Seq`, `SM-SeqRev` and `AR`)
-* **Scope**: Used in Paradigms A2 (`SM-Seq`), A3 (`SM-SeqRev`) and Paradigm B (`AR`).
+#### Configuration 2: Unified Single-Head Decoder (`SM-Seq`, `SM-SeqRev`, `SM-Fork` and `AR`)
+* **Scope**: Used in Paradigms A2 (`SM-Seq`), A3 (`SM-SeqRev`), A4 (`SM-Fork`) and Paradigm B (`AR`).
 * **Architecture**: The single tied copy slice of Section 4.1: dimensions $0 \dots 255$ serve numerals and control bytes alike.
 * **Mechanism in `SM-Seq`**: The model sequentially unrolls $o_k \to c_{k+1} \to \text{FLAG}_k$ across 3 autoregressive forward steps before the harness flushes transient tokens.
 * **Mechanism in `SM-SeqRev`**: As `SM-Seq`, in carry-first order $c_{k+1} \to o_k \to \text{FLAG}_k$.
+* **Mechanism in `SM-Fork`**: Three independent single-token queries (`[S]`, `[C]`, `[F]`) off the same base prompt, batched into one forward pass; no transient tokens.
 * **Mechanism in `AR`**: The model rolls out intermediate scratchpad tokens continuously in harmonised order ($\texttt{[S]} \, o_k \, \texttt{[C]} \, c_{k+1}$) until `[FINISHED]`.
 * **Computational Trade-off**: Standard transformer architecture with no output parameters at all.
 

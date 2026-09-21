@@ -98,7 +98,7 @@ Model entry points (batched tensors; `role_ids`/`sig_ids` are `None` for Tiers 2
 
 | Call | Returns |
 | :--- | :--- |
-| `model(token_ids, role_ids, sig_ids)` | Tied-slice logits `[B, T, 256]` (`SM-Seq`, `SM-SeqRev`, `AR`) |
+| `model(token_ids, role_ids, sig_ids)` | Tied-slice logits `[B, T, 256]` (`SM-Seq`, `SM-SeqRev`, `SM-Fork`, `AR`) |
 | `model.forward_sm_mh(token_ids, role_ids, sig_ids, lengths)` | `(logits_sum [B,256], logits_carry [B,256], logits_flag [B,2])`, read at index `lengths - 1` |
 | `model.next_logits(seq)` | Convenience for harnesses: batch-of-one forward, logits at the final position, `[256]` |
 
@@ -195,7 +195,7 @@ def prefix_lm_mask(prefix_lens: torch.Tensor, T: int) -> torch.Tensor:
 
 ### 3.4 Output Head Architectures
 
-#### Head Topology 1: Tied Identity Copy Head (Used in `SM-Seq`, `SM-SeqRev` and `AR`)
+#### Head Topology 1: Tied Identity Copy Head (Used in `SM-Seq`, `SM-SeqRev`, `SM-Fork` and `AR`)
 * Slices the residual stream directly onto the first 256 dimensions after the **gain-free** final norm: $\mathbf{y}_t = \text{RMSNorm}_0(\mathbf{h}_t)[:256]$ ([`03_levers.md`](03_levers.md) Section 4.1).
 * Contains **zero trainable weights**:
 
@@ -312,7 +312,7 @@ def reference_add(axiom: list[int], a: list[int], b: list[int]) -> list[dict]:
 
 The number of transitions is $K + 1$, where $K + 1 = \max(|a|,|b|)$ if the final operand column produces no carry and $\max(|a|,|b|) + 1$ otherwise.
 
-### 4.3 Step-Transition Samples (`SM-MH`, `SM-Seq` and `SM-SeqRev`)
+### 4.3 Step-Transition Samples (`SM-MH`, `SM-Seq`, `SM-SeqRev` and `SM-Fork`)
 For state machines, each training sample is **one column transition** of one instance. Per sample, a fresh instance is drawn and a single step $k$ is selected: the terminal step $k = K$ with probability `p_terminal` (default 0.2), otherwise uniformly from $\{0, \dots, K\}$. Sampling one step per instance decorrelates the batch; up-weighting the terminal step counteracts the $\approx 1{:}20$ imbalance between `FLAG_CONTINUE` and `FLAG_FINISHED`. The prompt is built from the oracle state $(c_k, OUT_k)$ (teacher forcing).
 
 * **`SM-MH`**: input is the base prompt `[BOS] A a b c_k OUT_k [S]`; targets are the triple $(o_k, c_{k+1}, \text{FLAG}_k)$ with `FLAG` encoded as class index 0 (`CONTINUE`) / 1 (`FINISHED`).
@@ -322,6 +322,7 @@ For state machines, each training sample is **one column transition** of one ins
 * **`SM-SeqRev`** (`encode_sm_seq_rev`): as `SM-Seq` in carry-first order,
   $$\texttt{[BOS]} \; \mathcal{A} \; a \; b \; c_k \; OUT_k \; \texttt{[C]} \; c_{k+1} \; \texttt{[S]} \; o_k \; \texttt{[F]} \; \text{FLAG}_k$$
   with loss on $c_{k+1}$ (predicted at `[C]`), $o_k$ (at `[S]`) and $\text{FLAG}_k$ (at `[F]`).
+* **`SM-Fork`** (`encode_sm_fork`): each sampled transition yields **three rows**, the base prompt ending on `[S]`, `[C]` and `[F]`, each with exactly one loss position (the tail query) targeting $o_k$, $c_{k+1}$ and $\text{FLAG}_k$ respectively. `sm_fork_batch(batch_size)` therefore holds $\lfloor \texttt{batch\_size} / 3 \rfloor$ transitions ($3\lfloor \texttt{batch\_size} / 3 \rfloor$ rows), i.e. one third as many transitions per optimisation step as the other `SM` sub-variants at equal `batch_size`.
 
 ### 4.4 Autoregressive Full-Trace Batches (`AR`)
 For `AR`, each training sample is one full calculation sequence:
@@ -401,6 +402,8 @@ def run_state_machine_seq(model, axiom, a, b, tier_format, stepper=None):
 
 `SM-SeqRev` uses `run_state_machine_seq_rev`: the same driver with the base prompt built with `query_token=TOKEN_C`, Pass 1 emitting $c_{k+1}$ and Pass 2 (triggered by `[S]`) emitting $o_k$.
 
+`SM-Fork` uses `run_state_machine_fork` ([`02_mechanics.md`](02_mechanics.md) Algorithm 3): the three query prompts are equal-length, so `model.next_logits_batch` evaluates them in one unpadded batch of 3.
+
 ### 5.3 Autoregressive Generative Driver (`AR`)
 ```python
 def run_autoregressive_trace(model, axiom, a, b, tier_format, stepper=None):
@@ -475,9 +478,9 @@ Reference Computation (oracle, not a readout of the model's internals):
 ### 7.1 Loss Formulations
 * **Multi-Head Composite Loss (`SM-MH`)**:
   $$\mathcal{L}_{\text{MH}} = 1.0 \cdot \mathcal{L}_{\text{CE}}(\hat{y}_{\text{sum}}, o_k) + 1.0 \cdot \mathcal{L}_{\text{CE}}(\hat{y}_{\text{carry}}, c_{k+1}) + 0.5 \cdot \mathcal{L}_{\text{CE}}(\hat{y}_{\text{flag}}, \text{FLAG}_k)$$
-* **Masked Causal Cross-Entropy Loss (`SM-Seq`, `SM-SeqRev`, `AR`)**:
+* **Masked Causal Cross-Entropy Loss (`SM-Seq`, `SM-SeqRev`, `SM-Fork`, `AR`)**:
   $$\mathcal{L}_{\text{Seq}} = -\frac{1}{|\mathcal{T}_{\text{target}}|} \sum_{t \in \mathcal{T}_{\text{target}}} \log p(y_t \mid y_{<t})$$
-  $\mathcal{T}_{\text{target}}$ is the set of **model-emitted** positions: for `SM-Seq` and `SM-SeqRev` the three positions $o_k, c_{k+1}, \text{FLAG}_k$ (Section 4.3); for `AR` every trace token after `[START]` (Section 4.4). All other positions have label `-100`.
+  $\mathcal{T}_{\text{target}}$ is the set of **model-emitted** positions: for `SM-Fork` the single tail-query position of each row; for `SM-Seq` and `SM-SeqRev` the three positions $o_k, c_{k+1}, \text{FLAG}_k$ (Section 4.3); for `AR` every trace token after `[START]` (Section 4.4). All other positions have label `-100`.
 
 ### 7.2 Evaluation Metrics & Local JSONL Logging
 Evaluation is zero-shot, without gradient updates, scored against `reference_add`, and stored locally. Metrics 1–3 are **free-running** (the model consumes its own outputs through the harness); metrics 4–5 are **teacher-forced** (each step is posed from the oracle state, isolating single-transition fidelity from error accumulation).
