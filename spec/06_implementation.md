@@ -322,7 +322,7 @@ For state machines, each training sample is **one column transition** of one ins
 * **`SM-SeqRev`** (`encode_sm_seq_rev`): as `SM-Seq` in carry-first order,
   $$\texttt{[BOS]} \; \mathcal{A} \; a \; b \; c_k \; OUT_k \; \texttt{[C]} \; c_{k+1} \; \texttt{[S]} \; o_k \; \texttt{[F]} \; \text{FLAG}_k$$
   with loss on $c_{k+1}$ (predicted at `[C]`), $o_k$ (at `[S]`) and $\text{FLAG}_k$ (at `[F]`).
-* **`SM-Fork`** (`encode_sm_fork`): each sampled transition yields **three rows**, the base prompt ending on `[S]`, `[C]` and `[F]`, each with exactly one loss position (the tail query) targeting $o_k$, $c_{k+1}$ and $\text{FLAG}_k$ respectively. `sm_fork_batch(batch_size)` therefore holds $\lfloor \texttt{batch\_size} / 3 \rfloor$ transitions ($3\lfloor \texttt{batch\_size} / 3 \rfloor$ rows), i.e. one third as many transitions per optimisation step as the other `SM` sub-variants at equal `batch_size`.
+* **`SM-Fork`** (`encode_sm_fork`): each sampled transition yields **three rows**, the base prompt ending on `[S]`, `[C]` and `[F]`, each with exactly one loss position (the tail query) targeting $o_k$, $c_{k+1}$ and $\text{FLAG}_k$ respectively. To match column step transitions across all state machine paradigms, `sm_fork_batch(batch_size)` samples $\texttt{batch\_size}$ column transitions ($3 \times \texttt{batch\_size}$ rows), yielding exactly $\texttt{batch\_size}$ sums, carries, and halt predictions per optimization step without confounding sample efficiency.
 
 ### 4.4 Autoregressive Full-Trace Batches (`AR`)
 For `AR`, each training sample is one full calculation sequence:
