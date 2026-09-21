@@ -143,6 +143,7 @@ def test_batch_generators_all_paradigms_and_tiers():
         assert torch.all((seq_rev["labels"] != IGNORE_LABEL).sum(dim=1) == 3), "exactly three loss positions"
 
         fork = gen.sm_fork_batch(8, tier)
+        assert fork["token_ids"].shape[0] == 24
         assert torch.all((fork["labels"] != IGNORE_LABEL).sum(dim=1) == 1), "exactly one loss position per fork branch"
 
         ar = gen.ar_batch(8, tier)

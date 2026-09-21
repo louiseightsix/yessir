@@ -246,9 +246,8 @@ class ProceduralArithmeticGenerator:
         return collate_labelled([encode_sm_seq_rev(*self.sample_sm_step(), tier) for _ in range(batch_size)])
 
     def sm_fork_batch(self, batch_size: int, tier: int) -> dict:
-        n_steps = max(1, batch_size // 3)
         items = []
-        for _ in range(n_steps):
+        for _ in range(batch_size):
             inst, k = self.sample_sm_step()
             items.append(encode_sm_fork(inst, k, tier, TOKEN_S))
             items.append(encode_sm_fork(inst, k, tier, TOKEN_C))
