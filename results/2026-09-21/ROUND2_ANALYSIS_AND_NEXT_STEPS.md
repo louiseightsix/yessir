@@ -321,6 +321,8 @@ To resolve the remaining questions of Round 2, four large-scale jobs have been s
 | **`SM-SeqRev-T4-500k`** | `SM-SeqRev` | **Tier 4** | `32439` | **Pushing 40-Digit Exact Match**: Will the carry-first circuit push 40-digit Exact Match from 2.4% toward double digits as weights consolidate? |
 | **`SM-Seq-T5-500k`** | `SM-Seq` | **Tier 5** | `432931` | **Grokking Sum-First**: Can sum-first escape its 51% plateau on pure dual delimiters given 500k steps? |
 | **`SM-SeqRev-T5-500k`** | `SM-SeqRev` | **Tier 5** | `5329` | **The Full Grokking Hypothesis**: Will `SM-SeqRev-T5` complete its phase transition from 51.6% to 100.0% In-Domain EM and achieve coordinate-free length extrapolation? |
+| **`SM-Fork-T4`** *(Job: 6145077716346470400)* | `SM-Fork` | **Tier 4** | `42` | **Symmetric Independent Circuits**: Does order-free branching eliminate the sum/carry trade-off and achieve high Base-3 OOD while preserving carry stability? |
+| **`SM-Fork-T5`** *(Job: 4245684573502963712)* | `SM-Fork` | **Tier 5** | `32` | **Order-Free Delimiter Grokking**: Does symmetric branching accelerate or delay relative delimiter counting compared to sequential autoregression? |
 
 ---
 
@@ -328,8 +330,8 @@ To resolve the remaining questions of Round 2, four large-scale jobs have been s
 
 Based on live telemetry from the running worker pools on NVIDIA L4 accelerators:
 * **Throughput**: $0.190\text{ seconds/step}$ ($\approx 5.26\text{ steps/sec}$).
-* **Total Run Duration**: $500,000 \text{ steps} \times 0.190\text{ s} \approx 95,000\text{ s} \approx \mathbf{26.4\text{ hours}}$ (plus $\sim 20$ minutes total evaluation overhead).
-* **Completion Target**: Tomorrow, September 22, 2026, at approximately **12:30 PM PDT**.
+* **Total Run Duration (500k runs)**: $500,000 \text{ steps} \times 0.190\text{ s} \approx 95,000\text{ s} \approx \mathbf{26.4\text{ hours}}$ (plus $\sim 20$ minutes total evaluation overhead).
+* **Completion Target (500k runs)**: Tomorrow, September 22, 2026, at approximately **12:30 PM PDT**.
 * **Evaluation Schedule**: Evaluated every 25,000 steps ($\sim 1.3\text{ hours}$ per window).
 
 #### Milestone Trajectory Schedule:
@@ -339,4 +341,5 @@ Based on live telemetry from the running worker pools on NVIDIA L4 accelerators:
 * **Step 200,000 (~7:20 PM PDT today)**: **The Primary Grokking Window** for `SM-SeqRev-T5`.
 * **Step 500,000 (~12:30 PM PDT tomorrow)**: Final benchmark and length extrapolation limits.
 
-Once the `SM-Fork` fleet is launched alongside these runs, TransformAdder will possess the definitive empirical dataset on coordinate-free transformer reasoning, directional conditioning asymmetries, and algorithmic grokking dynamics.
+With the six concurrent training jobs active across `SM-Seq`, `SM-SeqRev`, and `SM-Fork`, TransformAdder possesses the definitive empirical suite to map the frontiers of coordinate-free transformer reasoning, directional conditioning asymmetries, and algorithmic grokking dynamics.
+
