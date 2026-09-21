@@ -24,6 +24,7 @@ def run_state_machine_mh(model, axiom, a, b, tier_format: int, stepper=None, car
     model.eval()
     max_steps = max(len(a), len(b)) + 1            # largest legal step count
     carry, out_digits = axiom[0], []
+    axiom_set = set(axiom)
 
     for k in range(max_steps):
         prompt = build_sm_prompt(axiom, a, b, carry, out_digits, tier_format)  # ... [S]
@@ -45,6 +46,10 @@ def run_state_machine_mh(model, axiom, a, b, tier_format: int, stepper=None, car
         if flag == FLAG_FINISHED:
             return out_digits, "finished"
 
+        # Early exit on invalid / out-of-alphabet tokens (avoids 100+ wasted loops on garbage)
+        if o_k not in axiom_set or c_next not in axiom_set:
+            return out_digits, "malformed"
+
     return out_digits, "max_steps_exceeded"
 
 
@@ -55,6 +60,7 @@ def run_state_machine_seq(model, axiom, a, b, tier_format: int, stepper=None, ca
     model.eval()
     max_steps = max(len(a), len(b)) + 1            # largest legal step count
     carry, out_digits = axiom[0], []
+    axiom_set = set(axiom)
 
     for k in range(max_steps):
         # Micro-Pass 1: base prompt already terminates on [S]; emits o_k
@@ -84,5 +90,9 @@ def run_state_machine_seq(model, axiom, a, b, tier_format: int, stepper=None, ca
 
         if flag == FLAG_FINISHED:
             return out_digits, "finished"
+
+        # Early exit on invalid / out-of-alphabet tokens (avoids 100+ wasted micro-AR passes on garbage)
+        if o_k not in axiom_set or c_next not in axiom_set:
+            return out_digits, "malformed"
 
     return out_digits, "max_steps_exceeded"

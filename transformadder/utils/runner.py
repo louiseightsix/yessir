@@ -63,7 +63,7 @@ def parse_args(variant: Variant):
     parser.add_argument("--lr", type=float, default=3e-4, help="Peak learning rate")
     parser.add_argument("--eval-interval", type=int, default=variant.eval_interval, help="Optimisation steps between evaluations")
     parser.add_argument("--eval-problems", type=int, default=variant.eval_problems, help="Problems per evaluation cell during training")
-    final_default = getattr(variant, "final_eval_problems", 10_000 if variant.train_steps >= 50_000 else variant.eval_problems)
+    final_default = getattr(variant, "final_eval_problems", 250 if variant.train_steps >= 50_000 else variant.eval_problems)
     parser.add_argument("--final-eval-problems", type=int, default=final_default, help="Problems per evaluation cell at the end of training")
     parser.add_argument("--train-axiom", choices=["random", "canonical"], default=variant.train_axiom, help="Training axiom alphabet: random symbols (default) or fixed canonical ASCII numerals (NC-1 negative control)")
     parser.add_argument("--eval-axioms", choices=["both", "random", "canonical"], default=variant.eval_axioms, help="Evaluation axiom sets: both (default), random only, or canonical only")
@@ -118,7 +118,7 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
     if not hasattr(args, "eval_problems") or args.eval_problems is None:
         args.eval_problems = variant.eval_problems
     if not hasattr(args, "final_eval_problems") or args.final_eval_problems is None:
-        args.final_eval_problems = getattr(variant, "final_eval_problems", 10_000 if args.train_steps >= 50_000 else args.eval_problems)
+        args.final_eval_problems = getattr(variant, "final_eval_problems", 250 if args.train_steps >= 50_000 else args.eval_problems)
     if not hasattr(args, "train_axiom") or not args.train_axiom:
         args.train_axiom = variant.train_axiom
     if not hasattr(args, "eval_axioms") or not args.eval_axioms:

@@ -48,7 +48,7 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
     parser.add_argument("--lr", type=float, default=3e-4, help="Peak learning rate")
     parser.add_argument("--eval-interval", type=int, default=5000, help="Steps between evaluations")
-    parser.add_argument("--eval-problems", type=int, default=1000, help="Problems per evaluation cell during training")
+    parser.add_argument("--eval-problems", type=int, default=100, help="Problems per evaluation cell during training")
     parser.add_argument("--final-eval-problems", type=int, default=None, help="Problems per evaluation cell at final evaluation")
 
     # Axiom symbol regimes
@@ -86,7 +86,7 @@ def build_variant_from_args(args) -> Variant:
 
     final_eval = args.final_eval_problems
     if final_eval is None:
-        final_eval = 10_000 if args.train_steps >= 50_000 else args.eval_problems
+        final_eval = 250 if args.train_steps >= 50_000 else args.eval_problems
 
     return Variant(
         name=exp_name,
