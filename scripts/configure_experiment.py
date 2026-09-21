@@ -26,7 +26,8 @@ from transformadder.utils.runner import Variant, run_experiment
 
 PARADIGM_CHOICES = [
     ("sm_mh", "State Machine: Multi-Head Parallel Projections (W_sum, W_carry, W_flag)"),
-    ("sm_seq", "State Machine: Sequential Single-Head Tied Copy Circuit"),
+    ("sm_seq", "State Machine: Sequential Single-Head Tied Copy Circuit (o -> c -> FLAG)"),
+    ("sm_seq_rev", "State Machine: Sequential Carry-First Micro-AR (c -> o -> FLAG)"),
     ("ar", "Autoregressive: Autonomous Trace Rollout with In-Context Scratchpad"),
 ]
 
@@ -152,7 +153,7 @@ def prompt_confirm(prompt: str, default: bool = True) -> bool:
 def build_experiment_name(
     paradigm: str, tier: int, n_layers: int, ffn: str, attn: str, regime: str, seed: int, train_axiom: str = "random"
 ) -> str:
-    p_map = {"sm_mh": "SM-MH", "sm_seq": "SM-Seq", "ar": "AR"}
+    p_map = {"sm_mh": "SM-MH", "sm_seq": "SM-Seq", "sm_seq_rev": "SM-SeqRev", "ar": "AR"}
     p_str = p_map.get(paradigm, paradigm.upper())
     ffn_str = "SwiGLU" if ffn == "swiglu" else "GELU"
     attn_str = "PrefixLM" if attn == "prefix_lm" else "Causal"
@@ -425,7 +426,7 @@ echo "  gcloud ai custom-jobs stream-logs $JOB_RESOURCE_NAME --region=$REGION --
 
 def main():
     parser = argparse.ArgumentParser(description="Configure and run TransformAdder experiments.")
-    parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "ar"], help="Mechanic / runtime paradigm")
+    parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "ar"], help="Mechanic / runtime paradigm")
     parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5], help="Inductive bias tier")
     parser.add_argument("--n-layers", type=int, default=6, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default="swiglu", help="FFN non-linearity")

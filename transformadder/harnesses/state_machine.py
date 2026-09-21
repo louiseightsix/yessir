@@ -1,5 +1,6 @@
-"""State Machine runtime execution harnesses (Paradigm A: SM-MH and SM-Seq).
-Implements Algorithms 1-2 of spec/02_mechanics.md Section 3.3.
+"""State Machine runtime execution harnesses (Paradigm A: SM-MH, SM-Seq and SM-SeqRev).
+Implements Algorithms 1-2 of spec/02_mechanics.md Section 3.3; SM-SeqRev is Algorithm 2 with the
+sum and carry micro-passes swapped (Section 3.2, Sub-variant A3).
 
 The harnesses contain no numeral arithmetic and no symbol translation, decode by unconstrained
 argmax, and return (out_digits, status); any status other than "finished" is a failure.
@@ -14,6 +15,7 @@ from transformadder.core.constants import (
     FLAG_FINISHED,
     TOKEN_C,
     TOKEN_FLAG,
+    TOKEN_S,
 )
 from transformadder.core.sequences import build_sm_prompt, carry_coords, flag_coords, sum_coords
 
@@ -96,3 +98,48 @@ def run_state_machine_seq(model, axiom, a, b, tier_format: int, stepper=None, ca
             return out_digits, "malformed"
 
     return out_digits, "max_steps_exceeded"
+
+
+@torch.no_grad()
+def run_state_machine_seq_rev(model, axiom, a, b, tier_format: int, stepper=None, carries=None) -> tuple[list[int], str]:
+    """Stateless Micro-AR Driver (Paradigm A3: SM-SeqRev, carry-first). Three forward passes per column;
+    computes carry-out c_{k+1} first, then sum digit o_k, then control flag."""
+    model.eval()
+    max_steps = max(len(a), len(b)) + 1            # largest legal step count
+    carry, out_digits = axiom[0], []
+    axiom_set = set(axiom)
+
+    for k in range(max_steps):
+        # Micro-Pass 1: base prompt terminates on [C]; emits c_{k+1}
+        p1 = build_sm_prompt(axiom, a, b, carry, out_digits, tier_format, query_token=TOKEN_C)
+        logits1 = model.next_logits(p1)
+        c_next = int(torch.argmax(logits1))
+
+        # Micro-Pass 2: emits sum digit o_k given c_{k+1}
+        p2 = p1.push(c_next, *carry_coords(k)).push(TOKEN_S, *sum_coords(k))
+        logits2 = model.next_logits(p2)
+        o_k = int(torch.argmax(logits2))
+
+        # Micro-Pass 3: emits control flag
+        p3 = p2.push(o_k, *sum_coords(k)).push(TOKEN_FLAG, *flag_coords(k))
+        logits3 = model.next_logits(p3)
+        flag = int(torch.argmax(logits3))
+
+        if stepper:
+            stepper.step(k, p1, o_k, c_next, flag, [logits2, logits1, logits3],
+                         axiom=axiom, a=a, b=b, carry_in=carry)
+
+        out_digits.append(o_k)
+        if carries is not None:
+            carries.append(c_next)
+        carry = c_next                              # transients p1..p3 are discarded
+
+        if flag == FLAG_FINISHED:
+            return out_digits, "finished"
+
+        # Early exit on invalid / out-of-alphabet tokens
+        if o_k not in axiom_set or c_next not in axiom_set:
+            return out_digits, "malformed"
+
+    return out_digits, "max_steps_exceeded"
+

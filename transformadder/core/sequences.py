@@ -105,11 +105,17 @@ def build_prefix(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq
 
 
 def build_sm_prompt(
-    axiom: list[int], a: list[int], b: list[int], carry: int, out_digits: list[int], tier: int
+    axiom: list[int],
+    a: list[int],
+    b: list[int],
+    carry: int,
+    out_digits: list[int],
+    tier: int,
+    query_token: int = TOKEN_S,
 ) -> Seq:
-    """SM base prompt at step k = len(out_digits): [BOS] A a b c_k OUT_k [S].
+    """SM base prompt at step k = len(out_digits): [BOS] A a b c_k OUT_k [Q].
 
-    Identical for SM-MH and SM-Seq Pass 1; always terminates on the [S] sum query.
+    Identical for SM-MH and SM-Seq Pass 1 (Q = [S]); terminates on [C] for SM-SeqRev Pass 1.
     """
     k = len(out_digits)
     seq = build_prefix(axiom, a, b, tier)
@@ -117,23 +123,25 @@ def build_sm_prompt(
         seq = seq.push(carry, ROLE_CARRY, k)
         for j, o in enumerate(out_digits):
             seq = seq.push(o, ROLE_OUT, j)
-        return seq.push(TOKEN_S, *sum_coords(k))
+        coords = sum_coords(k) if query_token == TOKEN_S else carry_coords(k)
+        return seq.push(query_token, *coords)
     if tier == 2:
-        return Seq(seq.tokens + [DELIM_CARRY, carry, DELIM_OUT] + out_digits + [TOKEN_S])
+        return Seq(seq.tokens + [DELIM_CARRY, carry, DELIM_OUT] + out_digits + [query_token])
     if tier == 3:
-        return Seq(seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [TOKEN_S])
+        return Seq(seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [query_token])
     if tier == 4:
-        tokens = seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [TOKEN_S]
+        tokens = seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [query_token]
         assert seq.roles is not None
+        query_role = ROLE_OUT if query_token == TOKEN_S else ROLE_CARRY
         roles = (
             seq.roles
             + [ROLE_CTRL, ROLE_CARRY, ROLE_CTRL]
             + [ROLE_OUT] * len(out_digits)
-            + [ROLE_OUT]
+            + [query_role]
         )
         return Seq(tokens, roles, None)
     if tier == 5:
-        return Seq(seq.tokens + [DELIM_CARRY, DELIM_ORIGIN, carry, DELIM_OUT, DELIM_ORIGIN] + out_digits + [TOKEN_S])
+        return Seq(seq.tokens + [DELIM_CARRY, DELIM_ORIGIN, carry, DELIM_OUT, DELIM_ORIGIN] + out_digits + [query_token])
     raise ValueError(f"Unknown tier: {tier}")
 
 

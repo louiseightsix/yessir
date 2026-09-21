@@ -18,6 +18,7 @@ flowchart TD
         subgraph SM["<b>Paradigm A: Discrete State Machine (SM)</b><br/><i>(External Harness Stateful Driver)</i>"]
             SM_MH["<b>Sub-variant A1: Multi-Head Single Pass (SM-MH)</b><br/>• 1 forward pass per column<br/>• 3 parallel heads off final token: [o_k, c_(k+1), FLAG]<br/>• O(1) carried state; prompt grows only by OUT"]
             SM_Seq["<b>Sub-variant A2: Sequential Micro-AR (SM-Seq)</b><br/>• 3 autoregressive passes per column<br/>• Standard single-head decoder unrolling [o -> c -> FLAG]<br/>• Harness flushes transient step tokens"]
+            SM_SeqRev["<b>Sub-variant A3: Carry-First Micro-AR (SM-SeqRev)</b><br/>• 3 autoregressive passes per column<br/>• Inverted micro-step order [c -> o -> FLAG]<br/>• Monotonic thresholding first, then conditional subtraction"]
         end
         AR["<b>Paradigm B: Autoregressive Trace (AR)</b><br/>• Single prompt prefix; no state re-injection<br/>• Continuous greedy rollout<br/>• O(N) expanding scratchpad context<br/>• Preceding carry retrieved via in-context causal attention"]
     end
@@ -26,11 +27,14 @@ flowchart TD
         T1["Tier 1: 2D Split PE"]
         T2["Tier 2: Role Delimiters + NoPE"]
         T3["Tier 3: Generic Delimiters + NoPE"]
+        T4["Tier 4: Generic Delimiters + Role"]
+        T5["Tier 5: Dual Delimiters + NoPE"]
     end
 
-    SM_MH --> T1 & T2 & T3
-    SM_Seq --> T1 & T2 & T3
-    AR --> T1 & T2 & T3
+    SM_MH --> T1 & T2 & T3 & T4 & T5
+    SM_Seq --> T1 & T2 & T3 & T4 & T5
+    SM_SeqRev --> T1 & T2 & T3 & T4 & T5
+    AR --> T1 & T2 & T3 & T4 & T5
 ```
 
 ---
@@ -66,7 +70,7 @@ In Paradigm A, the model operates as a discrete, recurrent state machine driven 
 
 ### 3.1 Sequence Anatomy & Prompt Layout
 
-The **base prompt** at step $k$ ($k \ge 0$) is identical for `SM-MH` and `SM-Seq`. The incoming carry precedes the accumulated output, and the prompt **always terminates on the sum query token `[S]`**:
+The **base prompt** at step $k$ ($k \ge 0$) is identical for `SM-MH` and `SM-Seq`; `SM-SeqRev` (Section 3.2, Sub-variant A3) uses the same layout with the tail query `[S]` replaced by the carry query `[C]`. The incoming carry precedes the accumulated output, and the prompt **always terminates on the sum query token `[S]`**:
 
 $$\texttt{[BOS]} \quad \underbrace{\mathcal{A}}_{\text{Axiom}} \quad \underbrace{a}_{\text{Op A}} \quad \underbrace{b}_{\text{Op B}} \quad \underbrace{c_k}_{\text{Carry-in}} \quad \underbrace{OUT_k}_{\text{Accumulated Output}} \quad \underbrace{\texttt{[S]}}_{\text{Query}}$$
 
@@ -141,6 +145,19 @@ We define two distinct sub-variants for how these three outputs are emitted by t
 * **Properties**:
   * **Off-the-Shelf Compatibility**: Runs on standard, unmodified single-head autoregressive decoders without multi-head surgery.
   * **Triple Latency**: Requires 3 forward passes per column ($3(K+1)$ forward passes in total).
+
+#### Sub-variant A3: Carry-First Sequential Micro-Autoregression (`SM-SeqRev`)
+* **Mechanism**: Executes **3 sequential autoregressive forward passes per column step**, inverting the micro-token emission order:
+  1. **Pass 1 (Carry Query)**: The base prompt terminates on `[C]`:
+     $$(\texttt{[BOS]}, \mathcal{A}, a, b, c_k, OUT_k, \texttt{[C]}) \longrightarrow \text{emits } c_{k+1}$$
+  2. **Pass 2 (Sum Query)**: Transient prompt appends $c_{k+1}$ and the sum trigger `[S]`:
+     $$(\dots, \texttt{[C]}, c_{k+1}, \texttt{[S]}) \longrightarrow \text{emits } o_k$$
+  3. **Pass 3 (Flag Query)**: Transient prompt appends $o_k$ and the flag trigger `[F]`:
+     $$(\dots, \texttt{[C]}, c_{k+1}, \texttt{[S]}, o_k, \texttt{[F]}) \longrightarrow \text{emits } \text{FLAG}_k$$
+* **Mechanistic Rationale**:
+  * **Monotonic Carry Boundary**: Carry calculation $c_{k+1} = \mathbf{1}_{a_k + b_k + c_k \ge B}$ is a simple monotonic threshold function.
+  * **Conditional Linear Summation**: Once $c_{k+1}$ is materialized into the context, the sum digit $o_k = (a_k + b_k + c_k) - c_{k+1} \cdot B$ is reduced to conditional subtraction, removing the need for the second pass to resolve non-linear modular wraparound independently.
+* **Coordinates and Harness**: Transient tokens keep the slot coordinates of A2 (Tier 1: `[C]` and $c_{k+1}$ at $(\texttt{ROLE\_CARRY}, k+1)$; `[S]` and $o_k$ at $(\texttt{ROLE\_OUT}, k)$; `[F]` at $(\texttt{ROLE\_FLAG}, k)$; Tier 4: roles only), so in Tier 1 the column index is read off the tail `[C]` as $k = p_{\text{tail}} - 1$. The harness is Algorithm 2 (Section 3.3) with Passes 1 and 2 swapped (`run_state_machine_seq_rev`); halting, step bound and scoring are unchanged.
 
 ### 3.3 Zero-Arithmetic Stateful Harness Algorithms
 

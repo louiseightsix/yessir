@@ -41,7 +41,8 @@ The runtime execution mechanics and sequence grammars are formally specified in 
    - **Sub-Variants of the External Harness Mechanic**:
      - **Paradigm A1: Multi-Head Single Forward Pass (`SM-MH`)**: Executes exactly 1 forward pass per column, emitting all 3 outputs simultaneously via parallel prediction heads off the final token representation.
      - **Paradigm A2: Sequential Micro-Autoregression (`SM-Seq`)**: Executes 3 sequential autoregressive steps per column ($o_k \to c_{k+1} \to \text{FLAG}$) via a standard single-head decoder.
-   - In both sub-variants, the external harness maintains zero arithmetic logic, merely accumulating the emitted digits and re-injecting the persistent state until `FINISHED`.
+     - **Paradigm A3: Carry-First Sequential Micro-Autoregression (`SM-SeqRev`)**: As A2, with the micro-step order inverted ($c_{k+1} \to o_k \to \text{FLAG}$).
+   - In all sub-variants, the external harness maintains zero arithmetic logic, merely accumulating the emitted digits and re-injecting the persistent state until `FINISHED`.
 2. **Paradigm B: Continuous Autoregressive Trace (`AR`)**:
    - The prompt prefix $(\texttt{[BOS]}, \mathcal{A}, a, b, \texttt{[START]})$ is provided once.
    - The model unrolls the entire column-by-column computation autoregressively via plain greedy decoding, emitting an intermediate scratchpad trace ($\texttt{[S]} o_k \texttt{[C]} c_{k+1}$) until `[FINISHED]`.

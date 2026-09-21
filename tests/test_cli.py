@@ -25,6 +25,11 @@ def test_cli_tier_options(monkeypatch):
     args = parse_args()
     assert args.tier == 5
 
+    monkeypatch.setattr(sys, "argv", ["transformadder", "--paradigm", "sm_seq_rev", "--tier", "4"])
+    args = parse_args()
+    assert args.paradigm == "sm_seq_rev"
+    assert args.tier == 4
+
 
 def test_cli_variant_builder(monkeypatch):
     class MockArgs:

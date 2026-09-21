@@ -20,6 +20,7 @@ from transformadder.core.constants import (
     FLAG_CONTINUE,
     FLAG_FINISHED,
     ROLE_AXIOM,
+    ROLE_CARRY,
     ROLE_OPERAND_A,
     ROLE_OPERAND_B,
     ROLE_OUT,
@@ -31,7 +32,11 @@ from transformadder.core.constants import (
 from transformadder.core.data import ProceduralArithmeticGenerator
 from transformadder.core.reference import reference_add, reference_step, reference_trace
 from transformadder.harnesses.autoregressive import run_autoregressive_trace
-from transformadder.harnesses.state_machine import run_state_machine_mh, run_state_machine_seq
+from transformadder.harnesses.state_machine import (
+    run_state_machine_mh,
+    run_state_machine_seq,
+    run_state_machine_seq_rev,
+)
 from transformadder.utils.evaluation import free_running_metrics
 
 
@@ -88,14 +93,23 @@ class OracleModel:
     def _sm_state(self, seq):
         axiom, a, b, rest = decode(seq)
         carry, tail = rest[0], rest[1:]
-        out, transient = tail[:tail.index(TOKEN_S)], tail[tail.index(TOKEN_S) + 1:]
-        if seq.roles is not None and seq.sigs is not None:       # Tier 1: k is read off the [S] query
-            s_at = seq.tokens.index(TOKEN_S)
-            assert (seq.roles[s_at], seq.sigs[s_at]) == (ROLE_OUT, len(out))
-        return reference_step(axiom, a, b, len(out), carry), transient
+        is_carry_first = TOKEN_C in tail and (TOKEN_S not in tail or tail.index(TOKEN_C) < tail.index(TOKEN_S))
+        if is_carry_first:
+            c_at = tail.index(TOKEN_C)
+            out, transient = tail[:c_at], tail[c_at + 1:]
+            if seq.roles is not None and seq.sigs is not None:
+                c_idx = seq.tokens.index(TOKEN_C)
+                assert (seq.roles[c_idx], seq.sigs[c_idx]) == (ROLE_CARRY, len(out) + 1)
+        else:
+            s_at = tail.index(TOKEN_S)
+            out, transient = tail[:s_at], tail[s_at + 1:]
+            if seq.roles is not None and seq.sigs is not None:
+                s_idx = seq.tokens.index(TOKEN_S)
+                assert (seq.roles[s_idx], seq.sigs[s_idx]) == (ROLE_OUT, len(out))
+        return reference_step(axiom, a, b, len(out), carry), transient, is_carry_first
 
     def forward_sm_mh_single(self, seq):
-        step, transient = self._sm_state(seq)
+        step, transient, _ = self._sm_state(seq)
         assert transient == []
         finished = step["flag"] == FLAG_FINISHED and not self.never_finish
         flag_class = FLAG_CLASS_FINISHED if finished else FLAG_CLASS_CONTINUE
@@ -110,7 +124,15 @@ class OracleModel:
                 trace = trace[:-1] + [TOKEN_S] * 8
             return one_hot(trace[len(emitted)])
 
-        step, transient = self._sm_state(seq)
+        step, transient, is_carry_first = self._sm_state(seq)
+        if is_carry_first:
+            if transient == []:
+                return one_hot(step["c_out"])
+            if transient == [step["c_out"], TOKEN_S]:
+                return one_hot(step["o"])
+            assert transient == [step["c_out"], TOKEN_S, step["o"], TOKEN_FLAG]
+            return one_hot(FLAG_CONTINUE if self.never_finish else step["flag"])
+
         if transient == []:
             return one_hot(step["o"])
         if transient == [step["o"], TOKEN_C]:
@@ -120,7 +142,12 @@ class OracleModel:
 
 
 TIERS = (1, 2, 3, 4, 5)
-HARNESSES = {"sm_mh": run_state_machine_mh, "sm_seq": run_state_machine_seq, "ar": run_autoregressive_trace}
+HARNESSES = {
+    "sm_mh": run_state_machine_mh,
+    "sm_seq": run_state_machine_seq,
+    "sm_seq_rev": run_state_machine_seq_rev,
+    "ar": run_autoregressive_trace,
+}
 
 
 def instances(n=200):
@@ -148,7 +175,11 @@ def test_oracle_scores_perfectly():
 
 
 def test_non_halting_model_is_bounded_and_scored_as_failure():
-    expected_status = {"sm_mh": "max_steps_exceeded", "sm_seq": "max_steps_exceeded"}
+    expected_status = {
+        "sm_mh": "max_steps_exceeded",
+        "sm_seq": "max_steps_exceeded",
+        "sm_seq_rev": "max_steps_exceeded",
+    }
     for paradigm, run in HARNESSES.items():
         for tier in TIERS:
             inst = instances(1)[0]

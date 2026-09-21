@@ -18,6 +18,7 @@ from transformadder.core.constants import (
     SIGMA_POOL,
     TOKEN_C,
     TOKEN_FLAG,
+    TOKEN_S,
 )
 from transformadder.core.reference import reference_add, reference_out, reference_trace
 from transformadder.core.sequences import (
@@ -66,6 +67,30 @@ def encode_sm_seq(inst: dict, k: int, tier: int) -> tuple[Seq, list[int]]:
     labels = [IGNORE_LABEL] * len(seq)
     labels[len(prompt) - 1] = step["o"]      # at [S]
     labels[len(prompt) + 1] = step["c_out"]  # at [C]
+    labels[len(prompt) + 3] = step["flag"]   # at [F]
+    return seq, labels
+
+
+def encode_sm_seq_rev(inst: dict, k: int, tier: int) -> tuple[Seq, list[int]]:
+    """SM-SeqRev sample for column k: input [BOS] A a b c_k OUT_k [C] c_{k+1} [S] o_k [F] and
+    next-token labels aligned to the input positions.
+
+    Exactly three positions carry loss: c_{k+1} (predicted at [C]), o_k (at [S]) and FLAG_k
+    (at [F]). The triggers [S] and [F] are harness-inserted, so they are never targets.
+    """
+    step = inst["steps"][k]
+    prompt = build_sm_prompt(
+        inst["axiom"], inst["a"], inst["b"], step["c_in"], inst["expected_out"][:k], tier, query_token=TOKEN_C
+    )
+    seq = (
+        prompt.push(step["c_out"], *carry_coords(k))
+        .push(TOKEN_S, *sum_coords(k))
+        .push(step["o"], *sum_coords(k))
+        .push(TOKEN_FLAG, *flag_coords(k))
+    )
+    labels = [IGNORE_LABEL] * len(seq)
+    labels[len(prompt) - 1] = step["c_out"]  # at [C]
+    labels[len(prompt) + 1] = step["o"]      # at [S]
     labels[len(prompt) + 3] = step["flag"]   # at [F]
     return seq, labels
 
@@ -195,6 +220,9 @@ class ProceduralArithmeticGenerator:
 
     def sm_seq_batch(self, batch_size: int, tier: int) -> dict:
         return collate_labelled([encode_sm_seq(*self.sample_sm_step(), tier) for _ in range(batch_size)])
+
+    def sm_seq_rev_batch(self, batch_size: int, tier: int) -> dict:
+        return collate_labelled([encode_sm_seq_rev(*self.sample_sm_step(), tier) for _ in range(batch_size)])
 
     def ar_batch(self, batch_size: int, tier: int) -> dict:
         return collate_labelled([encode_ar(self.sample_instance(), tier) for _ in range(batch_size)])

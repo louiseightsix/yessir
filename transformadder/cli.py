@@ -28,7 +28,7 @@ def parse_args():
         description="TransformAdder: Zero-Shot Algorithmic Generalisation CLI & Cloud Runner"
     )
     # Architectural parameters
-    parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "ar"], default="sm_mh", help="Runtime paradigm")
+    parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "ar"], default="sm_mh", help="Runtime paradigm")
     parser.add_argument(
         "--tier",
         type=int,
@@ -65,7 +65,7 @@ def parse_args():
 
 
 def build_variant_from_args(args) -> Variant:
-    p_map = {"sm_mh": "SM-MH", "sm_seq": "SM-Seq", "ar": "AR"}
+    p_map = {"sm_mh": "SM-MH", "sm_seq": "SM-Seq", "sm_seq_rev": "SM-SeqRev", "ar": "AR"}
     p_str = p_map.get(args.paradigm, args.paradigm.upper())
     ffn_str = "SwiGLU" if args.ffn_type == "swiglu" else "GELU"
     attn_str = "PrefixLM" if args.attn_type == "prefix_lm" else "Causal"

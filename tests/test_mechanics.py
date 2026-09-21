@@ -37,6 +37,7 @@ from transformadder.core.data import (
     encode_ar,
     encode_sm_mh,
     encode_sm_seq,
+    encode_sm_seq_rev,
 )
 from transformadder.core.reference import reference_add, reference_out, reference_trace
 from transformadder.core.sequences import build_ar_prompt, build_sm_prompt, trace_coords
@@ -250,6 +251,32 @@ def test_encode_sm_seq_labels_only_model_emitted_positions():
     seq5, labels5 = encode_sm_seq(inst, k=2, tier=5)
     assert seq5.roles is None and seq5.sigs is None
     assert labels5[-5:] == [49, IGNORE_LABEL, 48, IGNORE_LABEL, FLAG_FINISHED]
+
+
+def test_encode_sm_seq_rev_is_carry_first():
+    inst = _instance()
+    G = DELIM_GENERIC
+    # Base prompt is the SM layout with the tail query [S] replaced by [C]
+    for tier in (1, 2, 3, 4, 5):
+        s = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], 49, [48], tier)
+        c = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], 49, [48], tier, query_token=TOKEN_C)
+        assert (s.tokens[:-1], s.tokens[-1], c.tokens[-1]) == (c.tokens[:-1], TOKEN_S, TOKEN_C)
+
+    seq, labels = encode_sm_seq_rev(inst, k=2, tier=1)
+    assert seq.tokens[-5:] == [TOKEN_C, 48, TOKEN_S, 49, TOKEN_FLAG]   # c_3 = '0' first, then o_2 = '1'
+    assert seq.roles[-5:] == [ROLE_CARRY, ROLE_CARRY, ROLE_OUT, ROLE_OUT, ROLE_FLAG]
+    assert seq.sigs[-5:] == [3, 3, 2, 2, 2]
+    assert labels[-5:] == [48, IGNORE_LABEL, 49, IGNORE_LABEL, FLAG_FINISHED]
+    assert all(l == IGNORE_LABEL for l in labels[:-5])
+
+    seq4, labels4 = encode_sm_seq_rev(inst, k=2, tier=4)
+    assert seq4.tokens[-9:-5] == [49, G, 48, 48] and seq4.sigs is None   # c_2 | o_0 o_1
+    assert seq4.roles[-5:] == [ROLE_CARRY, ROLE_CARRY, ROLE_OUT, ROLE_OUT, ROLE_FLAG]
+    assert labels4[-5:] == [48, IGNORE_LABEL, 49, IGNORE_LABEL, FLAG_FINISHED]
+
+    seq5, labels5 = encode_sm_seq_rev(inst, k=0, tier=5)
+    assert seq5.roles is None and seq5.tokens[-6:-4] == [C.DELIM_ORIGIN, TOKEN_C]   # empty OUT block
+    assert labels5[-5:] == [49, IGNORE_LABEL, 48, IGNORE_LABEL, FLAG_CONTINUE]   # 1 + 2 = 10_3: c_1 = '1', o_0 = '0'
 
 
 def test_encode_ar_labels_are_shifted_trace():

@@ -27,7 +27,7 @@ REGIMES = {
 @dataclass
 class Variant:
     name: str         # e.g. "SM-MH-T1-L6-SwiGLU-Causal"
-    paradigm: str     # "sm_mh" | "sm_seq" | "ar"
+    paradigm: str     # "sm_mh" | "sm_seq" | "sm_seq_rev" | "ar"
     tier: int         # 1 | 2 | 3 | 4 | 5
     log_dir: str      # e.g. "experiments/SM-MH-T1-L6-SwiGLU-Causal-seed42"
     n_layers: int = 6
@@ -46,7 +46,7 @@ class Variant:
 
 def parse_args(variant: Variant):
     parser = argparse.ArgumentParser(description=f"Train and evaluate {variant.name}")
-    parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "ar"], default=variant.paradigm, help="Runtime paradigm")
+    parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "ar"], default=variant.paradigm, help="Runtime paradigm")
     parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5], default=variant.tier, help="Inductive bias tier")
     parser.add_argument("--n-layers", type=int, default=variant.n_layers, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default=variant.ffn_type, help="FFN non-linearity")
