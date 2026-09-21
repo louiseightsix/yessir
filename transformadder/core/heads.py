@@ -1,5 +1,5 @@
 """Output head topologies for TransformAdder.
-- TiedIdentityHead: Zero-parameter copy slice of the symbol dims (SM-Seq, AR).
+- TiedIdentityHead: Zero-parameter copy slice of the symbol dims (SM-Seq, SM-SeqRev, AR).
 - MultiHeadOutput: Parallel linear projections for sum, carry, and flag (SM-MH).
 """
 

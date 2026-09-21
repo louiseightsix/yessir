@@ -13,13 +13,19 @@ from transformadder.core.data import (
     encode_ar,
     encode_sm_mh,
     encode_sm_seq,
+    encode_sm_seq_rev,
 )
 from transformadder.harnesses.autoregressive import run_autoregressive_trace
-from transformadder.harnesses.state_machine import run_state_machine_mh, run_state_machine_seq
+from transformadder.harnesses.state_machine import (
+    run_state_machine_mh,
+    run_state_machine_seq,
+    run_state_machine_seq_rev,
+)
 
 HARNESSES = {
     "sm_mh": run_state_machine_mh,
     "sm_seq": run_state_machine_seq,
+    "sm_seq_rev": run_state_machine_seq_rev,
     "ar": run_autoregressive_trace,
 }
 
@@ -90,7 +96,12 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
     if paradigm == "ar":
         samples = [encode_ar(inst, tier) for inst in instances]
     else:
-        encode = encode_sm_mh if paradigm == "sm_mh" else encode_sm_seq
+        if paradigm == "sm_mh":
+            encode = encode_sm_mh
+        elif paradigm == "sm_seq_rev":
+            encode = encode_sm_seq_rev
+        else:
+            encode = encode_sm_seq
         samples = [encode(inst, k, tier) for inst in instances for k in range(len(inst["steps"]))]
 
     for start in range(0, len(samples), chunk):
@@ -114,8 +125,8 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
 
         for row_pred, row_labels in zip(pred, labels):
             idx = [t for t, y in enumerate(row_labels) if y != IGNORE_LABEL]
-            if paradigm == "sm_seq":
-                columns = [idx]                                   # (o_k, c_{k+1}, FLAG_k)
+            if paradigm in ("sm_seq", "sm_seq_rev"):
+                columns = [idx]                                   # 3 active targets per column step
             else:
                 # Trace labels: [S] o_k [C] c_{k+1} per column, then the next [S] or [FINISHED],
                 # which plays the role of FLAG_k

@@ -139,6 +139,9 @@ def test_batch_generators_all_paradigms_and_tiers():
         seq = gen.sm_seq_batch(8, tier)
         assert torch.all((seq["labels"] != IGNORE_LABEL).sum(dim=1) == 3), "exactly three loss positions"
 
+        seq_rev = gen.sm_seq_rev_batch(8, tier)
+        assert torch.all((seq_rev["labels"] != IGNORE_LABEL).sum(dim=1) == 3), "exactly three loss positions"
+
         ar = gen.ar_batch(8, tier)
         assert ar["labels"].shape == ar["token_ids"].shape
         assert torch.all(ar["labels"][ar["token_ids"] == PAD] == IGNORE_LABEL)
@@ -154,12 +157,15 @@ def test_training_step_reduces_loss_each_paradigm():
     for paradigm, tier in [
         ("sm_mh", 1),
         ("sm_seq", 2),
+        ("sm_seq_rev", 2),
         ("ar", 3),
         ("ar", 1),
         ("sm_mh", 4),
         ("sm_seq", 4),
+        ("sm_seq_rev", 4),
         ("sm_mh", 5),
         ("sm_seq", 5),
+        ("sm_seq_rev", 5),
         ("ar", 4),
         ("ar", 5),
     ]:
@@ -205,7 +211,7 @@ def test_residual_projection_init_scaling():
 
 
 def test_evaluate_runs_end_to_end():
-    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("ar", 3), ("sm_mh", 4), ("sm_seq", 5)]:
+    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("sm_seq_rev", 4), ("ar", 3), ("sm_mh", 4), ("sm_seq", 5)]:
         model = small_model(tier, "multi_head" if paradigm == "sm_mh" else "single_head")
         results = evaluate(model, paradigm, tier, train_bases=[2, 10], num_problems=1)
         for cell in ("id", "ood_base3", "ood_base12", "extrap_len_base12", "canon_ood_base12"):
