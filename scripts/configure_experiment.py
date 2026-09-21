@@ -171,7 +171,7 @@ def create_experiment_bundle(
     train_steps: int = 100_000,
     eval_interval: int = 5000,
     batch_size: int = 256,
-    eval_problems: int = 1000,
+    eval_problems: int = 100,
     train_axiom: str = "random",
     eval_axioms: str = "both",
     final_eval_problems: int = None,
@@ -188,7 +188,7 @@ def create_experiment_bundle(
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     if final_eval_problems is None:
-        final_eval_problems = 10_000 if train_steps >= 50_000 else eval_problems
+        final_eval_problems = 250 if train_steps >= 50_000 else eval_problems
 
     machine_type = gcp_machine_type or ACCELERATOR_MACHINE_MAP.get(gcp_accelerator, "g2-standard-4")
 
@@ -483,19 +483,19 @@ def main():
             train_steps = args.train_steps if args.train_steps is not None else 100_000
             eval_interval = args.eval_interval if args.eval_interval is not None else (5_000 if train_steps >= 50_000 else max(50, train_steps // 10))
             batch_size = args.batch_size if args.batch_size is not None else 256
-            eval_problems = args.eval_problems if args.eval_problems is not None else (1_000 if train_steps >= 50_000 else 200)
+            eval_problems = args.eval_problems if args.eval_problems is not None else 100
         else:
             preset = prompt_menu("Select Training Duration & Optimisation Preset", PRESET_CHOICES, default_idx=0)
             if preset == "full":
                 train_steps = 100_000
                 eval_interval = 5_000
                 batch_size = 256
-                eval_problems = 1_000
+                eval_problems = 100
             elif preset == "standard":
                 train_steps = 10_000
                 eval_interval = 1_000
                 batch_size = 256
-                eval_problems = 500
+                eval_problems = 100
             elif preset == "quick":
                 train_steps = 1_000
                 eval_interval = 200
@@ -505,7 +505,7 @@ def main():
                 train_steps = int(prompt_text("Enter Total Training Steps", default="100000"))
                 eval_interval = int(prompt_text("Enter Evaluation Interval (steps between evals)", default=str(max(50, train_steps // 20))))
                 batch_size = int(prompt_text("Enter Batch Size", default="256"))
-                eval_problems = int(prompt_text("Enter Number of Evaluation Problems per cell", default="1000" if train_steps >= 50000 else "200"))
+                eval_problems = int(prompt_text("Enter Number of Evaluation Problems per cell", default="100"))
 
         print("\n" + "-" * 72)
         print("RANDOM SEED CONFIGURATION:")
@@ -556,7 +556,7 @@ def main():
         train_steps = args.train_steps if args.train_steps is not None else 100_000
         eval_interval = args.eval_interval if args.eval_interval is not None else (5_000 if train_steps >= 50_000 else max(50, train_steps // 10))
         batch_size = args.batch_size if args.batch_size is not None else 256
-        eval_problems = args.eval_problems if args.eval_problems is not None else (1_000 if train_steps >= 50_000 else 200)
+        eval_problems = args.eval_problems if args.eval_problems is not None else 100
         target = "vertex" if args.vertex else args.target
         gcp_project = args.gcp_project or get_default_gcp_project() or ""
         gcp_region = args.gcp_region or "us-central1"
@@ -567,7 +567,7 @@ def main():
         interactive_mode = args.interactive if target == "local" else False
         launch_now = not args.no_run
 
-    final_eval_problems = 10_000 if train_steps >= 50_000 else eval_problems
+    final_eval_problems = 250 if train_steps >= 50_000 else eval_problems
 
     # Create experiment bundle inside experiments/
     exp_dir, exp_name = create_experiment_bundle(

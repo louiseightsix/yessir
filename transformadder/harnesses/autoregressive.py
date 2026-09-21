@@ -55,6 +55,11 @@ def run_autoregressive_trace(model, axiom, a, b, tier_format: int, stepper=None,
         trace.append(token)
         if token == FLAG_FINISHED:
             break
+        # Early break if structural trace syntax is broken (avoids up to 160 wasted forward passes)
+        if i % 4 == 0 and token != TOKEN_S:
+            break
+        if i % 4 == 2 and token != TOKEN_C:
+            break
         # Tier 1 coordinates depend only on the slot index i, never on `token`
         seq = seq.push(token, *trace_coords(i))
 
