@@ -95,6 +95,27 @@ def encode_sm_seq_rev(inst: dict, k: int, tier: int) -> tuple[Seq, list[int]]:
     return seq, labels
 
 
+def encode_sm_fork(inst: dict, k: int, tier: int, query_token: int) -> tuple[Seq, list[int]]:
+    """SM-Fork sample for column k: input [BOS] A a b c_k OUT_k [Q] and exactly 1 next-token
+    label aligned to the query position len(prompt) - 1. Q in ([S], [C], [F]).
+    """
+    step = inst["steps"][k]
+    prompt = build_sm_prompt(
+        inst["axiom"], inst["a"], inst["b"], step["c_in"], inst["expected_out"][:k], tier, query_token=query_token
+    )
+    labels = [IGNORE_LABEL] * len(prompt)
+    if query_token == TOKEN_S:
+        target = step["o"]
+    elif query_token == TOKEN_C:
+        target = step["c_out"]
+    elif query_token == TOKEN_FLAG:
+        target = step["flag"]
+    else:
+        raise ValueError(f"Unknown query_token: {query_token}")
+    labels[len(prompt) - 1] = target
+    return prompt, labels
+
+
 def encode_ar(inst: dict, tier: int) -> tuple[Seq, list[int]]:
     """AR sample: input [BOS] A a b [START] trace[:-1] and next-token labels aligned to the
     input positions. Every trace token carries loss, including [S], [C] and [FINISHED];
@@ -223,6 +244,16 @@ class ProceduralArithmeticGenerator:
 
     def sm_seq_rev_batch(self, batch_size: int, tier: int) -> dict:
         return collate_labelled([encode_sm_seq_rev(*self.sample_sm_step(), tier) for _ in range(batch_size)])
+
+    def sm_fork_batch(self, batch_size: int, tier: int) -> dict:
+        n_steps = max(1, batch_size // 3)
+        items = []
+        for _ in range(n_steps):
+            inst, k = self.sample_sm_step()
+            items.append(encode_sm_fork(inst, k, tier, TOKEN_S))
+            items.append(encode_sm_fork(inst, k, tier, TOKEN_C))
+            items.append(encode_sm_fork(inst, k, tier, TOKEN_FLAG))
+        return collate_labelled(items)
 
     def ar_batch(self, batch_size: int, tier: int) -> dict:
         return collate_labelled([encode_ar(self.sample_instance(), tier) for _ in range(batch_size)])

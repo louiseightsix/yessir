@@ -4,6 +4,8 @@ the trace parser, and agreement between code constants and the spec vocabulary t
 import re
 from pathlib import Path
 
+import pytest
+
 from transformadder.core import constants as C
 from transformadder.core.constants import (
     BOS,
@@ -35,6 +37,7 @@ from transformadder.core.constants import (
 from transformadder.core.data import (
     ProceduralArithmeticGenerator,
     encode_ar,
+    encode_sm_fork,
     encode_sm_mh,
     encode_sm_seq,
     encode_sm_seq_rev,
@@ -277,6 +280,29 @@ def test_encode_sm_seq_rev_is_carry_first():
     seq5, labels5 = encode_sm_seq_rev(inst, k=0, tier=5)
     assert seq5.roles is None and seq5.tokens[-6:-4] == [C.DELIM_ORIGIN, TOKEN_C]   # empty OUT block
     assert labels5[-5:] == [49, IGNORE_LABEL, 48, IGNORE_LABEL, FLAG_CONTINUE]   # 1 + 2 = 10_3: c_1 = '1', o_0 = '0'
+
+
+def test_encode_sm_fork_one_label_per_branch():
+    inst = _instance()
+    step = inst["steps"][2]                                       # o_2 = '1', c_3 = '0', FINISHED
+    expected = {
+        TOKEN_S: (step["o"], (ROLE_OUT, 2)),
+        TOKEN_C: (step["c_out"], (ROLE_CARRY, 3)),
+        TOKEN_FLAG: (FLAG_FINISHED, (ROLE_FLAG, 2)),
+    }
+    for tier in (1, 2, 3, 4, 5):
+        base = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], step["c_in"], inst["expected_out"][:2], tier)
+        for query, (target, (role, sig)) in expected.items():
+            seq, labels = encode_sm_fork(inst, k=2, tier=tier, query_token=query)
+            assert seq.tokens == base.tokens[:-1] + [query]          # no transient tokens
+            assert labels == [IGNORE_LABEL] * (len(seq) - 1) + [target]
+            if tier in (1, 4):
+                assert seq.roles[:-1] == base.roles[:-1] and seq.roles[-1] == role
+            if tier == 1:
+                assert seq.sigs[:-1] == base.sigs[:-1] and seq.sigs[-1] == sig
+
+    with pytest.raises(ValueError):
+        encode_sm_fork(inst, k=2, tier=1, query_token=START)
 
 
 def test_encode_ar_labels_are_shifted_trace():

@@ -42,6 +42,7 @@ The runtime execution mechanics and sequence grammars are formally specified in 
      - **Paradigm A1: Multi-Head Single Forward Pass (`SM-MH`)**: Executes exactly 1 forward pass per column, emitting all 3 outputs simultaneously via parallel prediction heads off the final token representation.
      - **Paradigm A2: Sequential Micro-Autoregression (`SM-Seq`)**: Executes 3 sequential autoregressive steps per column ($o_k \to c_{k+1} \to \text{FLAG}$) via a standard single-head decoder.
      - **Paradigm A3: Carry-First Sequential Micro-Autoregression (`SM-SeqRev`)**: As A2, with the micro-step order inverted ($c_{k+1} \to o_k \to \text{FLAG}$).
+     - **Paradigm A4: Branching State Machine (`SM-Fork`)**: Three independent queries per column (`[S]` $\to o_k$, `[C]` $\to c_{k+1}$, `[F]` $\to \text{FLAG}$) off the same base prompt via a standard single-head decoder; no emission order.
    - In all sub-variants, the external harness maintains zero arithmetic logic, merely accumulating the emitted digits and re-injecting the persistent state until `FINISHED`.
 2. **Paradigm B: Continuous Autoregressive Trace (`AR`)**:
    - The prompt prefix $(\texttt{[BOS]}, \mathcal{A}, a, b, \texttt{[START]})$ is provided once.

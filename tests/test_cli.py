@@ -30,6 +30,11 @@ def test_cli_tier_options(monkeypatch):
     assert args.paradigm == "sm_seq_rev"
     assert args.tier == 4
 
+    monkeypatch.setattr(sys, "argv", ["transformadder", "--paradigm", "sm_fork", "--tier", "5"])
+    args = parse_args()
+    assert args.paradigm == "sm_fork"
+    assert args.tier == 5
+
 
 def test_cli_variant_builder(monkeypatch):
     class MockArgs:
@@ -59,6 +64,10 @@ def test_cli_variant_builder(monkeypatch):
     assert variant.log_dir == "/gcs/my-bucket/experiments/test-run"
     assert variant.regime == "multimodal"
     assert variant.final_eval_problems == 100  # Inherited from eval_problems when steps < 50k
+
+    MockArgs.paradigm = "sm_fork"
+    variant_fork = build_variant_from_args(MockArgs())
+    assert variant_fork.name == "SM-Fork-T1-L6-SwiGLU-Causal-multimodal-seed42"
 
 
 def test_create_experiment_bundle_vertex(tmp_path, monkeypatch):
