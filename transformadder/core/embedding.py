@@ -1,6 +1,6 @@
 """Subspace embedding module mapping 1-byte tokens to 512-dimensional representations.
 Dims 0..255: Fixed one-hot symbol basis.
-Dims 256..511: 2D Split PE (Tier 1) or static zero-padded state memory (Tiers 2 & 3).
+Dims 256..511: 2D Split PE (Tier 1), Role + NoPE (Tier 4), or static zero-padded state memory (Tiers 2, 3 & 5).
 """
 
 import math
@@ -25,20 +25,22 @@ class SubspaceEmbedding(nn.Module):
     def __init__(self, tier: int = 1, d_model: int = D_MODEL):
         super().__init__()
         assert d_model == D_MODEL, f"TransformAdder requires d_model={D_MODEL}, got {d_model}"
-        assert tier in (1, 2, 3), f"Unknown tier: {tier}"
+        assert tier in (1, 2, 3, 4, 5), f"Unknown tier: {tier}"
         self.tier = tier
 
-        if tier == 1:
+        if tier in (1, 4):
             self.role_embed = nn.Embedding(NUM_ROLES, D_ROLE)
             self.reset_role_embedding()
+        else:
+            self.role_embed = None
+
+        if tier == 1:
             # omega_i = 10000^(-2i / 192) for i in {0 .. 95}
             half_sig = D_SIG // 2
             inv_freq = 1.0 / (10000.0 ** (torch.arange(0, half_sig, dtype=torch.float32) / half_sig))
             self.register_buffer("inv_freq", inv_freq)
             # An unscaled 192-dim sinusoid has norm sqrt(96); rescale to unit norm
             self.sig_scale = 1.0 / math.sqrt(half_sig)
-        else:
-            self.role_embed = None
 
     @torch.no_grad()
     def reset_role_embedding(self):
@@ -83,5 +85,15 @@ class SubspaceEmbedding(nn.Module):
             sig_vec = self._compute_sinusoidal(sig_ids, dtype=one_hot.dtype)  # [B, T, 192]
             return torch.cat([one_hot, role_vec, sig_vec], dim=-1)
 
-        # Tiers 2 and 3: NoPE (pure zeros in positional subspace)
+        if self.tier == 4:
+            if role_ids is None:
+                raise ValueError("Tier 4 embedding requires role_ids tensor.")
+            role_vec = self.role_embed(role_ids)  # [B, T, 64]
+            sig_zeros = torch.zeros(
+                token_ids.shape[0], token_ids.shape[1], D_SIG,
+                device=token_ids.device, dtype=one_hot.dtype
+            )
+            return torch.cat([one_hot, role_vec, sig_zeros], dim=-1)
+
+        # Tiers 2, 3, 5: NoPE (pure zeros in positional subspace)
         return F.pad(one_hot, (0, D_POS))

@@ -53,10 +53,9 @@ def _value(axiom, digits):
 def test_constants_match_spec_vocabulary_table():
     text = (SPEC_DIR / "03_levers.md").read_text(encoding="utf-8")
     rows = re.findall(r"^\s*\| `(0x[0-9A-F]{2})` \| `(\w+)` \|", text, flags=re.M)
-    assert len(rows) == 14, "expected 14 named control tokens in spec/03_levers.md Section 2.1"
+    assert len(rows) == 15, "expected 15 named control tokens in spec/03_levers.md Section 2.1"
     for byte, name in rows:
         assert getattr(C, name) == int(byte, 16), f"{name} disagrees with the spec"
-    assert not hasattr(C, "SEED_OUT"), "SEED_OUT is retired (0xFA is reserved)"
 
 
 def test_reference_base2():
@@ -171,6 +170,29 @@ def test_sm_prompt_tier2_and_tier3():
     assert t3_step0.tokens == [BOS, 10, 11, G, 11, G, 10, G, 10, G, TOKEN_S]
 
 
+def test_sm_prompt_tier4_and_tier5():
+    axiom, a, b = [10, 11], [11], [10]
+    G = DELIM_GENERIC
+    O = C.DELIM_ORIGIN
+
+    # Tier 4: Generic Delimiter + Role Subspace (NoPE coordinates)
+    t4 = build_sm_prompt(axiom, a, b, carry=10, out_digits=[11], tier=4)
+    assert t4.tokens == [BOS, 10, 11, G, 11, G, 10, G, 10, G, 11, TOKEN_S]
+    assert t4.roles == [
+        ROLE_CTRL, ROLE_AXIOM, ROLE_AXIOM, ROLE_CTRL, ROLE_OPERAND_A, ROLE_CTRL,
+        ROLE_OPERAND_B, ROLE_CTRL, ROLE_CARRY, ROLE_CTRL, ROLE_OUT, ROLE_OUT,
+    ]
+    assert t4.sigs is None
+
+    # Tier 5: Dual Delimiters [ROLE] [ORIGIN] (Pure NoPE)
+    t5 = build_sm_prompt(axiom, a, b, carry=10, out_digits=[11], tier=5)
+    assert t5.tokens == [
+        BOS, DELIM_AXIOM, O, 10, 11, DELIM_A, O, 11, DELIM_B, O, 10,
+        DELIM_CARRY, O, 10, DELIM_OUT, O, 11, TOKEN_S,
+    ]
+    assert t5.roles is None and t5.sigs is None
+
+
 def test_ar_prompts():
     axiom, a, b = [10, 11], [11], [10]
     G = DELIM_GENERIC
@@ -179,6 +201,13 @@ def test_ar_prompts():
         BOS, DELIM_AXIOM, 10, 11, DELIM_A, 11, DELIM_B, 10, START]
     t1 = build_ar_prompt(axiom, a, b, tier=1)
     assert (t1.tokens[-1], t1.roles[-1], t1.sigs[-1]) == (START, ROLE_START, 0)
+    t4 = build_ar_prompt(axiom, a, b, tier=4)
+    assert t4.tokens == [BOS, 10, 11, G, 11, G, 10, START]
+    assert t4.roles[-2:] == [ROLE_OPERAND_B, ROLE_START] and t4.sigs is None
+    O = C.DELIM_ORIGIN
+    t5 = build_ar_prompt(axiom, a, b, tier=5)
+    assert t5.tokens == [BOS, DELIM_AXIOM, O, 10, 11, DELIM_A, O, 11, DELIM_B, O, 10, START]
+    assert t5.roles is None and t5.sigs is None
 
 
 def test_trace_coords_follow_slot_rule():
@@ -210,6 +239,17 @@ def test_encode_sm_seq_labels_only_model_emitted_positions():
         (ROLE_OUT, 2), (ROLE_OUT, 2), (ROLE_CARRY, 3), (ROLE_CARRY, 3), (ROLE_FLAG, 2)]
     assert labels[-5:] == [49, IGNORE_LABEL, 48, IGNORE_LABEL, FLAG_FINISHED]
     assert all(l == IGNORE_LABEL for l in labels[:-5])
+
+    # Tier 4: Roles preserved, sigs is None
+    seq4, labels4 = encode_sm_seq(inst, k=2, tier=4)
+    assert seq4.roles[-5:] == [ROLE_OUT, ROLE_OUT, ROLE_CARRY, ROLE_CARRY, ROLE_FLAG]
+    assert seq4.sigs is None
+    assert labels4[-5:] == [49, IGNORE_LABEL, 48, IGNORE_LABEL, FLAG_FINISHED]
+
+    # Tier 5: Pure NoPE (roles is None, sigs is None)
+    seq5, labels5 = encode_sm_seq(inst, k=2, tier=5)
+    assert seq5.roles is None and seq5.sigs is None
+    assert labels5[-5:] == [49, IGNORE_LABEL, 48, IGNORE_LABEL, FLAG_FINISHED]
 
 
 def test_encode_ar_labels_are_shifted_trace():

@@ -14,6 +14,18 @@ def test_gcs_to_fuse_translation():
     assert gcs_to_fuse("experiments/exp1") == "experiments/exp1"
 
 
+def test_cli_tier_options(monkeypatch):
+    import sys
+    from transformadder.cli import parse_args
+    monkeypatch.setattr(sys, "argv", ["transformadder", "--tier", "4"])
+    args = parse_args()
+    assert args.tier == 4
+
+    monkeypatch.setattr(sys, "argv", ["transformadder", "--tier", "5"])
+    args = parse_args()
+    assert args.tier == 5
+
+
 def test_cli_variant_builder(monkeypatch):
     class MockArgs:
         paradigm = "sm_mh"

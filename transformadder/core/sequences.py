@@ -1,4 +1,4 @@
-"""Sequence container, prompt builders for Tiers 1-3, and the right-padding batch collator.
+"""Sequence container, prompt builders for Tiers 1-5, and the right-padding batch collator.
 Conforms to the layouts of spec/02_mechanics.md Sections 3.1, 3.2, 4.1 and 4.2.
 
 Tier 1 coordinate convention (both paradigms): a sum digit o_j sits at p = j; a carry digit c_j
@@ -16,6 +16,7 @@ from transformadder.core.constants import (
     DELIM_B,
     DELIM_CARRY,
     DELIM_GENERIC,
+    DELIM_ORIGIN,
     DELIM_OUT,
     PAD,
     ROLE_AXIOM,
@@ -34,7 +35,7 @@ from transformadder.core.constants import (
 @dataclass
 class Seq:
     tokens: list[int]
-    roles: list[int] | None = None   # Tier 1 only; None under NoPE
+    roles: list[int] | None = None   # Tiers 1 and 4; None under NoPE
     sigs: list[int] | None = None    # Tier 1 only; None under NoPE
 
     def __len__(self) -> int:
@@ -44,7 +45,8 @@ class Seq:
         """Returns a new Seq with one token appended (coordinates ignored under NoPE)."""
         if self.roles is None:
             return Seq(self.tokens + [token])
-        return Seq(self.tokens + [token], self.roles + [role], self.sigs + [sig])
+        sigs = None if self.sigs is None else self.sigs + [sig]
+        return Seq(self.tokens + [token], self.roles + [role], sigs)
 
 
 # Slot coordinates (Tier 1; ignored under NoPE)
@@ -86,6 +88,19 @@ def build_prefix(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq
         return Seq([BOS, DELIM_AXIOM] + axiom + [DELIM_A] + a + [DELIM_B] + b)
     if tier == 3:
         return Seq([BOS] + axiom + [DELIM_GENERIC] + a + [DELIM_GENERIC] + b)
+    if tier == 4:
+        tokens = [BOS] + axiom + [DELIM_GENERIC] + a + [DELIM_GENERIC] + b
+        roles = (
+            [ROLE_CTRL]
+            + [ROLE_AXIOM] * len(axiom)
+            + [ROLE_CTRL]
+            + [ROLE_OPERAND_A] * len(a)
+            + [ROLE_CTRL]
+            + [ROLE_OPERAND_B] * len(b)
+        )
+        return Seq(tokens, roles, None)
+    if tier == 5:
+        return Seq([BOS, DELIM_AXIOM, DELIM_ORIGIN] + axiom + [DELIM_A, DELIM_ORIGIN] + a + [DELIM_B, DELIM_ORIGIN] + b)
     raise ValueError(f"Unknown tier: {tier}")
 
 
@@ -105,7 +120,21 @@ def build_sm_prompt(
         return seq.push(TOKEN_S, *sum_coords(k))
     if tier == 2:
         return Seq(seq.tokens + [DELIM_CARRY, carry, DELIM_OUT] + out_digits + [TOKEN_S])
-    return Seq(seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [TOKEN_S])
+    if tier == 3:
+        return Seq(seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [TOKEN_S])
+    if tier == 4:
+        tokens = seq.tokens + [DELIM_GENERIC, carry, DELIM_GENERIC] + out_digits + [TOKEN_S]
+        assert seq.roles is not None
+        roles = (
+            seq.roles
+            + [ROLE_CTRL, ROLE_CARRY, ROLE_CTRL]
+            + [ROLE_OUT] * len(out_digits)
+            + [ROLE_OUT]
+        )
+        return Seq(tokens, roles, None)
+    if tier == 5:
+        return Seq(seq.tokens + [DELIM_CARRY, DELIM_ORIGIN, carry, DELIM_OUT, DELIM_ORIGIN] + out_digits + [TOKEN_S])
+    raise ValueError(f"Unknown tier: {tier}")
 
 
 def build_ar_prompt(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq:
@@ -121,16 +150,20 @@ def collate(seqs: list[Seq], device: torch.device | str | None = None) -> dict:
     """
     lengths = [len(s) for s in seqs]
     B, T = len(seqs), max(lengths)
-    tier1 = seqs[0].roles is not None
+    has_roles = seqs[0].roles is not None
+    has_sigs = seqs[0].sigs is not None
 
     token_ids = torch.full((B, T), PAD, dtype=torch.long)
-    role_ids = torch.full((B, T), ROLE_CTRL, dtype=torch.long) if tier1 else None
-    sig_ids = torch.zeros((B, T), dtype=torch.long) if tier1 else None
+    role_ids = torch.full((B, T), ROLE_CTRL, dtype=torch.long) if has_roles else None
+    sig_ids = torch.zeros((B, T), dtype=torch.long) if has_sigs else None
 
     for i, s in enumerate(seqs):
         token_ids[i, : lengths[i]] = torch.tensor(s.tokens, dtype=torch.long)
-        if tier1:
+        if has_roles:
+            assert s.roles is not None
             role_ids[i, : lengths[i]] = torch.tensor(s.roles, dtype=torch.long)
+        if has_sigs:
+            assert s.sigs is not None
             sig_ids[i, : lengths[i]] = torch.tensor(s.sigs, dtype=torch.long)
 
     batch = {

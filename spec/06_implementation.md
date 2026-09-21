@@ -26,7 +26,7 @@ To ensure auditability, minimal dependency rot, and reproducibility, the impleme
 │   │   ├── model.py         # Modular Transformer trunk, initialisation, batch-of-one helpers
 │   │   ├── heads.py         # Multi-Head projections vs Tied Sliced Identity Head
 │   │   ├── reference.py     # Reference adder (ground-truth oracle)
-│   │   ├── sequences.py     # Seq container; SM / AR prompt builders for Tiers 1-3; collator
+│   │   ├── sequences.py     # Seq container; SM / AR prompt builders for Tiers 1-5; collator
 │   │   ├── data.py          # Deterministic procedural generator, sample encoders, batch builders
 │   │   └── training.py      # Seeding, AdamW parameter groups, warm-up + cosine schedule
 │   ├── harnesses/
@@ -69,7 +69,9 @@ $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; \mathbf{p}_t \, ] \in \math
     * $e_{\text{role}}(r_t) \in \mathbb{R}^{64}$: Learned embedding lookup table of shape $(8, 64)$, rows initialised to unit norm, for the roles $r \in \{0, \dots, 7\}$ defined in [`03_levers.md`](03_levers.md) Section 1.1 (`ROLE_AXIOM`, `ROLE_OPERAND_A`, `ROLE_OPERAND_B`, `ROLE_CARRY`, `ROLE_OUT`, `ROLE_FLAG`, `ROLE_START`, `ROLE_CTRL`).
     * $e_{\text{sig}}(p_t) \in \mathbb{R}^{192}$: Uncapped sinusoidal functional encoding for significance coordinate $p \ge 0$, scaled by $1/\sqrt{96}$ to unit norm:
       $$e_{\text{sig}}(p)_{2i} = \sin(p \cdot \omega_i), \quad e_{\text{sig}}(p)_{2i+1} = \cos(p \cdot \omega_i), \quad \text{where } \omega_i = 10000^{-2i/192}, \; i \in \{0, \dots, 95\}$$
-  * **Tiers 2 and 3 (NoPE)**:
+  * **Tier 4 (Role only)**:
+    $$\mathbf{p}_t = [ \, e_{\text{role}}(r_t) \;\parallel\; \mathbf{0}_{192} \, ]$$
+  * **Tiers 2, 3 and 5 (NoPE)**:
     $$\mathbf{p}_t = \mathbf{0}_{256}$$
     Implemented via zero padding `torch.nn.functional.pad(one_hot, (0, 256))`.
 
