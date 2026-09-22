@@ -1,7 +1,7 @@
 """Namespace constants, byte token allocations, and architectural dimensions.
 Strictly preserves the 1-byte = 1-token invariant.
 
-Byte assignments mirror spec/03_levers.md Section 2.1, which is the single source of truth;
+Byte assignments mirror spec/README.md Section 2, which is the single source of truth;
 tests/test_mechanics.py asserts that the two agree.
 """
 

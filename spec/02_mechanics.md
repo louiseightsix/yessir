@@ -99,9 +99,9 @@ The readout channel specifies how latent hidden vectors $\mathbf{h} \in \mathbb{
   $$W_{\text{head}} = E^T \in \mathbb{R}^{|\mathcal{V}| \times d_{\text{model}}}$$
   $$\mathbf{z}_t = E^T \mathbf{h}_t$$
 * **Mechanics**: Instead of using dedicated linear projection matrices, the model conditions on distinct sequence query trigger tokens:
-  - Query token `[S]` (`0xF9`) prompts the copy head to attend to and retrieve the sum digit $o_k$.
-  - Query token `[C]` (`0xFA`) prompts the copy head to attend to and retrieve the carry digit $c_{k+1}$.
-  - Query token `[F]` (`0xFB`) prompts the copy head to emit the halting flag.
+  - Query token `[S]` (`0xF6`) prompts the copy head to attend to and retrieve the sum digit $o_k$.
+  - Query token `[C]` (`0xF7`) prompts the copy head to attend to and retrieve the carry digit $c_{k+1}$.
+  - Query token `[F]` (`0xFC`) prompts the copy head to emit the halting flag.
 * **Property**: Decouples prediction from static weights; the model solves column addition via dynamic in-context routing and pointer-style attention lookup.
 
 ---

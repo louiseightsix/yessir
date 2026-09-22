@@ -14,7 +14,7 @@ $$\mathcal{M} = \langle \text{Agency}, \text{Topology}, \text{Channel}, \text{Re
 1. **House Style**: British English (UK) is used throughout all specification documents, code docstrings, and comments (e.g. *generalisation*, *behaviour*, *artefact*, *factorisation*, *scaffolding*).
 2. **Universal 1-Byte Vocabulary ($\mathcal{V}$)**:
    - Total vocabulary cardinality $|\mathcal{V}| = 256$ (`0x00` through `0xFF`), ensuring strict single-byte tokenisation with zero multi-byte or sub-word BPE tokenisation artifacts.
-   - $\mathcal{V}_{\text{ctrl}} \subset \mathcal{V}$: Dedicated structural control tokens and section delimiters reserved in the upper byte range (`0xF0`–`0xFF`).
+   - $\mathcal{V}_{\text{ctrl}} \subset \mathcal{V}$: Dedicated structural control tokens and section delimiters reserved in the upper byte range (`0xF0`–`0xFE`; `0xFF` is unassigned).
    - $\Sigma = \mathcal{V} \setminus \mathcal{V}_{\text{ctrl}}$: Open candidate pool of candidate numeral bytes (`0x00`–`0xEF`, 240 bytes) from which dynamic alphabets are sampled.
 3. **Mathematical Notation**:
    - $B \in \mathbb{N}_{\ge 2}$: Numerical radix (base). In canonical training regimes, $B \in \{2, 4, 8, 10\}$; in out-of-distribution evaluation, $B \in \{3, 12\}$.
@@ -35,21 +35,21 @@ Sequence illustrations and formal grammar definitions use canonical single-byte 
 
 | Display Alias | Canonical Name | Byte Value | Description |
 | :--- | :--- | :---: | :--- |
-| `[BOS]` | `BOS` | `0xF0` | Beginning of sequence marker |
-| `[START]` | `START` | `0xF1` | Autonomous trace initiation token |
-| `[AXIOM]` | `DELIM_AXIOM` | `0xF2` | Axiom dictionary section header |
-| `[A]` | `DELIM_A` | `0xF3` | Operand A section header |
-| `[B]` | `DELIM_B` | `0xF4` | Operand B section header |
-| `[CARRY]` | `DELIM_CARRY` | `0xF5` | Incoming carry section header |
-| `[OUT]` | `DELIM_OUT` | `0xF6` | Accumulated sum history section header |
-| `\|` | `DELIM_GENERIC` | `0xF7` | Generic section or entry delimiter |
-| `*` | `DELIM_ORIGIN` | `0xF8` | Origin anchor (LSD) or key-value separator |
-| `[S]` | `TOKEN_S` | `0xF9` | Sum query trigger / sum trace marker |
-| `[C]` | `TOKEN_C` | `0xFA` | Carry query trigger / carry trace marker |
-| `[F]` | `TOKEN_FLAG` | `0xFB` | Halting query trigger |
-| `[CONTINUE]` | `FLAG_CONTINUE` | `0xFC` | Loop continuation flag |
-| `[FINISHED]` | `FLAG_FINISHED` | `0xFD` | Loop completion flag |
-| `[PAD]` | `PAD` | `0xFE` | Right-padding token for batched tensors |
+| `[BOS]` | `BOS` | `0xFE` | Beginning of sequence marker |
+| `[START]` | `START` | `0xF5` | Autonomous trace initiation token |
+| `[AXIOM]` | `DELIM_AXIOM` | `0xF0` | Axiom dictionary section header |
+| `[A]` | `DELIM_A` | `0xF1` | Operand A section header |
+| `[B]` | `DELIM_B` | `0xF2` | Operand B section header |
+| `[CARRY]` | `DELIM_CARRY` | `0xF3` | Incoming carry section header |
+| `[OUT]` | `DELIM_OUT` | `0xF4` | Accumulated sum history section header |
+| `\|` | `DELIM_GENERIC` | `0xFB` | Generic section or entry delimiter |
+| `*` | `DELIM_ORIGIN` | `0xFA` | Origin anchor (LSD) or key-value separator |
+| `[S]` | `TOKEN_S` | `0xF6` | Sum query trigger / sum trace marker |
+| `[C]` | `TOKEN_C` | `0xF7` | Carry query trigger / carry trace marker |
+| `[F]` | `TOKEN_FLAG` | `0xFC` | Halting query trigger |
+| `[CONTINUE]` | `FLAG_CONTINUE` | `0xF8` | Loop continuation flag |
+| `[FINISHED]` | `FLAG_FINISHED` | `0xF9` | Loop completion flag |
+| `[PAD]` | `PAD` | `0xFD` | Right-padding token for batched tensors |
 
 *Note: In all sequence illustrations, numerals are rendered as human-readable glyphs (`0`, `1`, `2`...) for clarity; in physical instances, numerals are arbitrary bytes sampled from $\Sigma$.*
 
