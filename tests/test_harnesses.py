@@ -1,6 +1,6 @@
 """End-to-end harness tests against a scripted oracle "model".
 
-The oracle decodes the harness's own prompts (all five tiers) and answers with the reference adder, so a
+The oracle decodes the harness's own prompts (all six tiers) and answers with the reference adder, so a
 passing test proves that prompt layout, harness control flow, halting, trace parsing, and scoring
 are mutually consistent; an adversarial variant proves that failures are reported, not hidden.
 """
@@ -32,6 +32,7 @@ from transformadder.core.constants import (
 )
 from transformadder.core.data import ProceduralArithmeticGenerator
 from transformadder.core.reference import reference_add, reference_step, reference_trace
+from transformadder.core.sequences import int_to_axiom_address
 from transformadder.harnesses.autoregressive import run_autoregressive_trace
 from transformadder.harnesses.state_machine import (
     run_state_machine_fork,
@@ -56,6 +57,19 @@ def split(tokens, *delims):
     return blocks[1:] + [rest]
 
 
+def tier6_entries(block, axiom):
+    """Values of the `| addr [ORIGIN] v` entries of a Tier 6 block, checking that entry j is
+    addressed by the little-endian axiom numeral of j."""
+    values, i = [], 0
+    while i < len(block):
+        assert block[i] == DELIM_GENERIC
+        j = block.index(DELIM_ORIGIN, i)
+        assert block[i + 1:j] == int_to_axiom_address(len(values), axiom)
+        values.append(block[j + 1])
+        i = j + 2
+    return values
+
+
 def decode(seq):
     """Recovers (axiom, a, b, rest) from a harness-built sequence of any tier, where `rest` is
     everything after operand b with block delimiters removed: [c_k] OUT_k [S] transients (SM)
@@ -66,6 +80,23 @@ def decode(seq):
         axiom, a, b = ([t for t, r in zip(tokens, seq.roles) if r == role]
                        for role in (ROLE_AXIOM, ROLE_OPERAND_A, ROLE_OPERAND_B))
         return axiom, a, b, tokens[1 + len(axiom) + len(a) + len(b):]
+    if DELIM_ORIGIN in tokens and DELIM_GENERIC in tokens:       # Tier 6: addressed entries
+        axiom, a_block, rest = split(tokens, DELIM_AXIOM, DELIM_A, DELIM_B)
+        a = tier6_entries(a_block, axiom)
+        if START in rest:
+            s = rest.index(START)
+            return axiom, a, tier6_entries(rest[:s], axiom), rest[s:]
+        c, o = rest.index(DELIM_CARRY), rest.index(DELIM_OUT)
+        b = tier6_entries(rest[:c], axiom)
+        out_section = rest[o + 1:]
+        # OUT entries, then the query entry `| addr_k [ORIGIN] Q`, then any transient tokens
+        q = next(i for i, t in enumerate(out_section) if t in (TOKEN_S, TOKEN_C, TOKEN_FLAG))
+        g = max(i for i in range(q) if out_section[i] == DELIM_GENERIC)   # opens the query entry
+        out = tier6_entries(out_section[:g], axiom)
+        k = len(out)
+        assert out_section[g + 1:q - 1] == int_to_axiom_address(k, axiom) and out_section[q - 1] == DELIM_ORIGIN
+        assert rest[c + 1:o] == [DELIM_GENERIC] + int_to_axiom_address(k, axiom) + [DELIM_ORIGIN, rest[o - 1]]
+        return axiom, a, b, [rest[o - 1]] + out + out_section[q:]
     if DELIM_ORIGIN in tokens:                                   # Tier 5: dual delimiters
         cleaned = [t for t in tokens if t != DELIM_ORIGIN]
         axiom, a, rest = split(cleaned, DELIM_AXIOM, DELIM_A, DELIM_B)
@@ -159,7 +190,7 @@ class OracleModel:
         return torch.stack([self.next_logits(s) for s in seqs])
 
 
-TIERS = (1, 2, 3, 4, 5)
+TIERS = (1, 2, 3, 4, 5, 6)
 HARNESSES = {
     "sm_mh": run_state_machine_mh,
     "sm_seq": run_state_machine_seq,

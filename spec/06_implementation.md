@@ -26,7 +26,7 @@ To ensure auditability, minimal dependency rot, and reproducibility, the impleme
 │   │   ├── model.py         # Modular Transformer trunk, initialisation, batch-of-one helpers
 │   │   ├── heads.py         # Multi-Head projections vs Tied Sliced Identity Head
 │   │   ├── reference.py     # Reference adder (ground-truth oracle)
-│   │   ├── sequences.py     # Seq container; SM / AR prompt builders for Tiers 1-5; collator
+│   │   ├── sequences.py     # Seq container; SM / AR prompt builders for Tiers 1-6; collator
 │   │   ├── data.py          # Deterministic procedural generator, sample encoders, batch builders
 │   │   └── training.py      # Seeding, AdamW parameter groups, warm-up + cosine schedule
 │   ├── harnesses/
@@ -71,7 +71,7 @@ $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; \mathbf{p}_t \, ] \in \math
       $$e_{\text{sig}}(p)_{2i} = \sin(p \cdot \omega_i), \quad e_{\text{sig}}(p)_{2i+1} = \cos(p \cdot \omega_i), \quad \text{where } \omega_i = 10000^{-2i/192}, \; i \in \{0, \dots, 95\}$$
   * **Tier 4 (Role only)**:
     $$\mathbf{p}_t = [ \, e_{\text{role}}(r_t) \;\parallel\; \mathbf{0}_{192} \, ]$$
-  * **Tiers 2, 3 and 5 (NoPE)**:
+  * **Tiers 2, 3, 5 and 6 (NoPE)**:
     $$\mathbf{p}_t = \mathbf{0}_{256}$$
     Implemented via zero padding `torch.nn.functional.pad(one_hot, (0, 256))`.
 
