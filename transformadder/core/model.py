@@ -40,7 +40,7 @@ class TransformAdder(nn.Module):
 
     def __init__(
         self,
-        tier: int = 1,
+        tier: int | None = None,
         representation: str | Representation | None = None,
         head_type: str = "single_head",
         agency: str | Agency | None = None,
@@ -53,8 +53,11 @@ class TransformAdder(nn.Module):
         ffn_type: str = "swiglu",
     ):
         super().__init__()
-        if representation is not None:
-            tier = REPRESENTATION_TO_TIER.get(representation, tier)
+        if tier is None:
+            if representation is not None:
+                tier = REPRESENTATION_TO_TIER.get(representation, 1)
+            else:
+                tier = 1
         if channel is not None:
             if channel in (Channel.WEIGHT, "weight"):
                 head_type = "multi_head"
@@ -74,7 +77,7 @@ class TransformAdder(nn.Module):
         self.ffn_type = ffn_type
 
         # 1. Subspace embedding
-        self.embedding = SubspaceEmbedding(tier=tier, representation=self.representation, d_model=d_model)
+        self.embedding = SubspaceEmbedding(tier=tier, d_model=d_model)
 
         # 2. Transformer layers
         self.layers = nn.ModuleList(

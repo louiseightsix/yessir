@@ -5,8 +5,10 @@ Each script in experiments/ declares its Variant and delegates here, so that hyp
 
 import argparse
 from dataclasses import dataclass
+import json
 import os
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -43,9 +45,15 @@ class Variant:
     eval_problems: int = 1000
     final_eval_problems: int = 10_000
     train_axiom: str = "random"   # "random" | "canonical" (NC-1)
-    eval_axioms: str = "both"     # "both" | "random" | "canonical"
+    eval_axioms: str = "both"     # "both" | "random" | "canonical" | "permuted" | "all"
     regime: str = "multimodal"    # key of REGIMES
     trace_order: str = "sum_first"  # "sum_first" | "carry_first"
+    agency: str | None = None
+    topology: str | None = None
+    channel: str | None = None
+    representation: str | None = None
+    p_prior: float = 0.0
+    p_probe: float = 0.0
 
 
 def parse_args(variant: Variant):
@@ -53,6 +61,12 @@ def parse_args(variant: Variant):
     parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "sm_fork", "ar"], default=variant.paradigm, help="Runtime paradigm")
     parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5, 6, 7], default=variant.tier, help="Inductive bias tier")
     parser.add_argument("--trace-order", choices=["sum_first", "carry_first"], default=variant.trace_order, help="AR scratchpad trace factorisation order")
+    parser.add_argument("--agency", choices=["autonomous", "harnessed"], default=variant.agency, help="Decoupled agency axis")
+    parser.add_argument("--topology", choices=["unified", "pipelined", "branching"], default=variant.topology, help="Decoupled topology axis")
+    parser.add_argument("--channel", choices=["sequence", "weight"], default=variant.channel, help="Decoupled channel axis")
+    parser.add_argument("--representation", type=str, default=variant.representation, help="Decoupled representation axis")
+    parser.add_argument("--p-prior", type=float, default=variant.p_prior, help="Procedural prior mixture fraction in [0.0, 1.0]")
+    parser.add_argument("--p-probe", type=float, default=variant.p_probe, help="Auxiliary binding probe supervision rate in [0.0, 1.0]")
     parser.add_argument("--n-layers", type=int, default=variant.n_layers, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default=variant.ffn_type, help="FFN non-linearity")
     parser.add_argument("--attn-type", choices=["causal", "prefix_lm"], default=variant.attn_type, help="Attention visibility")
@@ -72,12 +86,13 @@ def parse_args(variant: Variant):
     final_default = getattr(variant, "final_eval_problems", 250 if variant.train_steps >= 50_000 else variant.eval_problems)
     parser.add_argument("--final-eval-problems", type=int, default=final_default, help="Problems per evaluation cell at the end of training")
     parser.add_argument("--train-axiom", choices=["random", "canonical"], default=variant.train_axiom, help="Training axiom alphabet: random symbols (default) or fixed canonical ASCII numerals (NC-1 negative control)")
-    parser.add_argument("--eval-axioms", choices=["both", "random", "canonical"], default=variant.eval_axioms, help="Evaluation axiom sets: both (default), random only, or canonical only")
+    parser.add_argument("--eval-axioms", choices=["both", "random", "canonical", "permuted", "all"], default=variant.eval_axioms, help="Evaluation axiom sets")
     default_device = "cuda" if torch.cuda.is_available() else ("mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu")
     parser.add_argument("--device", type=str, default=default_device)
     parser.add_argument("--log-path", type=str, default=f"{variant.log_dir}/metrics.jsonl", help="Path for JSONL metric logs")
     parsed, _ = parser.parse_known_args()
     return parsed
+
 
 
 def compute_loss(model, variant: Variant, batch: dict) -> tuple[torch.Tensor, dict]:
@@ -207,9 +222,13 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
     stepper = InteractiveStepper(enabled=args.interactive)
     is_canonical_train = args.train_axiom == "canonical"
     trace_order = getattr(args, "trace_order", getattr(variant, "trace_order", "sum_first"))
+    p_prior = getattr(args, "p_prior", getattr(variant, "p_prior", 0.0))
+    p_probe = getattr(args, "p_probe", getattr(variant, "p_probe", 0.0))
     data_gen = ProceduralArithmeticGenerator(
         bases=train_bases,
         canonical=is_canonical_train,
+        p_prior=p_prior,
+        p_probe=p_probe,
         seed=args.seed,
         tier=variant.tier,
         trace_order=trace_order,
@@ -249,6 +268,9 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
                 eval_axioms=args.eval_axioms,
                 stepper=stepper,
                 trace_order=trace_order,
+                log_dir=str(Path(args.log_path).parent),
+                p_prior=p_prior,
+                p_probe=p_probe,
             )
             logger.log(step=step, metrics={"loss": step_loss, **results})
             logger.print_eval_summary(step=step, results=results, train_bases=train_bases)
@@ -257,8 +279,6 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
 
     # Save summary.json to experiment directory
     if final_results is not None:
-        import json
-        from pathlib import Path
         summary_path = Path(args.log_path).parent / "summary.json"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_data = {
@@ -271,6 +291,12 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
             "n_layers": variant.n_layers,
             "ffn_type": variant.ffn_type,
             "attn_type": variant.attn_type,
+            "agency": getattr(args, "agency", getattr(variant, "agency", None)),
+            "topology": getattr(args, "topology", getattr(variant, "topology", None)),
+            "channel": getattr(args, "channel", getattr(variant, "channel", None)),
+            "representation": getattr(args, "representation", getattr(variant, "representation", None)),
+            "p_prior": p_prior,
+            "p_probe": p_probe,
             "final_step": args.train_steps,
             "results": json_safe(final_results),
         }

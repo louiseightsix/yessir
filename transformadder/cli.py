@@ -43,6 +43,14 @@ def parse_args():
     parser.add_argument("--regime", choices=sorted(REGIMES), default="multimodal", help="Training base regime")
     parser.add_argument("--seed", type=int, default=42, help="Seed for model initialisation and procedural data generation")
 
+    # Decoupled 5-Axis Taxonomy (spec/04)
+    parser.add_argument("--agency", choices=["autonomous", "harnessed"], default=None, help="Decoupled agency axis")
+    parser.add_argument("--topology", choices=["unified", "pipelined", "branching"], default=None, help="Decoupled topology axis")
+    parser.add_argument("--channel", choices=["sequence", "weight"], default=None, help="Decoupled channel axis")
+    parser.add_argument("--representation", type=str, default=None, help="Decoupled representation axis (R-Scope-RoleEmbed, R-Explicit-Continuous, R-Explicit-NoPE, R-Addressed-KV)")
+    parser.add_argument("--p-prior", type=float, default=0.0, help="Procedural prior mixture fraction in [0.0, 1.0]")
+    parser.add_argument("--p-probe", type=float, default=0.0, help="Auxiliary binding probe supervision rate in [0.0, 1.0]")
+
     # Optimisation parameters
     parser.add_argument("--train-steps", type=int, default=100_000, help="Total training steps")
     parser.add_argument("--warmup-steps", type=int, default=1000, help="Linear warm-up steps")
@@ -55,7 +63,7 @@ def parse_args():
 
     # Axiom symbol regimes
     parser.add_argument("--train-axiom", choices=["random", "canonical"], default="random", help="Training axiom symbols")
-    parser.add_argument("--eval-axioms", choices=["both", "random", "canonical"], default="both", help="Evaluation axiom sets")
+    parser.add_argument("--eval-axioms", choices=["both", "random", "canonical", "permuted", "all"], default="both", help="Evaluation axiom sets")
 
     # Storage and execution flags
     parser.add_argument("--log-dir", type=str, default=None, help="Directory or GCS path for saving metrics and artifacts")
@@ -67,6 +75,21 @@ def parse_args():
 
 
 def build_variant_from_args(args) -> Variant:
+    tier = args.tier
+    if getattr(args, "representation", None) is not None:
+        from transformadder.core.embedding import REPRESENTATION_TO_TIER
+        tier = REPRESENTATION_TO_TIER.get(args.representation, tier)
+
+    paradigm = args.paradigm
+    if getattr(args, "agency", None) == "autonomous":
+        paradigm = "ar"
+    elif getattr(args, "channel", None) == "weight":
+        paradigm = "sm_mh"
+    elif getattr(args, "topology", None) == "branching":
+        paradigm = "sm_fork"
+    elif getattr(args, "topology", None) == "pipelined" and paradigm not in ("sm_seq", "sm_seq_rev"):
+        paradigm = "sm_seq"
+
     p_map = {
         "sm_mh": "SM-MH",
         "sm_seq": "SM-Seq",
@@ -74,11 +97,15 @@ def build_variant_from_args(args) -> Variant:
         "sm_fork": "SM-Fork",
         "ar": "AR-CarryFirst" if getattr(args, "trace_order", "sum_first") == "carry_first" else "AR",
     }
-    p_str = p_map.get(args.paradigm, args.paradigm.upper())
+    p_str = p_map.get(paradigm, paradigm.upper())
     ffn_str = "SwiGLU" if args.ffn_type == "swiglu" else "GELU"
     attn_str = "PrefixLM" if args.attn_type == "prefix_lm" else "Causal"
     suffix = "-NC1Canon" if args.train_axiom == "canonical" else ""
-    exp_name = f"{p_str}-T{args.tier}-L{args.n_layers}-{ffn_str}-{attn_str}-{args.regime}{suffix}-seed{args.seed}"
+    if getattr(args, "p_prior", 0.0) > 0.0:
+        suffix += f"-Prior{args.p_prior:.2f}"
+    if getattr(args, "p_probe", 0.0) > 0.0:
+        suffix += f"-Probe{args.p_probe:.2f}"
+    exp_name = f"{p_str}-T{tier}-L{args.n_layers}-{ffn_str}-{attn_str}-{args.regime}{suffix}-seed{args.seed}"
 
     # Determine log_dir
     log_dir = args.log_dir
@@ -98,16 +125,22 @@ def build_variant_from_args(args) -> Variant:
 
     accum_steps = getattr(args, "grad_accum_steps", None)
     if accum_steps is None:
-        if args.tier in (6, 7):
-            accum_steps = 8 if args.paradigm == "sm_fork" else 2
+        if tier in (6, 7):
+            accum_steps = 8 if paradigm == "sm_fork" else 2
         else:
             accum_steps = 1
 
     return Variant(
         name=exp_name,
-        paradigm=args.paradigm,
-        tier=args.tier,
+        paradigm=paradigm,
+        tier=tier,
         trace_order=getattr(args, "trace_order", "sum_first"),
+        agency=getattr(args, "agency", None),
+        topology=getattr(args, "topology", None),
+        channel=getattr(args, "channel", None),
+        representation=getattr(args, "representation", None),
+        p_prior=getattr(args, "p_prior", 0.0),
+        p_probe=getattr(args, "p_probe", 0.0),
         log_dir=log_dir,
         n_layers=args.n_layers,
         ffn_type=args.ffn_type,

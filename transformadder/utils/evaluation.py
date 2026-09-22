@@ -308,20 +308,20 @@ def evaluate(
     results = {}
     conditions = []
     if eval_axioms in ("random", "symbols_random"):
-        conditions = [("random", "symbols_random")]
+        conditions = [("", "symbols_random")]
     elif eval_axioms in ("canonical", "canonical_order"):
         conditions = [("canon", "canonical_order")]
     elif eval_axioms in ("permuted", "canonical_permuted"):
         conditions = [("permuted", "canonical_permuted")]
     elif eval_axioms == "all":
         conditions = [
-            ("random", "symbols_random"),
+            ("", "symbols_random"),
             ("canon", "canonical_order"),
             ("permuted", "canonical_permuted"),
         ]
     else:  # "both" (default)
         conditions = [
-            ("random", "symbols_random"),
+            ("", "symbols_random"),
             ("canon", "canonical_order"),
         ]
 
@@ -367,7 +367,10 @@ def evaluate(
                 else:
                     metrics["delta_exec"] = float("nan")
 
-                prefix = f"{prefix_label}_{name}"
-                results.update({f"{prefix}_{k}": v for k, v in metrics.items()})
+                prefix = f"{prefix_label}_{name}" if prefix_label else name
+                for k, v in metrics.items():
+                    results[f"{prefix}_{k}"] = v
+                    if prefix_label == "":
+                        results[f"random_{name}_{k}"] = v
     return results
 
