@@ -9,7 +9,42 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from enum import Enum
+
 from transformadder.core.constants import D_MODEL, D_POS, D_ROLE, D_SIG, NUM_ROLES, VOCAB_SIZE
+
+
+class Representation(str, Enum):
+    ROLE_EMBED = "R-Scope-RoleEmbed"
+    EXPLICIT_CONTINUOUS = "R-Explicit-Continuous"
+    EXPLICIT_NOPE = "R-Explicit-NoPE"
+    ADDRESSED_KV = "R-Addressed-KV"
+
+
+REPRESENTATION_TO_TIER = {
+    Representation.ROLE_EMBED: 1,
+    Representation.EXPLICIT_CONTINUOUS: 2,
+    Representation.EXPLICIT_NOPE: 3,
+    Representation.ADDRESSED_KV: 6,
+    "role_embed": 1,
+    "explicit_continuous": 2,
+    "explicit_nope": 3,
+    "addressed_kv": 6,
+    "R-Scope-RoleEmbed": 1,
+    "R-Explicit-Continuous": 2,
+    "R-Explicit-NoPE": 3,
+    "R-Addressed-KV": 6,
+}
+
+TIER_TO_REPRESENTATION = {
+    1: Representation.ROLE_EMBED,
+    2: Representation.EXPLICIT_CONTINUOUS,
+    3: Representation.EXPLICIT_NOPE,
+    4: Representation.ROLE_EMBED,
+    5: Representation.EXPLICIT_CONTINUOUS,
+    6: Representation.ADDRESSED_KV,
+    7: Representation.ADDRESSED_KV,
+}
 
 
 class SubspaceEmbedding(nn.Module):
@@ -22,11 +57,19 @@ class SubspaceEmbedding(nn.Module):
     none dominates the first RMSNorm.
     """
 
-    def __init__(self, tier: int = 1, d_model: int = D_MODEL):
+    def __init__(
+        self,
+        tier: int = 1,
+        representation: str | Representation | None = None,
+        d_model: int = D_MODEL,
+    ):
         super().__init__()
         assert d_model == D_MODEL, f"TransformAdder requires d_model={D_MODEL}, got {d_model}"
+        if representation is not None:
+            tier = REPRESENTATION_TO_TIER.get(representation, tier)
         assert tier in (1, 2, 3, 4, 5, 6, 7), f"Unknown tier: {tier}"
         self.tier = tier
+        self.representation = TIER_TO_REPRESENTATION.get(tier, Representation.EXPLICIT_CONTINUOUS)
 
         if tier in (1, 4):
             self.role_embed = nn.Embedding(NUM_ROLES, D_ROLE)
