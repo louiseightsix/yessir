@@ -45,12 +45,14 @@ class Variant:
     train_axiom: str = "random"   # "random" | "canonical" (NC-1)
     eval_axioms: str = "both"     # "both" | "random" | "canonical"
     regime: str = "multimodal"    # key of REGIMES
+    trace_order: str = "sum_first"  # "sum_first" | "carry_first"
 
 
 def parse_args(variant: Variant):
     parser = argparse.ArgumentParser(description=f"Train and evaluate {variant.name}")
     parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "sm_fork", "ar"], default=variant.paradigm, help="Runtime paradigm")
     parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5, 6, 7], default=variant.tier, help="Inductive bias tier")
+    parser.add_argument("--trace-order", choices=["sum_first", "carry_first"], default=variant.trace_order, help="AR scratchpad trace factorisation order")
     parser.add_argument("--n-layers", type=int, default=variant.n_layers, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default=variant.ffn_type, help="FFN non-linearity")
     parser.add_argument("--attn-type", choices=["causal", "prefix_lm"], default=variant.attn_type, help="Attention visibility")
@@ -204,7 +206,14 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
     logger = MetricsLogger(args.log_path)
     stepper = InteractiveStepper(enabled=args.interactive)
     is_canonical_train = args.train_axiom == "canonical"
-    data_gen = ProceduralArithmeticGenerator(bases=train_bases, canonical=is_canonical_train, seed=args.seed, tier=variant.tier)
+    trace_order = getattr(args, "trace_order", getattr(variant, "trace_order", "sum_first"))
+    data_gen = ProceduralArithmeticGenerator(
+        bases=train_bases,
+        canonical=is_canonical_train,
+        seed=args.seed,
+        tier=variant.tier,
+        trace_order=trace_order,
+    )
     make_batch = getattr(data_gen, f"{variant.paradigm}_batch")
     use_amp = device.type == "cuda"
 
@@ -239,6 +248,7 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
                 num_problems=n,
                 eval_axioms=args.eval_axioms,
                 stepper=stepper,
+                trace_order=trace_order,
             )
             logger.log(step=step, metrics={"loss": step_loss, **results})
             logger.print_eval_summary(step=step, results=results, train_bases=train_bases)
@@ -255,6 +265,7 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
             "variant": variant.name,
             "paradigm": variant.paradigm,
             "tier": variant.tier,
+            "trace_order": trace_order,
             "seed": args.seed,
             "regime": args.regime,
             "n_layers": variant.n_layers,
