@@ -140,11 +140,7 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
               "to match physical VRAM footprint.", flush=True)
         args.grad_accum_steps = 8
 
-    if device.type == "cuda":
-        try:
-            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
-        except Exception:
-            pass
+
     if not hasattr(args, "interactive"):
         args.interactive = False
     if not hasattr(args, "dry_run"):
@@ -161,6 +157,11 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
         raise NotImplementedError(f"attn_type={variant.attn_type!r} is not wired into the runner yet.")
     seed_everything(args.seed)
     device = torch.device(args.device)
+    if device.type == "cuda":
+        try:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        except Exception:
+            pass
     train_bases = REGIMES[args.regime]
 
     print("=" * 70)
