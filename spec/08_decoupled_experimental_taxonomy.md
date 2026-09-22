@@ -80,13 +80,14 @@ Tier 7 is not merely an architectural ablation of the `[AXIOM]` preamble. In the
   └── R-Pos-NoPE:         Zero positional coordinates; attention is permutation-invariant.
 
   IV-B: Scoping & Delimiter Lexicon (Actual Codebase Tokens)
-  ├── R-Scope-RoleEmbed:      Generic delimiter (|) + 64d learned role embedding table.
-  ├── R-Scope-Semantic:       Dedicated tokens ([AXIOM], [A], [B], [CARRY], [OUT]).
-  ├── R-Scope-Generic:        Single generic delimiter (|) across all section boundaries.
-  ├── R-Scope-SemanticOrigin: Semantic section headers + origin anchor token (*) at section starts.
+  ├── R-Scope-None:           Zero structural delimiter tokens; bare digits only (Tier 1).
+  ├── R-Scope-RoleEmbed:      Generic delimiter (|) + 64d learned role embedding table (Tier 4).
+  ├── R-Scope-Semantic:       Dedicated tokens ([AXIOM], [A], [B], [CARRY], [OUT]) (Tier 2).
+  ├── R-Scope-Generic:        Single generic delimiter (|) across all section boundaries (Tier 3).
+  ├── R-Scope-SemanticOrigin: Semantic section headers + origin anchor token (*) at section starts (Tier 5).
   ├── R-Scope-Addressed:      Semantic headers + generic entry delimiter (|) + origin token (*) 
-  │                           separating little-endian numeral address from value.
-  └── R-Scope-ZeroPreamble:   Identical to R-Scope-Addressed, but [AXIOM] header is omitted.
+  │                           separating little-endian numeral address from value (Tier 6).
+  └── R-Scope-ZeroPreamble:   Identical to R-Scope-Addressed, but [AXIOM] header is omitted (Tier 7).
 
   IV-C: Query Addressing Mode
   ├── R-Query-Implicit:       Prompt ends on query trigger; model must infer column k from history.
@@ -95,7 +96,8 @@ Tier 7 is not merely an architectural ablation of the `[AXIOM]` preamble. In the
 
 ### Axis V: Problem Distribution & Curriculum ($\mathcal{S}_{\text{dist}}$)
 * **`D-Standard`**: Operand lengths uniformly sampled from $[L_{\min}, L_{\max}]$. Single-digit and short operands permitted ($L \ge 1$).
-* **`D-FullSpan`**: Operand lengths constrained to $L \ge B$. Guarantees all $B$ alphabet symbols appear in operands $A$ and $B$, ensuring zero-preamble solvability.
+* **`D-FullSpan`**: Operand lengths sampled from $[\max(L_{\min}, B), \max(L_{\max}, \max(L_{\min}, B))]$. Guarantees all $B$ alphabet symbols appear in operands $A$ and $B$, ensuring zero-preamble solvability.  
+  *(Note: for any base $B \ge L_{\max}$, this range collapses deterministically to a fixed-length problem of exactly $L = B$ columns rather than a variable-length distribution).*
 
 ---
 
@@ -108,13 +110,13 @@ Not all Cartesian product combinations of these axes represent valid or physical
 | `C-Weight` $\times$ `T-SumFirst` | **INVALID** | A multi-head linear layer projects multiple outputs from a single forward pass; it cannot causally chain one head's prediction into another head's input. |
 | `C-Weight` $\times$ `T-CarryFirst`| **INVALID** | Same as above: causal chaining requires sequential token emission. |
 | `C-Weight` $\times$ `A-Autonomous`| **INVALID** | Autoregressive generation emits a 1D token stream; multi-head parallel emission is incompatible with standard sequential trace generation. |
-| `T-Factored` $\times$ `A-Autonomous`| **INVALID** | Standard autoregressive trace generation is fundamentally a causal chain: $x_t \sim P(x_t \mid x_{<t})$. |
+| `T-Factored` $\times$ `A-Autonomous`| **OUT OF SCOPE** | Emitting parallel heads at each trace position under teacher forcing is definable, but outside the scope of standard causal autoregressive rollouts. |
 | `R-Pos-Sinusoidal` $\times$ `R-Scope-Semantic` | **INADMISSIBLE** | Tier 1 2D sinusoidal PE requires the role embedding table to provide the role coordinate. |
 | `R-Query-ExplicitKV` without `R-Scope-Addressed` | **INADMISSIBLE** | Explicit numeral address queries require numeral address formatting in the prompt. |
 
 ### Admissible Agency $\times$ Topology $\times$ Channel Subspace
 
-Of the 12 theoretical combinations of Agency $\times$ Topology $\times$ Channel, exactly **four** are structurally sound:
+Of the 12 theoretical combinations of Agency $\times$ Topology $\times$ Channel, exactly **six** are structurally sound:
 
 | Configuration Tuple | Canonical Identifier | Operational Description |
 | :--- | :--- | :--- |
@@ -133,10 +135,10 @@ The table below maps all historical and active configurations across Rounds 1–
 
 | Model Designator | Agency | Topology | Channel | Representation (IV-A / IV-B / IV-C) | Dist | Status | Empirical Observation / Active Telemetry |
 | :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- |
-| **`SM-MH-T1`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `Sinusoidal` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; collapses to 0.0% on double lengths ($L=21..40$) due to FFN phase drift. |
-| **`SM-Seq-T1`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `Sinusoidal` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; collapses to 0.0% on double lengths (69.3% per-step acc). |
+| **`SM-MH-T1`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `Sinusoidal` / `None` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; collapses to 0.0% on double lengths ($L=21..40$) due to FFN phase drift. |
+| **`SM-Seq-T1`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `Sinusoidal` / `None` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; collapses to 0.0% on double lengths (69.3% per-step acc). |
 | **`AR-T2`** | `A-Autonomous` | `T-SumFirst` | `C-Sequence` | `NoPE` / `Semantic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; 41.0% on Base-12; 0.0% on double lengths. |
-| **`SM-MH-T2`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `Semantic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 0.0% EM (54.0% per-step acc); delimiter subspace fragmentation under linear heads. |
+| **`SM-MH-T2`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `Semantic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 49.8% In-Domain EM (78.4% per-step) for bimodal seed 54332, 52.4% for multimodal; semantic delimiters partially sustain multi-head decoding, unlike generic `\|` in T4. |
 | **`SM-MH-T3`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `Generic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 51.8% In-Domain EM; plateaus due to directional ambiguity of single `\|`. |
 | **`SM-MH-T4`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: **Total collapse (0.0% EM, 1.8% step acc)**; linear heads fail without coordinates. |
 | **`SM-Seq-T4`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `NoPE` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: **56.0% Base-3 record**; tied copy + role subspaces optimal for interpolation. |
@@ -181,20 +183,31 @@ In Round 2, `C-Weight` (`SM-MH`) scored 0.0% EM across Tiers 4 and 5 because the
 
 With **`R-Pos-NoPE` + `R-Scope-Addressed` + `R-Query-ExplicitKV`**, the prompt terminates on the explicit numeral address `(k)`. Does the presence of this discrete address token in the attention context provide sufficient conditioning for linear heads ($W_{\text{sum}}, W_{\text{carry}}, W_{\text{flag}}$) to succeed without continuous positional encodings? This represents a clean mechanistic test of whether the collapse of multi-head decoding was caused by coordinate-free representations or by the lack of local conditioning.
 
+*(Note: In the current state machine encoding, multi-head prompts terminate on the query token `[S]`. When evaluating multi-head decoding under addressing, all three linear heads read from the tail representation at `[S]` or an explicit neutral trigger token).*
+
 ---
 
-## 7. Direct Refactoring Strategy (Zero Legacy Debt)
+## 7. Migration Plan & Pragmatic Execution Sequence
 
-Because this codebase is under sole development, we explicitly reject backward-compatibility layers, deprecated alias mappings, and legacy fallback logic. The codebase will be migrated directly to native orthogonal primitives:
+### 7.1 Immediate Action: Land `AR-CarryFirst`
+Because the Round 3 benchmark fleet is actively training on Vertex AI from the current repository image, sweeping refactors touching ~60 files across the codebase will be deferred until the active runs reach completion.
 
-1. **Direct CLI & Configurator Migration**:
-   Replace `--paradigm` and `--tier` with direct orthogonal arguments:
-   - `--agency`: `harnessed` | `autonomous`
-   - `--topology`: `factored` | `sum_first` | `carry_first`
-   - `--channel`: `weight` | `sequence`
-   - `--representation`: `sinusoidal_pe` | `semantic_nope` | `generic_nope` | `role_embed_nope` | `semantic_origin_nope` | `addressed_kv` | `zero_preamble_kv`
-   - `--curriculum`: `standard` | `full_span`
-2. **First-Class Implementation of `AR-CarryFirst`**:
-   Extend `reference_trace(steps, order="sum_first"|"carry_first")` in `core/reference.py` and parameterize AR data encoding and rollout.
-3. **Clean Codebase Pruning**:
-   Purge legacy conditionals like `if tier == ...` or `if paradigm == ...` in favor of declarative configuration dataclasses.
+Instead, **`AR-CarryFirst` will be landed immediately**:
+* It touches only two localized functions: `core/reference.py:reference_trace` and `core/sequences.py:trace_coords`.
+* It introduces an explicit `--trace-order=sum_first|carry_first` flag to `cli.py`.
+* It unlocks the most scientifically compelling comparison without altering any existing state machine code paths.
+
+### 7.2 Post-Round 3 Refactoring: The 7-Layout Representation Enum
+Following the completion and analysis of the Round 3 fleet:
+1. **Honest Representation Renaming**:
+   The single `--representation` enum with 7 values represents the direct, honest consolidation of the admissible configurations across IV-A/B/C:
+   * `sinusoidal_pe` (Legacy Tier 1)
+   * `semantic_nope` (Legacy Tier 2)
+   * `generic_nope` (Legacy Tier 3)
+   * `role_embed_nope` (Legacy Tier 4)
+   * `semantic_origin_nope` (Legacy Tier 5)
+   * `addressed_kv` (Legacy Tier 6)
+   * `zero_preamble_kv` (Legacy Tier 7)
+   Prompt builders are layout-specific by their very nature; replacing `if tier == X` with `if representation == Y` preserves clear layout dispatching.
+2. **Minimal Checkpoint Loader Compatibility Layer**:
+   To ensure that active Round 3 checkpoints and historical models can be resumed or evaluated post-refactor, a compact 15-line `resolve_legacy_config()` helper will be retained at checkpoint load time to map stored `paradigm` and `tier` fields to their respective orthogonal coordinates.
