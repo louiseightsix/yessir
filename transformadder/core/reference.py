@@ -45,6 +45,9 @@ def reference_out(steps: list[dict]) -> list[int]:
     return [s["o"] for s in steps]
 
 
+reference_expected_out = reference_out
+
+
 def reference_trace(steps: list[dict], order: str = "sum_first") -> list[int]:
     """AR scratchpad trace:
     sum_first:   ([S] o_k [C] c_{k+1})* [FINISHED]

@@ -30,6 +30,7 @@ from transformadder.core.constants import (
     START,
     TOKEN_C,
     TOKEN_FLAG,
+    TOKEN_PROBE,
     TOKEN_S,
 )
 
@@ -203,6 +204,23 @@ def build_sm_prompt(
 def build_ar_prompt(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq:
     """AR prompt, fed exactly once: [BOS] A a b [START]."""
     return build_prefix(axiom, a, b, tier).push(START, ROLE_START, 0)
+
+
+def build_probe_prompt(axiom: list[int], a: list[int], b: list[int], query_symbol: int, tier: int) -> Seq:
+    """Successor binding probe prompt: [BOS] A a b [PROBE] query_symbol.
+
+    Conditioned on [PROBE], the model retrieves the bound alphabet rule from context
+    and emits s_{i+1} = axiom[(axiom.index(query_symbol) + 1) % len(axiom)].
+    """
+    prefix = build_prefix(axiom, a, b, tier)
+    if tier == 1:
+        return prefix.push(TOKEN_PROBE, ROLE_CTRL, 0).push(query_symbol, ROLE_CTRL, 1)
+    if tier == 4:
+        tokens = prefix.tokens + [TOKEN_PROBE, query_symbol]
+        assert prefix.roles is not None
+        roles = prefix.roles + [ROLE_CTRL, ROLE_CTRL]
+        return Seq(tokens, roles, None)
+    return Seq(prefix.tokens + [TOKEN_PROBE, query_symbol])
 
 
 def collate(seqs: list[Seq], device: torch.device | str | None = None) -> dict:
