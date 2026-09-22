@@ -1,7 +1,4 @@
-"""Modular TransformAdder Transformer trunk combining embeddings, blocks, and output heads.
-Pure PyTorch implementation with zero external library dependencies.
-"""
-
+from enum import Enum
 import math
 
 import torch
@@ -9,9 +6,33 @@ import torch.nn as nn
 
 from transformadder.core.blocks import TransformerBlock
 from transformadder.core.constants import D_FFN, D_MODEL, N_HEADS, N_LAYERS
-from transformadder.core.embedding import SubspaceEmbedding
-from transformadder.core.heads import MultiHeadOutput, TiedIdentityHead
+from transformadder.core.embedding import (
+    Representation,
+    SubspaceEmbedding,
+    REPRESENTATION_TO_TIER,
+    TIER_TO_REPRESENTATION,
+)
+from transformadder.core.heads import Channel, MultiHeadOutput, TiedIdentityHead
 from transformadder.core.sequences import Seq, collate
+
+
+class Agency(str, Enum):
+    AUTONOMOUS = "autonomous"    # Autonomous decoding (AR)
+    HARNESSED = "harnessed"      # External Python step harness (SM)
+
+
+class Topology(str, Enum):
+    UNIFIED = "unified"          # Single generation pass (AR, SM-MH)
+    PIPELINED = "pipelined"      # Sequential serial passes (SM-Seq, SM-SeqRev)
+    BRANCHING = "branching"      # Parallel sub-queries (SM-Fork)
+
+
+ADMISSIBLE_TUPLES = {
+    (Agency.AUTONOMOUS, Topology.UNIFIED, Channel.SEQUENCE),
+    (Agency.HARNESSED, Topology.UNIFIED, Channel.WEIGHT),
+    (Agency.HARNESSED, Topology.PIPELINED, Channel.SEQUENCE),
+    (Agency.HARNESSED, Topology.BRANCHING, Channel.SEQUENCE),
+}
 
 
 class TransformAdder(nn.Module):
@@ -20,15 +41,31 @@ class TransformAdder(nn.Module):
     def __init__(
         self,
         tier: int = 1,
+        representation: str | Representation | None = None,
+        head_type: str = "single_head",
+        agency: str | Agency | None = None,
+        topology: str | Topology | None = None,
+        channel: str | Channel | None = None,
         n_layers: int = N_LAYERS,
         d_model: int = D_MODEL,
         n_heads: int = N_HEADS,
         d_ffn: int = D_FFN,
-        head_type: str = "single_head",
         ffn_type: str = "swiglu",
     ):
         super().__init__()
+        if representation is not None:
+            tier = REPRESENTATION_TO_TIER.get(representation, tier)
+        if channel is not None:
+            if channel in (Channel.WEIGHT, "weight"):
+                head_type = "multi_head"
+            elif channel in (Channel.SEQUENCE, "sequence"):
+                head_type = "single_head"
+
         self.tier = tier
+        self.representation = TIER_TO_REPRESENTATION.get(tier, Representation.EXPLICIT_CONTINUOUS)
+        self.agency = Agency(agency) if agency is not None else None
+        self.topology = Topology(topology) if topology is not None else None
+        self.channel = Channel.WEIGHT if head_type == "multi_head" else Channel.SEQUENCE
         self.n_layers = n_layers
         self.d_model = d_model
         self.n_heads = n_heads
@@ -37,7 +74,7 @@ class TransformAdder(nn.Module):
         self.ffn_type = ffn_type
 
         # 1. Subspace embedding
-        self.embedding = SubspaceEmbedding(tier=tier, d_model=d_model)
+        self.embedding = SubspaceEmbedding(tier=tier, representation=self.representation, d_model=d_model)
 
         # 2. Transformer layers
         self.layers = nn.ModuleList(
@@ -56,6 +93,52 @@ class TransformAdder(nn.Module):
             raise ValueError(f"Unknown head_type: {head_type}. Must be 'single_head' or 'multi_head'.")
 
         self.reset_parameters()
+
+    @classmethod
+    def from_axes(
+        cls,
+        agency: str | Agency,
+        topology: str | Topology,
+        channel: str | Channel,
+        representation: str | Representation,
+        n_layers: int = N_LAYERS,
+        d_model: int = D_MODEL,
+        n_heads: int = N_HEADS,
+        d_ffn: int = D_FFN,
+        ffn_type: str = "swiglu",
+    ) -> "TransformAdder":
+        """Instantiates TransformAdder from the formal 5-axis decoupled taxonomy.
+        Validates admissibility of the tuple <Agency, Topology, Channel> against spec/04.
+        """
+        a = Agency(agency)
+        t = Topology(topology)
+        c = Channel(channel)
+        r = Representation(representation) if isinstance(representation, str) and representation in Representation._value2member_map_ else representation
+
+        tuple_key = (a, t, c)
+        if tuple_key not in ADMISSIBLE_TUPLES:
+            raise ValueError(
+                f"Inadmissible experimental tuple: <{a.value}, {t.value}, {c.value}>. "
+                f"Admissible tuples are: {[ (x.value, y.value, z.value) for x, y, z in ADMISSIBLE_TUPLES ]}"
+            )
+
+        tier = REPRESENTATION_TO_TIER.get(r, 1)
+        head_type = "multi_head" if c == Channel.WEIGHT else "single_head"
+
+        return cls(
+            tier=tier,
+            representation=r,
+            head_type=head_type,
+            agency=a,
+            topology=t,
+            channel=c,
+            n_layers=n_layers,
+            d_model=d_model,
+            n_heads=n_heads,
+            d_ffn=d_ffn,
+            ffn_type=ffn_type,
+        )
+
 
     @torch.no_grad()
     def reset_parameters(self):

@@ -3,11 +3,18 @@
 - MultiHeadOutput: Parallel linear projections for sum, carry, and flag (SM-MH).
 """
 
+from enum import Enum
+
 import torch
 import torch.nn as nn
 
 from transformadder.core.blocks import RMSNorm
 from transformadder.core.constants import D_MODEL, D_SYMBOL
+
+
+class Channel(str, Enum):
+    SEQUENCE = "sequence"
+    WEIGHT = "weight"
 
 
 class TiedIdentityHead(nn.Module):
