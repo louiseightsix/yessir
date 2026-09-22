@@ -17,7 +17,7 @@ To execute addition, the model must solve two fundamental binding problems:
 1. **Stream Identification (Role)**: Which tokens belong to the axiom, operand $a$, operand $b$, incoming carry, and accumulated output?
 2. **Column Alignment (Significance)**: Which digits in $a$ and $b$ correspond to the current addition column, dynamically indexed by output length ($k = |OUT_k|$) in `SM` or by scratchpad column count in `AR`?
 
-We structure this design space as a **3-tier spectrum of inductive bias**, moving from hard-coded architectural coordinates down to fully emergent in-context coordinate tracking, plus two hybrid tiers (4 and 5, Sections 1.4 and 1.5) that decouple role from significance:
+We structure this design space as a **3-tier spectrum of inductive bias**, moving from hard-coded architectural coordinates down to fully emergent in-context coordinate tracking, plus two hybrid tiers (4 and 5, Sections 1.4 and 1.5) that decouple role from significance, and Tier 6 (Section 1.6), which replaces positional inference with explicit in-context addresses:
 
 ```mermaid
 flowchart TD
@@ -150,7 +150,20 @@ flowchart TD
 
 ---
 
-### 1.6 Pinned Design Decision: LSD-First (LSB-First) Directionality
+### 1.6 Tier 6: Axiom Key-Value Addressing (Explicit Little-Endian Numeral Addresses + NoPE)
+* **Core Philosophy**: **NoPE**, with no positional inference at all: every digit is written as an explicit **key-value entry** whose key is its column index $j$ spelled as a little-endian base-$B$ numeral over the in-context axiom symbols ($\texttt{addr}_j = $ `int_to_axiom_address(j, axiom)`; $\texttt{addr}_0 = A_0$, $\texttt{addr}_{10} = A_0 A_1$ in base 10). Entries are opened by `|` and bound by `[ORIGIN]`: `| addr_j [ORIGIN] d_j`.
+  * **Sequence Format in `SM`** (base 3, $a = [1, 2]$, $b = [2]$; at Step 1 with $c_1 = 1$, $OUT_1 = [0]$):
+    ```text
+    [BOS] [AXIOM] 0 1 2 [A] | 0 [ORIGIN] 1 | 1 [ORIGIN] 2 [B] | 0 [ORIGIN] 2 [CARRY] | 1 [ORIGIN] 1 [OUT] | 0 [ORIGIN] 0 | 1 [ORIGIN] [S]
+    ```
+    The carry entry and the query entry both carry $\texttt{addr}_k$ (the column being computed); the query entry's value slot holds the query token (`[S]`, `[C]` or `[F]`). Transient tokens of `SM-Seq` / `SM-SeqRev` follow the query with no address.
+  * **Sequence Format in `AR`**: the addressed prefix `[BOS] [AXIOM] A [A] entries [B] entries` followed by `[START]` and the unaddressed trace grammar of all other tiers.
+* **The Learning Hypothesis**: Column alignment becomes **associative lookup by key**: to compute column $k$ the model matches $\texttt{addr}_k$ in the query entry against the identical numeral in the operand entries, with no counting or offset measurement. Incrementing a little-endian numeral is a local rewrite, so the address sequence itself is generalisable to unseen lengths.
+* **Cost**: Each digit costs $3 + |\texttt{addr}_j|$ tokens instead of 1, so prompts are roughly $4$–$8\times$ longer than Tier 5 (longest for base 2, whose addresses have $\lfloor \log_2 j \rfloor + 1$ digits).
+
+---
+
+### 1.7 Pinned Design Decision: LSD-First (LSB-First) Directionality
 * **Core Philosophy**: All operands ($a$, $b$, and accumulated $OUT$) are formatted strictly in **algorithmic reading order ($LSD \to MSD$)**, placing the least-significant digit at local offset 0.
 * **Theoretical Rationale**:
   * In conventional reading order ($MSD \to LSD$), column $k$ sits at index $\text{len}(\text{op}) - 1 - k$. Locating column $k$ requires first measuring total operand length and computing a reverse offset, introducing a length-dependent confounding difficulty unrelated to addition itself.
@@ -185,8 +198,8 @@ $$|\mathcal{V}| = 256 \quad (\texttt{0x00} \dots \texttt{0xFF})$$
     | `0xF7` | `TOKEN_C` | `[C]` | Carry query: `SM-Seq` Pass 2 trigger / `SM-SeqRev`, `SM-Fork` prompt tail / `AR` carry marker |
     | `0xF8` | `FLAG_CONTINUE` | `[CONTINUE]` | Loop continuation flag (`SM` only) |
     | `0xF9` | `FLAG_FINISHED` | `[FINISHED]` | Loop termination flag (`SM`) / trace terminator (`AR`) |
-    | `0xFA` | `DELIM_ORIGIN` | `[ORIGIN]` | Tier 5 zero-origin spatial anchor |
-    | `0xFB` | `DELIM_GENERIC` | `\|` | Tier 3/4 neutral block delimiter |
+    | `0xFA` | `DELIM_ORIGIN` | `[ORIGIN]` | Tier 5 zero-origin spatial anchor / Tier 6 address-value binder |
+    | `0xFB` | `DELIM_GENERIC` | `\|` | Tier 3/4 neutral block delimiter / Tier 6 entry opener |
     | `0xFC` | `TOKEN_FLAG` | `[F]` | `SM-Seq` / `SM-SeqRev` Pass 3 flag trigger / `SM-Fork` prompt tail |
     | `0xFD` | `PAD` | `[PAD]` | Batch padding (right-padding only; never attended by real tokens, loss-masked) |
     | `0xFE` | `BOS` | `[BOS]` | Sequence origin; attention sink and NoPE count anchor |
@@ -204,7 +217,7 @@ How raw byte tokens ($b \in \{0, \dots, 255\}$) are converted into vector repres
   * The representation space is strictly partitioned into two orthogonal 256-dimensional blocks:
     $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; \mathbf{p}_t \, ] \in \mathbb{R}^{512}$$
     - **Dimensions $0 \dots 255$ (Symbol Identity)**: At the input, strictly contains the fixed one-hot byte vector $\mathbf{e}_{b_t}$, uncorrupted by positional encodings.
-    - **Dimensions $256 \dots 511$ (Positional & Algorithmic State)**: Holds positional vectors $\mathbf{p}_t = [e_{\text{role}}(r_t) \parallel e_{\text{sig}}(p_t)]$ in Tier 1. In Tier 4 only the role part is populated ($[e_{\text{role}}(r_t) \parallel \mathbf{0}_{192}]$). In Tiers 2, 3 and 5 (NoPE), these dimensions are initialised to zero ($\mathbf{0}_{256}$), serving as dedicated working memory for attention heads and MLPs.
+    - **Dimensions $256 \dots 511$ (Positional & Algorithmic State)**: Holds positional vectors $\mathbf{p}_t = [e_{\text{role}}(r_t) \parallel e_{\text{sig}}(p_t)]$ in Tier 1. In Tier 4 only the role part is populated ($[e_{\text{role}}(r_t) \parallel \mathbf{0}_{192}]$). In Tiers 2, 3, 5 and 6 (NoPE), these dimensions are initialised to zero ($\mathbf{0}_{256}$), serving as dedicated working memory for attention heads and MLPs.
 * **Theoretical Purpose**:
   * **No learned embedding table**: there is no trainable per-token vector in which a symbol's "meaning" could be stored at the input. This does *not* by itself prevent memorisation: the first-layer projections ($W_Q, W_K, W_V$, FFN input) read the one-hot block and can still learn per-byte associations. What removes the *incentive* to do so is per-instance random symbol sampling (Section 2.1), under which no byte has a stable value.
   * Guarantees that the tied copy slice (Section 4.1) reads from a subspace with a fixed, known symbol basis.

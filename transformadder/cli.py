@@ -31,9 +31,9 @@ def parse_args():
     parser.add_argument(
         "--tier",
         type=int,
-        choices=[1, 2, 3, 4, 5],
+        choices=[1, 2, 3, 4, 5, 6],
         default=1,
-        help="Inductive bias tier (1: Split PE, 2: Role NoPE, 3: Generic NoPE, 4: Generic NoPE+Role, 5: Dual Delimiter)",
+        help="Inductive bias tier (1: Split PE, 2: Role NoPE, 3: Generic NoPE, 4: Generic NoPE+Role, 5: Dual Delimiter, 6: Axiom Key-Value)",
     )
     parser.add_argument("--n-layers", type=int, default=6, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default="swiglu", help="FFN non-linearity")

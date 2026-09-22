@@ -28,7 +28,7 @@ REGIMES = {
 class Variant:
     name: str         # e.g. "SM-MH-T1-L6-SwiGLU-Causal"
     paradigm: str     # "sm_mh" | "sm_seq" | "sm_seq_rev" | "sm_fork" | "ar"
-    tier: int         # 1 | 2 | 3 | 4 | 5
+    tier: int         # 1 | 2 | 3 | 4 | 5 | 6
     log_dir: str      # e.g. "experiments/SM-MH-T1-L6-SwiGLU-Causal-seed42"
     n_layers: int = 6
     ffn_type: str = "swiglu"   # "swiglu" | "gelu"
@@ -47,7 +47,7 @@ class Variant:
 def parse_args(variant: Variant):
     parser = argparse.ArgumentParser(description=f"Train and evaluate {variant.name}")
     parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "sm_fork", "ar"], default=variant.paradigm, help="Runtime paradigm")
-    parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5], default=variant.tier, help="Inductive bias tier")
+    parser.add_argument("--tier", type=int, choices=[1, 2, 3, 4, 5, 6], default=variant.tier, help="Inductive bias tier")
     parser.add_argument("--n-layers", type=int, default=variant.n_layers, help="Transformer layer depth")
     parser.add_argument("--ffn-type", choices=["swiglu", "gelu"], default=variant.ffn_type, help="FFN non-linearity")
     parser.add_argument("--attn-type", choices=["causal", "prefix_lm"], default=variant.attn_type, help="Attention visibility")

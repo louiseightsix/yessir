@@ -260,7 +260,7 @@ def test_encode_sm_seq_rev_is_carry_first():
     inst = _instance()
     G = DELIM_GENERIC
     # Base prompt is the SM layout with the tail query [S] replaced by [C]
-    for tier in (1, 2, 3, 4, 5):
+    for tier in (1, 2, 3, 4, 5, 6):
         s = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], 49, [48], tier)
         c = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], 49, [48], tier, query_token=TOKEN_C)
         assert (s.tokens[:-1], s.tokens[-1], c.tokens[-1]) == (c.tokens[:-1], TOKEN_S, TOKEN_C)
@@ -290,7 +290,7 @@ def test_encode_sm_fork_one_label_per_branch():
         TOKEN_C: (step["c_out"], (ROLE_CARRY, 3)),
         TOKEN_FLAG: (FLAG_FINISHED, (ROLE_FLAG, 2)),
     }
-    for tier in (1, 2, 3, 4, 5):
+    for tier in (1, 2, 3, 4, 5, 6):
         base = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], step["c_in"], inst["expected_out"][:2], tier)
         for query, (target, (role, sig)) in expected.items():
             seq, labels = encode_sm_fork(inst, k=2, tier=tier, query_token=query)

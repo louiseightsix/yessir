@@ -1,4 +1,4 @@
-"""Sequence container, prompt builders for Tiers 1-5, and the right-padding batch collator.
+"""Sequence container, prompt builders for Tiers 1-6, and the right-padding batch collator.
 Conforms to the layouts of spec/02_mechanics.md Sections 3.1, 3.2, 4.1 and 4.2.
 
 Tier 1 coordinate convention (both paradigms): a sum digit o_j sits at p = j; a carry digit c_j
@@ -74,6 +74,19 @@ def trace_coords(i: int) -> tuple[int, int]:
     return sum_coords(k) if i % 4 < 2 else carry_coords(k)
 
 
+def int_to_axiom_address(k: int, axiom: list[int]) -> list[int]:
+    """Encodes non-negative column index k into little-endian base-B axiom numeral tokens."""
+    base = len(axiom)
+    if k == 0:
+        return [axiom[0]]
+    digits = []
+    val = k
+    while val > 0:
+        digits.append(axiom[val % base])
+        val //= base
+    return digits
+
+
 def build_prefix(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq:
     """Static problem prefix shared by both paradigms: [BOS] A a b (tier-delimited)."""
     if tier == 1:
@@ -103,6 +116,14 @@ def build_prefix(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq
         return Seq(tokens, roles, None)
     if tier == 5:
         return Seq([BOS, DELIM_AXIOM, DELIM_ORIGIN] + axiom + [DELIM_A, DELIM_ORIGIN] + a + [DELIM_B, DELIM_ORIGIN] + b)
+    if tier == 6:
+        formatted_a = []
+        for j, val in enumerate(a):
+            formatted_a += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]
+        formatted_b = []
+        for j, val in enumerate(b):
+            formatted_b += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]
+        return Seq([BOS, DELIM_AXIOM] + axiom + [DELIM_A] + formatted_a + [DELIM_B] + formatted_b)
     raise ValueError(f"Unknown tier: {tier}")
 
 
@@ -159,6 +180,13 @@ def build_sm_prompt(
         return Seq(tokens, roles, None)
     if tier == 5:
         return Seq(seq.tokens + [DELIM_CARRY, DELIM_ORIGIN, carry, DELIM_OUT, DELIM_ORIGIN] + out_digits + [query_token])
+    if tier == 6:
+        formatted_out = []
+        for j, val in enumerate(out_digits):
+            formatted_out += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]
+        carry_entry = [DELIM_CARRY, DELIM_GENERIC] + int_to_axiom_address(k, axiom) + [DELIM_ORIGIN, carry]
+        query_entry = [DELIM_GENERIC] + int_to_axiom_address(k, axiom) + [DELIM_ORIGIN, query_token]
+        return Seq(seq.tokens + carry_entry + [DELIM_OUT] + formatted_out + query_entry)
     raise ValueError(f"Unknown tier: {tier}")
 
 
