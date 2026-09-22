@@ -53,7 +53,7 @@ Filtering by the admissibility rules yields exactly **six valid mechanics config
 
 ## 3. Primary Canonical Experimental Model Matrix
 
-The primary experimental suite crosses the 6 admissible mechanics tuples against the 7 canonical representation layouts (under default $p_{\text{prior}} = 0.5$):
+The primary experimental suite crosses the 6 admissible mechanics tuples against the 7 canonical representation layouts under the neutral prior baseline (**$p_{\text{prior}} = 0.0$**, matching the active fleet training regime):
 
 | Model Matrix Identifier | Mechanics Tuple | Representation Layout | Curriculum | Scientific Objective |
 | :--- | :--- | :--- | :---: | :--- |
@@ -76,6 +76,12 @@ The primary experimental suite crosses the 6 admissible mechanics tuples against
 | **`SM-Seq-ZeroPreamble`**| `SM-Seq` | `zero_preamble_kv` | `D-FullSpan` | Tests sum-first zero-preamble in-context alphabet deduction. |
 | **`SM-SeqRev-ZeroPreamble`**|`SM-SeqRev`| `zero_preamble_kv`| `D-FullSpan` | Tests carry-first zero-preamble in-context alphabet deduction. |
 | **`SM-Fork-ZeroPreamble`**| `SM-Fork` | `zero_preamble_kv` | `D-FullSpan` | Tests branching query zero-preamble in-context alphabet deduction. |
+
+### 3.1 Designated Subset for the Prior Dial Sweep ($p_{\text{prior}}$)
+Rather than multiplying all 19 configurations across the full prior sweep, the $p_{\text{prior}} \in \{0.0, 0.25, 0.5, 0.75, 0.9\}$ training sweep is evaluated on a focused subset of three leading architectures representing both supervisory regimes:
+1. **`SM-Seq-Addressed`**: Harnessed Sum-First under discrete numeral addressing.
+2. **`SM-SeqRev-Addressed`**: Harnessed Carry-First under discrete numeral addressing.
+3. **`AR-CarryFirst-Sem`**: Autonomous Carry-First under semantic delimiters.
 
 ---
 
@@ -107,7 +113,7 @@ The experimental program is designed to confirm or falsify eight central theoret
 * **Statement**: Provided the full-span alphabet curriculum ($L \ge B$) is satisfied, a transformer can learn to infer the base alphabet $\mathcal{A}$ zero-shot directly from operand column addresses without an explicit axiom preamble (`zero_preamble_kv`).
 
 ### Hypothesis H7: Prior Suppression & The Rule-Prior Override Curve
-* **Statement**: As the training prior strength $p_{\text{prior}}$ increases from $0.0$ to $0.9$, model accuracy on the `canonical_permuted` evaluation condition will degrade along a monotonic sigmoid curve. Errors on `canonical_permuted` will be overwhelmingly dominated by **Prior Intrusions** (emitting the digit expected under the canonical prior rather than the active bound alphabet).
+* **Statement**: As the training prior strength $p_{\text{prior}}$ increases from $0.0$ to $0.9$, model accuracy on the `canonical_permuted` evaluation condition will degrade along a monotonic sigmoid curve. On failed instances under `canonical_permuted`, the **Prior Intrusion Rate** will significantly exceed the random guessing baseline of $\frac{1}{B-1}$, confirming that errors represent active prior regression rather than stochastic degeneration.
 
-### Hypothesis H8: Decoupled Binding vs. Execution
-* **Statement**: Single-token successor probe accuracy will significantly exceed full-sequence task EM across all models, demonstrating that failure to execute multi-step algorithms out-of-distribution is driven by sequential attention degradation rather than a failure to retrieve the in-context parameter binding.
+### Hypothesis H8: Decoupled Binding vs. Procedural Execution
+* **Statement**: Single-token successor probe accuracy will significantly exceed per-step prediction accuracy ($\text{Acc}_{\text{step}}$) and per-digit output accuracy ($\text{Acc}_{\text{digit}}$) on the exact same problem instances. This proves that out-of-distribution arithmetic failure is driven by procedural calculation, spatial tracking, or carry propagation failure rather than an inability to bind or retrieve the active alphabet rule.

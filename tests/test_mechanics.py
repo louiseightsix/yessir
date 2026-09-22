@@ -57,7 +57,7 @@ def _value(axiom, digits):
 def test_constants_match_spec_vocabulary_table():
     text = (SPEC_DIR / "README.md").read_text(encoding="utf-8")
     rows = re.findall(r"^\| `[^`]+` \| `(\w+)` \| `(0x[0-9A-F]{2})` \|", text, flags=re.M)
-    assert len(rows) == 15, "expected 15 named control tokens in spec/README.md Section 2"
+    assert len(rows) == 16, "expected 16 named control tokens in spec/README.md Section 2"
     for name, byte in rows:
         assert getattr(C, name) == int(byte, 16), f"{name} disagrees with the spec"
 

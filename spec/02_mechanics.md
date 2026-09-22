@@ -120,8 +120,8 @@ The readout channel specifies how hidden vectors $\mathbf{h} \in \mathbb{R}^{d_{
 ### 4.2 `C-Sequence` (Tied Copy Head via Query Triggers)
 * Logits are generated exclusively via the transposed input embedding matrix:
   $$W_{\text{head}} = E^T \in \mathbb{R}^{|\mathcal{V}| \times d_{\text{model}}}$$
-* Dedicated query trigger tokens (`[S]`, `[C]`, `[F]`) are appended to the sequence. Conditioned on the trigger token, the model routes attention dynamically to retrieve the appropriate value from context.
-* **Property**: Decouples prediction from static weights, enabling dynamic in-context pointer routing over bound parameters.
+* Dedicated query trigger tokens (`[S]`, `[C]`, `[F]`, `[PROBE]`) are appended to the sequence. Conditioned on the trigger token, the model routes attention dynamically to retrieve the appropriate value from context.
+* **Property**: Decouples prediction from static weights, enabling dynamic in-context pointer routing over bound parameters. Because decoding is driven by sequence triggers, `C-Sequence` architectures natively support arbitrary auxiliary diagnostic queries (such as the single-token binding probe `[PROBE]`), whereas `C-Weight` architectures require adding separate parameterised linear heads for every new query type.
 
 ---
 

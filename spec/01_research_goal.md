@@ -39,7 +39,7 @@ To ensure that the theoretical constructs, evaluation protocols, and code infras
    $$\mathcal{P}_{\Theta}: \mathcal{X} \to \mathcal{Y}$$
 2. **Binding**: The process by which the sequence prompt supplies the concrete values of $\Theta_{\text{rule}}$ to the model at inference time. The model must bind these parameters dynamically within its attention activations rather than relying on static weights.
 3. **Execution**: The step-by-step unrolling of the procedure $\mathcal{P}_{\Theta}$ over the inputs to generate the valid result or reasoning trace.
-4. **Prior ($\pi_0$)**: Any default procedure, ordering, or association encoded within the model's weights through training frequency or pre-existing biases (e.g. the canonical sequence of decimal digits `'0' \to '1' \to '2' \dots`). A prior competes with an in-context binding whenever the active rule contradicts default expectations.
+4. **Prior ($\pi_0$)**: Any default procedure, ordering, or association encoded within the model's weights through training frequency (e.g. the canonical sequence of decimal digits `'0' \to '1' \to '2' \dots`). In models trained strictly from scratch, there is zero pre-training; the only prior that exists is the empirical frequency prior induced by the training parameter $p_{\text{prior}}$. A prior competes with an in-context binding whenever the active rule contradicts this learned expectation.
 
 ### 2.2 The Progression of Rule-Following Complexity
 Within this ontology, algorithmic tasks form a natural continuum toward ARC-AGI:
@@ -73,7 +73,7 @@ Framed as an inquiry into rule following, the experimental program investigates 
 
 ### 3.5 Question 5: Binding Retrieval vs. Procedural Execution
 *When a model fails an algorithmic task, did it fail to bind the rule parameters, or did it fail the multi-step procedural execution?*
-* **Inquiry**: By introducing an isolated **Successor Probe** ($s_i \to s_{i+1}$) answered from the exact same prompt context, we decouple parameter retrieval from execution. The performance gap isolates the exact locus of failure.
+* **Inquiry**: By introducing a single-token **Successor Probe** ($s_i \to s_{i+1}$) answered from the exact same prompt context, we decouple parameter retrieval from multi-step calculation. Comparing probe accuracy directly against **per-step or per-digit prediction accuracy** on the same instances isolates parameter retrieval from procedural execution.
 
 ---
 

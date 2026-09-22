@@ -24,7 +24,7 @@ SIGMA_POOL = list(range(0x00, 0xF0))
 # Canonical evaluation axiom: conventional ASCII digits '0'-'9', 'A', 'B' (truncated to the base)
 CANONICAL_AXIOM = list(b"0123456789AB")
 
-# Control & Delimiter Tokens V_ctrl (0xF0 - 0xFF); 0xFF is reserved
+# Control & Delimiter Tokens V_ctrl (0xF0 - 0xFF)
 DELIM_AXIOM = 0xF0     # Tier 2/5 axiom block delimiter
 DELIM_A = 0xF1         # Tier 2/5 operand A delimiter
 DELIM_B = 0xF2         # Tier 2/5 operand B delimiter
@@ -40,6 +40,7 @@ DELIM_GENERIC = 0xFB   # Tier 3/4 neutral block delimiter / Tier 6 entry opener,
 TOKEN_FLAG = 0xFC      # SM-Seq / SM-SeqRev Pass 3 flag trigger / SM-Fork prompt tail
 PAD = 0xFD             # Batch padding (right-padding only)
 BOS = 0xFE             # Sequence origin; attention sink and NoPE count anchor
+TOKEN_PROBE = 0xFF     # Successor binding probe trigger: [PROBE] s_i -> s_{i+1} (spec/05 Section 3)
 IGNORE_LABEL = -100    # PyTorch loss masking ignore index
 
 # head_flag class indices (SM-MH)
@@ -74,6 +75,7 @@ TOKEN_NAMES = {
     TOKEN_FLAG: "[F]",
     PAD: "[PAD]",
     BOS: "[BOS]",
+    TOKEN_PROBE: "[PROBE]",
 }
 
 

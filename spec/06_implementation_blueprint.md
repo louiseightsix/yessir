@@ -95,29 +95,41 @@ All models share an identical, tightly controlled architectural footprint:
 class ProceduralRuleGenerator:
     """Deterministic procedural generator with controlled prior dialing."""
     
-    def __init__(self, seed: int, rule: Rule, p_prior: float = 0.5, curriculum: str = "standard"):
+    def __init__(self, seed: int, rule: Rule, p_prior: float = 0.0, p_probe: float = 0.05, curriculum: str = "standard"):
         self.seed = seed
         self.rule = rule
         self.p_prior = p_prior
+        self.p_probe = p_probe
         self.curriculum = curriculum
+
+    def get_canonical_alphabet(self, base: int) -> list[int]:
+        glyphs = [ord('0') + i for i in range(min(base, 10))]
+        if base > 10:
+            glyphs += [ord('A') + i for i in range(base - 10)]
+        return glyphs
 
     def sample_alphabet(self, base: int, condition: str, rng: random.Random) -> list[int]:
         if condition == "canonical_order":
-            return [ord('0') + i for i in range(base)]
+            return self.get_canonical_alphabet(base)
         elif condition == "canonical_permuted":
-            canonical = [ord('0') + i for i in range(base)]
+            canonical = self.get_canonical_alphabet(base)
             perm = canonical[:]
             while perm == canonical and base > 1:
                 rng.shuffle(perm)
             return perm
+        elif condition == "random_uniform":
+            # Drawn from full candidate pool Sigma (240 bytes) including '0'..'9', 'A', 'B'
+            return rng.sample(SIGMA_POOL, base)
         elif condition == "symbols_novel":
+            # Strictly excludes the 12 canonical glyphs
             return rng.sample(SIGMA_NOVEL_POOL, base)
         raise ValueError(f"Unknown alphabet condition: {condition}")
 ```
 
-1. **Prior Dialing in Training**: During training, condition is sampled as `canonical_order` with probability $p_{\text{prior}}$, and `symbols_novel` with probability $1 - p_{\text{prior}}$.
-2. **Carry Cascade Injection ($p_{\text{chain}} = 0.5$)**: Forces generating columns ($a_i + b_i \ge B$) followed by propagating columns ($a_j + b_j = B - 1$).
-3. **Terminal Step Oversampling ($p_{\text{terminal}} = 0.2$)**: Alleviates halting flag class imbalance in harnessed training.
+1. **Unconfounded Prior Dialing in Training**: During training, an instance samples `canonical_order` with probability $p_{\text{prior}}$, and `random_uniform` from the full $\Sigma$ pool with probability $1 - p_{\text{prior}}$. At $p_{\text{prior}} = 0.0$, all bytes appear in random permutations with equal frequency.
+2. **Auxiliary Probe Training ($p_{\text{probe}} = 0.05$)**: In sequence-space models (`C-Sequence`), a batch is augmented with auxiliary binding probe queries (`[PROBE] s_i \to s_{i+1}`) with probability $p_{\text{probe}}$, backpropagating cross-entropy loss through the tied head. Control runs set $p_{\text{probe}} = 0.0$.
+3. **Carry Cascade Injection ($p_{\text{chain}} = 0.5$)**: Forces generating columns ($a_i + b_i \ge B$) followed by propagating columns ($a_j + b_j = B - 1$).
+4. **Terminal Step Oversampling ($p_{\text{terminal}} = 0.2$)**: Alleviates halting flag class imbalance in harnessed training.
 
 ---
 
