@@ -18,7 +18,6 @@ $$\mathcal{M} = \langle \mathcal{S}_{\text{family}}, \mathcal{S}_{\text{agency}}
    - Total vocabulary cardinality $|\mathcal{V}| = 256$ (`0x00` through `0xFF`), ensuring strict single-byte tokenisation with zero multi-byte or sub-word BPE tokenisation artifacts.
    - $\mathcal{V}_{\text{ctrl}} \subset \mathcal{V}$: Dedicated structural control tokens, probe triggers, and section delimiters reserved in the upper byte range (`0xF0`–`0xFF`).
    - $\Sigma = \mathcal{V} \setminus \mathcal{V}_{\text{ctrl}}$: Open candidate pool of candidate numeral bytes (`0x00`–`0xEF`, 240 bytes) from which dynamic alphabets are sampled.
-   - $\Sigma_{\text{novel}} = \Sigma \setminus \{\texttt{'0'}, \dots, \texttt{'9'}\}$: Subset of novel symbols with zero pre-existing ASCII order prior.
 3. **Mathematical Notation**:
    - $B \in \mathbb{N}_{\ge 2}$: Numerical radix (base). In canonical training regimes, $B \in \{2, 4, 8, 10\}$; in out-of-distribution evaluation, $B \in \{3, 12\}$.
    - $\mathcal{A} = [s_0, s_1, \dots, s_{B-1}]$: Ordered numeral alphabet where $s_i \in \Sigma$ and $\text{val}(s_i) = i$.
@@ -65,7 +64,7 @@ The specification suite is organised into modular, logically decoupled documents
 
 * **[`01_research_goal.md`](01_research_goal.md)**: Universal rule-following ontology (Rule, Binding, Prior, Execution), spectrum of complexity toward ARC-AGI, core research questions, and explicit boundary scope.
 * **[`02_mechanics.md`](02_mechanics.md)**: Generic State Machine execution contracts ($\mathcal{S}, \mathcal{I}, \mathcal{O}, \delta, \mathcal{H}$), Supervisory Agency ($\mathcal{S}_{\text{agency}}$), Intra-Step Causal Topologies ($\mathcal{S}_{\text{topology}}$), and Readout Channels ($\mathcal{S}_{\text{channel}}$).
-* **[`03_representations.md`](03_representations.md)**: Prior stratification (`symbols_novel`, `canonical_order`, `canonical_permuted`), training prior dial $p_{\text{prior}}$, structural representation layouts ($\mathcal{S}_{\text{repr}}$), and curricula ($\mathcal{S}_{\text{dist}}$).
+* **[`03_representations.md`](03_representations.md)**: Prior stratification (`symbols_random`, `canonical_order`, `canonical_permuted`), training prior dial $p_{\text{prior}}$, structural representation layouts ($\mathcal{S}_{\text{repr}}$), and curricula ($\mathcal{S}_{\text{dist}}$).
 * **[`04_experimental_matrix.md`](04_experimental_matrix.md)**: The 7-axis design tensor, reserved `rule_family` axis, Admissibility Matrix, canonical models, and formal hypotheses H1 through H8.
 * **[`05_evaluation_and_metrics.md`](05_evaluation_and_metrics.md)**: Stratified evaluation cells, the In-Context Binding Probe ($s_i \to s_{i+1}$), 4-way error taxonomy (Prior Intrusion, Out-of-Alphabet, Procedural Error, Syntax Malformation), and per-instance JSONL regression telemetry.
 * **[`06_implementation_blueprint.md`](06_implementation_blueprint.md)**: Extensible `Rule` protocol / ABC, Universal Transformer blueprint, stratified generator contracts, per-instance result writer, and backward-compatible checkpoint loader.

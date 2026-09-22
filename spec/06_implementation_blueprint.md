@@ -117,16 +117,13 @@ class ProceduralRuleGenerator:
             while perm == canonical and base > 1:
                 rng.shuffle(perm)
             return perm
-        elif condition == "random_uniform":
-            # Drawn from full candidate pool Sigma (240 bytes) including '0'..'9', 'A', 'B'
+        elif condition in ("symbols_random", "random_uniform"):
+            # Drawn uniformly from candidate pool Sigma (240 bytes)
             return rng.sample(SIGMA_POOL, base)
-        elif condition == "symbols_novel":
-            # Strictly excludes the 12 canonical glyphs
-            return rng.sample(SIGMA_NOVEL_POOL, base)
         raise ValueError(f"Unknown alphabet condition: {condition}")
 ```
 
-1. **Unconfounded Prior Dialing in Training**: During training, an instance samples `canonical_order` with probability $p_{\text{prior}}$, and `random_uniform` from the full $\Sigma$ pool with probability $1 - p_{\text{prior}}$. At $p_{\text{prior}} = 0.0$, all bytes appear in random permutations with equal frequency.
+1. **Unconfounded Prior Dialing in Training**: During training, an instance samples `canonical_order` with probability $p_{\text{prior}}$, and `symbols_random` from the full $\Sigma$ pool with probability $1 - p_{\text{prior}}$. At $p_{\text{prior}} = 0.0$, all bytes appear in random permutations with equal frequency.
 2. **Auxiliary Probe Training ($p_{\text{probe}} = 0.05$)**: In sequence-space models (`C-Sequence`), a batch is augmented with auxiliary binding probe queries (`[PROBE] s_i \to s_{i+1}`) with probability $p_{\text{probe}}$, backpropagating cross-entropy loss through the tied head. Control runs set $p_{\text{probe}} = 0.0$.
 3. **Carry Cascade Injection ($p_{\text{chain}} = 0.5$)**: Forces generating columns ($a_i + b_i \ge B$) followed by propagating columns ($a_j + b_j = B - 1$).
 4. **Terminal Step Oversampling ($p_{\text{terminal}} = 0.2$)**: Alleviates halting flag class imbalance in harnessed training.

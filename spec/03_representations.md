@@ -10,7 +10,7 @@
 To execute a parameterized rule $\mathcal{P}_{\Theta}$, the sequence representation must solve three distinct challenges:
 1. **Binding Representation**: How the parameter binding $\Theta_{\text{rule}}$ is articulated in tokens (explicit dictionary vs. zero-preamble in-context deduction).
 2. **Spatial Alignment**: How input elements, state registers, and output history are indexed without absolute coordinate drift (continuous PE vs. discrete key-value addressing).
-3. **Prior Control**: How the bound alphabet interacts with the model's learned semantic priors (novel symbols vs. canonical orders vs. permuted canonical orders).
+3. **Prior Control**: How the bound alphabet interacts with the model's learned frequency priors (neutral random symbols vs. canonical orders vs. permuted canonical orders).
 
 This specification formalises:
 * **Axis IV: Representation & Inductive Bias ($\mathcal{S}_{\text{repr}}$)**.
@@ -28,8 +28,8 @@ To treat prior suppression as a rigorous experimental variable, we stratify alph
 ```
                            THE THREE ALPHABET REGIMES
                            
-  1. symbols_novel         Arbitrary non-canonical bytes from Sigma_novel (excluding the 12 canonical
-                           glyphs '0'..'9', 'A', 'B'). Tests generalisation to unfamiliar symbol tokens.
+  1. symbols_random        Arbitrary byte alphabets sampled uniformly from Sigma. Serves as the 
+                           neutral non-canonical baseline with zero consistent ordering prior.
                            
   2. canonical_order       Standard alphanumeric glyphs ('0'..'9' for B <= 10; plus 'A', 'B' for B = 12)
                            in standard numerical order. Rule binding directly aligns with training prior.
@@ -40,9 +40,9 @@ To treat prior suppression as a rigorous experimental variable, we stratify alph
 ```
 
 ### 2.1 The Alphabet Stratification Regimes
-1. **`symbols_novel` (Unseen Symbol Generalisation)**:
-   - Symbols are sampled uniformly from the subset $\Sigma_{\text{novel}} = \Sigma \setminus \{\texttt{'0'}, \dots, \texttt{'9'}, \texttt{'A'}, \texttt{'B'}\}$, strictly excluding the twelve canonical numeral glyphs.
-   - Measures parameter binding and execution capacity over arbitrary byte tokens.
+1. **`symbols_random` (Neutral Non-Canonical Baseline)**:
+   - Symbols are sampled uniformly from the candidate pool $\Sigma$.
+   - Because every byte in $\Sigma$ is encountered during training, tokens in this condition are not novel; rather, this regime measures in-context parameter binding in a neutral setting where the model has acquired zero consistent ordering prior over the symbols.
 2. **`canonical_order` (Prior-Reinforced Baseline)**:
    - Symbols are the standard alphanumeric numerals in standard mathematical order ($\mathcal{A} = [\texttt{'0'}, \texttt{'1'}, \dots, \texttt{'9'}, \texttt{'A'}, \texttt{'B'}]$).
    - Serves as the positive control where in-context rule binding and frequency priors reinforce each other.
@@ -58,6 +58,7 @@ To ensure the baseline at $p_{\text{prior}} = 0.0$ is completely unconfounded:
   - If the non-canonical fraction excluded digit glyphs, a model trained at $p_{\text{prior}} = 0.0$ would have never encountered `'0'`..`'9'`, so testing on `canonical_permuted` would confound prior suppression with token novelty.
   - By sampling the non-canonical fraction from the full $\Sigma$, digit glyphs appear in random orders with the exact same frequency as any other byte. At $p_{\text{prior}} = 0.0$, the model is thoroughly familiar with the digit tokens, but possesses **zero statistical preference for their numerical order**.
   - As $p_{\text{prior}}$ increases, the canonical order is preferentially reinforced with probability $p_{\text{prior}}$. The parameter $p_{\text{prior}}$ thus serves as a pure, unconfounded dial governing prior strength.
+* **Alphabet Composition Nuance**: At $p_{\text{prior}} = 0.0$, the model encounters individual digit glyphs at the same rate as any other byte, but rarely sees an alphabet composed entirely of them. To match alphabet token composition exactly, the random fraction can optionally include permuted canonical alphabets at a small rate.
 * **The Compliance Curve**: Evaluating models across $p_{\text{prior}} \in \{0.0, 0.25, 0.5, 0.75, 0.9\}$ on `canonical_permuted` maps the **Prior-Override Compliance Curve**, measuring how rule adherence degrades as competing weight priors strengthen.
 
 ---

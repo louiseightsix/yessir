@@ -83,7 +83,7 @@ Framed as an inquiry into rule following, the experimental program investigates 
 2. **Procedural Determinism (Zero Disk I/O)**: Data is synthesized on-the-fly as a pure mathematical function of the seed and step index.
 3. **Strict Zero-Shot Evaluation**: Out-of-distribution evaluation is conducted with frozen weights, zero fine-tuning, and zero few-shot demonstrations.
 4. **Full-Sequence Exact Match (EM) as Primary Metric**: A problem is correct if and only if every single step output and the halting token match the ground-truth reference trajectory.
-5. **Stratified Prior Control**: Alphabets are explicitly categorised into novel symbols, canonical orders, and permuted canonical orders to control prior strength.
+5. **Stratified Prior Control**: Alphabets are explicitly categorised into neutral random symbols (`symbols_random`), canonical orders (`canonical_order`), and permuted canonical orders (`canonical_permuted`) to control prior strength.
 
 ---
 
