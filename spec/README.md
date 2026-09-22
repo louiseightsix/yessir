@@ -43,4 +43,5 @@ The central research question is whether an autoregressive model can decouple ab
    - [`05_ablation_variants.md`](05_ablation_variants.md): confound glossary, ablations and negative controls.
    - [`06_implementation.md`](06_implementation.md): pure PyTorch engineering blueprint, tensor layouts, and test contracts.
    - [`07_potential_outcomes.md`](07_potential_outcomes.md): taxonomy of empirical sub-results, scientific discoveries, and theoretical branches.
+   - [`08_decoupled_experimental_taxonomy.md`](08_decoupled_experimental_taxonomy.md): proposal for an orthogonal 4-axis experimental taxonomy (Agency, Topology, Channel, Representation).
 5. **Implementation Status**: Codebase skeleton and test harnesses implemented in `transformadder/`, `experiments/`, and `tests/`.
