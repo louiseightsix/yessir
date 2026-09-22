@@ -1,21 +1,67 @@
-# Structural Representations, Coordinate Systems, and Problem Curricula
+# Structural Representations, Prior Stratification, and Curricula
 
 **Specification Document 03**  
-**TransformAdder Project**
+**TransformAdder Project: Foundational Framework**
 
 ---
 
-## 1. Overview: The Representational Design Space
+## 1. Overview: Representing Rules, Data, and Priors
 
-While execution mechanics dictate the control flow and joint factorisation, the model's capacity to extrapolate depends critically upon its **internal representation of spatial structure and sequence order**.
+To execute a parameterized rule $\mathcal{P}_{\Theta}$, the sequence representation must solve three distinct challenges:
+1. **Binding Representation**: How the parameter binding $\Theta_{\text{rule}}$ is articulated in tokens (explicit dictionary vs. zero-preamble in-context deduction).
+2. **Spatial Alignment**: How input elements, state registers, and output history are indexed without absolute coordinate drift (continuous PE vs. discrete key-value addressing).
+3. **Prior Control**: How the bound alphabet interacts with the model's learned semantic priors (novel symbols vs. canonical orders vs. permuted canonical orders).
 
-Standard transformers rely on absolute positional encodings (sinusoidal or learned), which bind computation to fixed sequence indices and degrade catastrophically when inputs exceed the training length. This specification explores the spectrum from continuous geometric coordinates to discrete symbolic key-value addressing, formalised as:
-* **Axis IV: Representation & Inductive Bias ($\mathcal{S}_{\text{repr}}$)**: Sub-dimensions covering coordinates, scoping lexicons, and query addressing.
-* **Axis V: Problem Distribution & Curriculum ($\mathcal{S}_{\text{dist}}$)**: Length constraints ensuring mathematical solvability across alphabets.
+This specification formalises:
+* **Axis IV: Representation & Inductive Bias ($\mathcal{S}_{\text{repr}}$)**.
+* **Axis V: Problem Distribution & Curriculum ($\mathcal{S}_{\text{dist}}$)**.
+* **Prior Parameterization ($\mathcal{S}_{\text{prior}}$)**: Controlled prior strength and alphabet stratification.
 
 ---
 
-## 2. Axis IV: Structural Representation Sub-Dimensions
+## 2. Controlled Prior Stratification & The Prior Dial
+
+A central limitation of naive synthetic benchmarks is that random symbol sampling creates an uncontrolled, noisy prior. If training uses purely random byte alphabets, the model forms no consistent order prior; conversely, if training uses only standard ASCII digits (`0`..`9`), the model memorises static arithmetic tables.
+
+To treat prior suppression as a rigorous experimental variable, we stratify alphabet conditions into three distinct regimes and parameterise training prior strength.
+
+```
+                           THE THREE ALPHABET REGIMES
+                           
+  1. symbols_novel         Arbitrary non-ASCII bytes from Sigma_novel (0x00..0xEF \ ASCII).
+                           Model possesses ZERO pre-existing order prior.
+                           
+  2. canonical_order       Standard ASCII digit glyphs ('0'..'9') in standard numerical order.
+                           Rule binding directly aligns with training frequency prior.
+                           
+  3. canonical_permuted    Standard ASCII digit glyphs ('0'..'9') with permuted successor order 
+                           (e.g. '9' -> '0', '2' -> '9'...). 
+                           DIRECT RULE-VERSUS-PRIOR CONFLICT.
+```
+
+### 2.1 The Alphabet Stratification Regimes
+1. **`symbols_novel` (Pure In-Context Binding)**:
+   - Symbols are sampled uniformly from the non-ASCII subset $\Sigma_{\text{novel}} = \Sigma \setminus \{\texttt{'0'}, \dots, \texttt{'9'}\}$.
+   - Because the model has no pre-existing ordering bias over arbitrary bytes, this condition measures pure parameter binding and execution capacity in a neutral setting.
+2. **`canonical_order` (Prior-Reinforced Baseline)**:
+   - Symbols are the standard ASCII numerals in their standard mathematical order ($\mathcal{A} = [\texttt{'0'}, \texttt{'1'}, \dots]$).
+   - Serves as the positive control where in-context rule binding and weight priors reinforce each other.
+3. **`canonical_permuted` (The Rule-Prior Conflict Test)**:
+   - The alphabet consists of the familiar ASCII digit glyphs $\{\texttt{'0'}, \dots, \texttt{'9'}\}$, but their successor order is randomly permuted (e.g. $\mathcal{A} = [\texttt{'4'}, \texttt{'7'}, \texttt{'0'}, \texttt{'9'}, \dots]$).
+   - This represents the definitive test of **Prior Suppression**: the in-context definition states that $\texttt{'7'} + \texttt{'4'} = \dots$, while the model's pre-training or training frequency strongly associates $\texttt{'4'} + \texttt{'7'} = \texttt{'11'}$. The model must suppress its internal prior and strictly obey the prompt.
+
+### 2.2 The Training Prior Dial ($p_{\text{prior}} \in [0.0, 1.0]$)
+Prior strength is not merely an evaluation condition; it is a parameter of the training distribution:
+* **$p_{\text{prior}}$**: The fraction of training instances generated under `canonical_order`. The remaining $1 - p_{\text{prior}}$ instances are generated under `symbols_novel`.
+* **The Experimental Spectrum**:
+  - $p_{\text{prior}} = 0.0$: Purely neutral training. Model acquires zero order prior over ASCII digits.
+  - $p_{\text{prior}} = 0.5$: Balanced training. Model develops a strong default prior for ASCII numerals while simultaneously learning that in-context alphabets can vary.
+  - $p_{\text{prior}} = 0.9$: Heavily biased training. Simulates large language models where standard digit arithmetic is deeply entrenched in weights.
+* **The Compliance Curve**: Evaluating models across $p_{\text{prior}} \in \{0.0, 0.25, 0.5, 0.75, 0.9\}$ on `canonical_permuted` yields the **Prior-Override Compliance Curve**, mapping how rule adherence degrades as competing weight priors strengthen.
+
+---
+
+## 3. Axis IV: Representation Sub-Axes & Lexicons
 
 ```
                                AXIS IV: REPRESENTATION SUB-AXES
@@ -40,63 +86,9 @@ Standard transformers rely on absolute positional encodings (sinusoidal or learn
   └── R-Query-ExplicitKV:     Harness formats query with explicit target numeral address: (k).
 ```
 
-### 2.1 Sub-Axis IV-A: Coordinate Mechanisms
+### 3.1 The Seven Canonical Representation Layouts
 
-#### `R-Pos-Sinusoidal` (2D Split Sinusoidal Positional Encoding)
-Input embeddings $\mathbf{x}_i \in \mathbb{R}^{d_{\text{model}}}$ ($d_{\text{model}} = 256$) are constructed as the sum of a token embedding, a 64-dimensional learned role embedding, and a 192-dimensional continuous sinusoidal coordinate:
-$$\mathbf{x}_i = E[\text{token}_i] + E_{\text{role}}[\text{role}_i] \oplus \text{PE}_{192}(\text{sig}_i)$$
-* **Significance Coordinate ($\text{sig}_i$)**: Represents the column index $j \in [0, L)$ within the active section. Wavelengths form a geometric progression from $2\pi$ to $10{,}000 \cdot 2\pi$.
-* **Theoretical Vulnerability**: Attention dot products $\mathbf{q}^T \mathbf{k}$ between sinusoidal features depend upon trigonometric phase differences. When sequence lengths extend to unseen regimes ($L > 20$), feed-forward layers encounter activations outside their training support, leading to phase drift and breakdown of column alignment.
-
-#### `R-Pos-NoPE` (No Positional Encoding)
-Positional coordinates and role embeddings are entirely omitted:
-$$\mathbf{x}_i = E[\text{token}_i] \in \mathbb{R}^{d_{\text{model}}}$$
-Self-attention is mathematically permutation-invariant over the input set. To compute sequential operations, the network must rely entirely upon structural delimiters, causal masking, or discrete symbolic tokens.
-
----
-
-### 2.2 Sub-Axis IV-B: Scoping Lexicons & Delimiter Structures
-
-The prompt sequence must inform the network where sections (axiom, operands, carry, output) begin and end. The codebase formalises six concrete lexical schemes:
-
-1. **`R-Scope-None`**: Operands are directly concatenated with zero punctuation:
-   $$[\texttt{BOS}] \circ \mathcal{A} \circ a \circ b$$
-   Requires explicit continuous coordinate side-channels (`R-Pos-Sinusoidal`) to distinguish operands.
-2. **`R-Scope-RoleEmbed`**: Section boundaries are marked by a single generic delimiter (`|`), complemented by a learned 64-dimensional role embedding (`ROLE_AXIOM`, `ROLE_OPERAND_A`, etc.):
-   $$[\texttt{BOS}] \circ \mathcal{A} \circ [|] \circ a \circ [|] \circ b$$
-3. **`R-Scope-Semantic`**: Each section is introduced by a distinct semantic token (`[AXIOM]`, `[A]`, `[B]`, `[CARRY]`, `[OUT]`):
-   $$[\texttt{BOS}] \circ [\texttt{AXIOM}] \circ \mathcal{A} \circ [\texttt{A}] \circ a \circ [\texttt{B}] \circ b$$
-4. **`R-Scope-Generic`**: A single uniform delimiter token (`|`) marks every boundary:
-   $$[\texttt{BOS}] \circ \mathcal{A} \circ [|] \circ a \circ [|] \circ b \circ [|] \circ c_k \circ [|] \circ OUT_k$$
-   Forces the network to disambiguate sections solely by ordinal counting of `|` tokens.
-5. **`R-Scope-SemanticOrigin`**: Combines dedicated semantic section headers with an explicit origin anchor marker `*` (`DELIM_ORIGIN`) placed at the start of each section:
-   $$[\texttt{BOS}] \circ [\texttt{AXIOM}] \circ [*] \circ \mathcal{A} \circ [\texttt{A}] \circ [*] \circ a \circ [\texttt{B}] \circ [*] \circ b$$
-   Provides attention heads with an invariant reference anchor for relative distance measurement.
-6. **`R-Scope-Addressed`**: Every digit entry is formatted as an explicit Key-Value tuple:
-   $$[|] \circ \text{Addr}(j) \circ [*] \circ \text{Val}_j$$
-   where $\text{Addr}(j)$ is the numeral representation of index $j$ encoded in the base alphabet $\mathcal{A}$. Column alignment becomes an associative memory lookup: "find the entry whose address matches query $k$".
-7. **`R-Scope-ZeroPreamble`**: Identical to `R-Scope-Addressed`, but the entire `[AXIOM]` dictionary header is deleted from the sequence:
-   $$[\texttt{BOS}] \circ [\texttt{A}] \circ \text{FormattedEntries}(a) \circ [\texttt{B}] \circ \text{FormattedEntries}(b)$$
-   Forces the model to deduce the alphabet succession relation $\mathcal{A}$ in-context from operand entries.
-
----
-
-### 2.3 Sub-Axis IV-C: Query Addressing Modes
-
-In harnessed execution, the prompt must specify which column $k$ the model is expected to evaluate:
-
-* **`R-Query-Implicit`**: The prompt terminates simply on the query trigger:
-  $$\dots \circ c_k \circ OUT_k \circ [\texttt{S}]$$
-  The model is not told the index $k$; it must infer $k$ by counting the number of historical output digits $|OUT_k| = k$.
-* **`R-Query-ExplicitKV`**: The harness formats the query with an explicit symbolic numeral address matching the key-value schema:
-  $$\dots \circ [|] \circ \text{Addr}(k) \circ [*] \circ [\texttt{S}]$$
-  The attention layer can perform exact token-level key matching between the query address and operand entries.
-
----
-
-## 3. The Seven Canonical Representation Layouts
-
-The admissible intersections of sub-axes IV-A, IV-B, and IV-C define seven canonical representation layouts implemented in the codebase:
+The admissible intersections across sub-axes IV-A, IV-B, and IV-C define seven canonical representation layouts:
 
 | Canonical Identifier | Coordinate (IV-A) | Scoping Lexicon (IV-B) | Query Mode (IV-C) | Prompt Prefix Grammar |
 | :--- | :--- | :--- | :--- | :--- |
@@ -112,17 +104,17 @@ The admissible intersections of sub-axes IV-A, IV-B, and IV-C define seven canon
 
 ## 4. Axis V: Problem Distribution & Curriculum ($\mathcal{S}_{\text{dist}}$)
 
-To isolate representational capabilities from training distribution artifacts, the data generation protocol formalises two distinct curricula:
+To isolate representational and rule-following capability from dataset artifacts, we define two curricula:
 
 ### 4.1 `D-Standard` (Uniform Variable Length)
-* **Sampling Distribution**: For every problem instance, operand lengths are sampled uniformly:
+* **Sampling Distribution**: For every instance, operand lengths are sampled uniformly:
   $$L_a, L_b \sim \mathcal{U}(L_{\min}, L_{\max})$$
   with $L_{\min} = 1$ and $L_{\max} = 20$. Operands may consist of a single digit, and operand lengths may differ ($|a| \ne |b|$).
-* **Scope**: Standard across all representation layouts with explicit axiom preambles.
+* **Scope**: Applied to all representation layouts featuring an explicit rule parameter preamble.
 
-### 4.2 `D-FullSpan` (Full-Span Alphabet Guarantee)
+### 4.2 `D-FullSpan` (Full-Span Alphabet Solvability Guarantee)
 * **Sampling Distribution**: Operand lengths are lower-bounded by the radix $B$:
   $$L_{\text{lower}} = \max(L_{\min}, B)$$
   $$L_a, L_b \sim \mathcal{U}(L_{\text{lower}}, \max(L_{\max}, L_{\text{lower}}))$$
-* **Theoretical Necessity**: Under zero-preamble induction (`zero_preamble_kv`), the model reads the alphabet $\mathcal{A}$ off the single-digit numeral addresses $0 \dots B-1$ that label operand columns. If an operand length were shorter than $B$, high-value digits would never appear in single-digit addresses, rendering the problem mathematically unsolvable in-context.
-* **Empirical Consequence**: For bases $B \ge L_{\max}$ (e.g. Base 12 when $L_{\max}=20$, or when testing extrapolation), this distribution deterministically collapses to a fixed-length problem of exactly $L = B$ columns rather than a variable-length range. Acknowledging this curriculum shift on its own axis prevents confounding curriculum effects with representational advantages.
+* **Theoretical Necessity**: Under zero-preamble induction (`zero_preamble_kv`), the rule parameters $\Theta_{\text{rule}} = \mathcal{A}$ are not explicitly declared; the model must deduce the alphabet sequence from the single-digit column addresses $0 \dots B-1$ tagging the operand entries. If operands were shorter than $B$, higher digits would never appear in single-digit addresses, rendering in-context rule deduction mathematically unsolvable.
+* **Empirical Note**: For bases $B \ge L_{\max}$ (e.g. Base 12 when $L_{\max}=20$, or when testing extrapolation), this distribution deterministically collapses to a fixed-length problem of exactly $L = B$ columns rather than a variable-length range. Isolating this curriculum prevents confounding training length distribution with representational capacity.

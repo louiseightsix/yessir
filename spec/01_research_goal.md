@@ -1,82 +1,96 @@
-# Research Goals, Operational Invariants, and Scientific Hypotheses
+# In-Context Rule Following, Parameter Binding, and Prior Suppression
 
 **Specification Document 01**  
-**TransformAdder Project**
+**TransformAdder Project: Foundational Framework**
 
 ---
 
-## 1. Primary Research Question
+## 1. Primary Research Goal: Neural Rule Execution
 
-Standard transformer language models struggle with out-of-distribution generalisation on elementary algorithmic tasks such as multi-digit addition. When trained on fixed-length numbers in canonical decimal representation, autoregressive models notoriously fail when tested on inputs longer than those seen during training (length extrapolation) or when presented with alternative numerical formats.
+Modern artificial intelligence benchmarks—culminating in abstract reasoning challenges such as **ARC-AGI**—increasingly demand that neural networks behave not merely as associative pattern matchers, but as **faithful, in-context rule execution engines**. 
 
-This project investigates **zero-shot algorithmic induction in transformers**. Rather than memorising fixed digit transition tables in a single canonical radix, we ask:
+In conventional language pre-training, tasks are solved by retrieving statistical priors baked into the stationary weights of the model. In contrast, general intelligence requires:
+1. **Dynamic Parameter Binding**: Reading explicit rules, definitions, or parameter mappings supplied in-context.
+2. **Prior Suppression**: Faithfully adhering to the active in-context rule even when it directly contradicts strong statistical priors learned during training.
+3. **Deterministic Execution**: Carrying out multi-step procedural transformations without error compounding, context drift, or spatial degradation.
 
-> **Can a standard causal transformer learn a base-invariant algorithmic circuit for addition—decoupling column alignment, successor lookup, and carry propagation from the concrete symbols used to represent numerals—and transfer zero-shot to completely unseen numerical radices, unseen symbol alphabets, and arbitrary operand lengths?**
-
-By supplying an explicit definition of the symbol sequence (the *axiom* or dictionary preamble) or forcing the model to infer digit succession from operand context, the task transforms from associative lookup into in-context procedural execution.
-
----
-
-## 2. Theoretical Framing & Central Inquiries
-
-The experimental program is designed around five core scientific questions that address the structural limits of attention-based sequence models:
-
-### 2.1 Question 1: Supervisory Agency & State Virtualization
-*Does external state management by a supervisory harness provide an artificial scaffold that masks fundamental limitations in autonomous autoregressive attention?*
-* **Theoretical Motivation**: In a harnessed State Machine regime, Python maintains the carry state $c_k$ and the accumulated output sequence $OUT_k$, feeding the model fresh context slices for each step $\Delta s_k$. In an autonomous Autoregressive regime, the model must maintain all step counters, intermediate carries, and output histories within its own internal KV-cache. We seek to determine whether autonomous self-attention can maintain stable counter circuits across extended sequence lengths without accumulating phase error or context drift.
-
-### 2.2 Question 2: Intra-Step Causal Topology & Directional Asymmetry
-*Does the order of token emission within a column transition fundamentally determine computational tractability?*
-* **Theoretical Motivation**: Computing column addition requires determining two outputs:
-  $$\text{Sum: } o_k = (a_k + b_k + c_k) \pmod B$$
-  $$\text{Carry: } c_{k+1} = \lfloor (a_k + b_k + c_k) / B \rfloor$$
-  Under an order-free factored model ($P(o_k \mid s_k) \cdot P(c_{k+1} \mid s_k)$), the model must predict both values simultaneously from the same latent state. Under a sequential causal chain, the model emits one output and conditions on it to emit the second.
-* **The Directional Asymmetry Hypothesis**:
-  - In a **Sum-First** chain ($s_k \to o_k \to c_{k+1}$), predicting $o_k$ first requires computing a non-linear modular residue with zero intermediate scratchpad tokens.
-  - In a **Carry-First** chain ($s_k \to c_{k+1} \to o_k$), computing carry first is a monotonic threshold decision ($a_k + b_k + c_k \ge B$), which linear self-attention layers can readily solve via linear separation. Conditioned on $c_{k+1}$, computing $o_k$ simplifies to conditional linear subtraction ($a_k + b_k + c_k - c_{k+1} \cdot B$).
-  - We hypothesise that Carry-First causal topology provides a decisive algorithmic advantage over Sum-First in both harnessed micro-steps and autonomous scratchpads.
-
-### 2.3 Question 3: Decoding Readout Channel & Coordinate Independence
-*Why do static linear decoders fail when continuous positional encodings are removed, and can parameter-free tied copy decoders restore coordinate-free induction?*
-* **Theoretical Motivation**: Standard sequence models decode predictions through static linear projection heads ($W \mathbf{h} + \mathbf{b}$). In a positional-encoding-free (NoPE) regime, a single tail hidden vector $\mathbf{h}_{\text{tail}}$ lacks a continuous coordinate basis to anchor distinct projection heads for sum, carry, and halting flags simultaneously. Conversely, sequence-space query triggers (`[S]`, `[C]`, `[F]`) paired with a parameter-free tied copy head ($W_{\text{head}} = E^T$) allow the model to route attention dynamically to relevant vocabulary items in context, decoupling prediction from static weight projections.
-
-### 2.4 Question 4: Representational Inductive Bias & Address Matching
-*Can transformers perform length extrapolation in coordinate-free spaces via relative delimiter counting, or is exact length generalisation strictly dependent on discrete key-value addressing?*
-* **Theoretical Motivation**: Continuous positional encodings (sinusoidal or learned) inevitably suffer from out-of-distribution phase drift when sequence lengths exceed the training support. Delimiter counting forces self-attention to implement soft integration (counting delimiters in the residual stream), which exhibits high sample complexity and delayed convergence. In contrast, discrete numeral key-value addressing (tagging each column with an explicit symbol tuple $(v, k)$) reduces column lookup to exact in-context token matching, hypothesised to achieve zero-shot length generalisation independent of sequence length.
-
-### 2.5 Question 5: Curriculum & Zero-Preamble Deduction
-*Can a transformer infer the base alphabet entirely in-context from the operand operands without an explicit axiom dictionary?*
-* **Theoretical Motivation**: If the explicit axiom header `[AXIOM] s_0 ... s_{B-1}` is omitted, the model must deduce the successor order of the alphabet strictly from co-occurrences and carry relationships within the operand strings. To make this problem solvable in-context, every digit in the radix must appear in the operands, imposing a structural curriculum constraint ($L \ge B$). We investigate whether transformers can learn this inductive deduction and whether the curriculum shift itself impacts algorithmic robustness.
+This project investigates **the foundational mechanics of in-context rule following in transformers**. Rather than treating arithmetic as an end in itself, we treat base-conditioned addition as the **first concrete instance of a generalized rule-following and procedural induction harness**.
 
 ---
 
-## 3. Operational Invariants
+## 2. A Task-Independent Formalism for Rule Following
 
-To guarantee scientific validity, comparability, and reproducibility across all conditions, the experimental framework enforces five inviolable operational invariants:
+To ensure that the theoretical constructs, evaluation protocols, and code infrastructure developed here carry over directly to broader reasoning domains (such as 2D cellular automata, grid transformations, and ARC-AGI primitives), we formalise four universal concepts:
 
-1. **Universal 1-Byte Vocabulary Invariant**:
-   - The token vocabulary is strictly the 256 individual byte values (`0x00`–`0xFF`). Sub-word tokenisers (BPE, WordPiece, SentencePiece) are strictly forbidden. Every symbol in the alphabet $\mathcal{A}$, every control marker, and every delimiter occupies exactly one token slot.
-2. **Procedural Determinism (Zero Disk I/O)**:
-   - Data generation is a pure mathematical function of the dataset seed and step index:
-     $$\mathcal{D}(\text{seed}, \text{step}) \to \text{Batch}$$
-   - No pre-generated datasets are read from disk. Training batches are synthesized on-the-fly with zero I/O bottlenecks.
-3. **Strict Zero-Shot Evaluation Protocol**:
-   - Out-of-distribution evaluation suites evaluate the exact same model weights on unseen radices ($B=3, 12$), extended sequence lengths ($L=21..40$), and scrambled symbol alphabets with **zero fine-tuning**, zero gradient updates, and zero few-shot exemplar prompts.
-4. **Exact Match (EM) as the Primary Scientific Metric**:
-   - While token-level cross-entropy loss and per-step accuracy are logged for training telemetry, the gold standard of algorithmic capability is **Full-Sequence Exact Match (EM)**: an evaluation problem is counted as correct if and only if every single output digit and the termination flag match the ground-truth reference sequence.
-5. **Architectural Parity**:
-   - All primary model comparisons maintain identical parameter budgets, hidden dimension ($d_{\text{model}} = 256$), feed-forward intermediate expansion ($d_{\text{ff}} = 1024$), number of layers ($L = 6$), and number of attention heads ($n_{\text{heads}} = 4$), isolating representational and topological inductive biases as the sole experimental variables.
+```
+                            THE RULE-FOLLOWING ONTOLOGY
+                            
+  [RULE]         A parameterised computational procedure: P(input; Theta_rule) -> output
+                   │
+  [BINDING]      Supplying the parameters Theta_rule dynamically in the sequence context
+                   │
+  [PRIOR]        Competing default procedures or associations learned in model weights
+                   │
+  [EXECUTION]    Evaluating the bound procedure to produce the output trajectory
+```
+
+### 2.1 Universal Definitions
+1. **Rule ($\mathcal{P}$)**: An algorithmic procedure that maps an input configuration to an output configuration, parameterised by a parameter tuple $\Theta_{\text{rule}}$:
+   $$\mathcal{P}_{\Theta}: \mathcal{X} \to \mathcal{Y}$$
+2. **Binding**: The process by which the sequence prompt supplies the concrete values of $\Theta_{\text{rule}}$ to the model at inference time. The model must bind these parameters dynamically within its attention activations rather than relying on static weights.
+3. **Execution**: The step-by-step unrolling of the procedure $\mathcal{P}_{\Theta}$ over the inputs to generate the valid result or reasoning trace.
+4. **Prior ($\pi_0$)**: Any default procedure, ordering, or association encoded within the model's weights through training frequency or pre-existing biases (e.g. the canonical sequence of decimal digits `'0' \to '1' \to '2' \dots`). A prior competes with an in-context binding whenever the active rule contradicts default expectations.
+
+### 2.2 The Progression of Rule-Following Complexity
+Within this ontology, algorithmic tasks form a natural continuum toward ARC-AGI:
+* **Level 1 (Current Investigation)**: The procedure $\mathcal{P}$ (column addition with carry) is fixed in the neural network weights; exactly **one parameter**—the alphabet successor relation $\mathcal{A} = [s_0, s_1, \dots, s_{B-1}]$—is dynamically bound in context per instance.
+* **Level 2 (Multi-Parameter Binding)**: The procedure remains fixed in weights, but multiple parameters are bound in context (e.g. modular base, operation selector, carry direction, grid boundaries).
+* **Level 3 (Symbolic Procedure Ingestion)**: The procedure itself is described symbolically in the prompt (e.g. explicit state-transition tables, cellular automaton update rules).
+* **Level 4 (Rules with Stated Exceptions)**: The procedure includes explicit conditional overrides ("follow rule $X$ except when predicate $Y$ holds").
+* **Level 5 (ARC-AGI Induction)**: The procedure and its parameters are not stated explicitly; they must be induced entirely from input-output demonstration pairs and then executed on a query input.
 
 ---
 
-## 4. Formal Falsification & Success Criteria
+## 3. Central Research Questions
 
-An architectural configuration is considered to have discovered a robust algorithmic solution if and only if it satisfies the following criteria:
+Framed as an inquiry into rule following, the experimental program investigates five core scientific questions:
 
-| Evaluation Dimension | Success Criterion (Verified Algorithmic Induction) | Falsification Criterion (Heuristic Memorisation) |
-| :--- | :--- | :--- |
-| **In-Domain ($B \in \{2, 4, 8, 10\}, L \le 20$)** | $> 99.0\%$ Full-Sequence Exact Match. | Failure to converge to near-perfect accuracy on the training distribution ($< 95.0\%$). |
-| **Length Extrapolation ($L = 21..40$)** | $> 90.0\%$ Full-Sequence Exact Match on 40-digit operands without degradation at boundary. | Complete collapse to $0.0\%$ Exact Match on lengths exceeding $L=20$ (e.g. continuous PE phase drift). |
-| **Radix Interpolation ($B = 3$)** | $> 90.0\%$ Full-Sequence Exact Match on unseen odd base. | Catastrophic failure ($< 10.0\%$ EM), indicating memorisation of even-radix binary/decimal power structures. |
-| **Radix Extrapolation ($B = 12$)** | $> 80.0\%$ Full-Sequence Exact Match on base exceeding maximum training radix ($B=10$). | Collapse on larger alphabets ($< 5.0\%$ EM), indicating fixed positional table capacity limits. |
-| **Axiom Permutation ($\mathcal{A} \sim \text{Perm}(\Sigma)$)** | Invariant performance under random alphabet re-shuffling. | Performance drops when canonical ASCII digit order (`0`..`9`) is replaced by arbitrary random byte symbols. |
+### 3.1 Question 1: Supervisory Agency & Autonomous State Tracking
+*Can a causal self-attention mechanism autonomously maintain rule execution state without external supervisory scaffolding?*
+* **Inquiry**: In a harnessed State Machine (`A-Harnessed`), an external supervisor manages memory registers, advancing execution step-by-step. In an autonomous regime (`A-Autonomous`), the model must maintain its own execution pointer, carry memory, and termination condition in a single KV-cache. We ask whether autonomous execution is prone to context drift and whether self-attention can sustain an internal step counter across unseen sequence lengths.
+
+### 3.2 Question 2: Intra-Step Causal Topology & Directional Asymmetry
+*Does the factorization of multi-variable rule transitions determine computational feasibility?*
+* **Inquiry**: Executing a column transition requires determining both a primary output (sum digit $o_k$) and an auxiliary state update (outgoing carry $c_{k+1}$). We investigate whether emitting the auxiliary state update first (**Carry-First**: monotonic thresholding) before the primary output (**Sum**: conditional subtraction) resolves the non-linear modular addition bottleneck across both harnessed micro-steps and autonomous scratchpads.
+
+### 3.3 Question 3: Decoding Channels & Coordinate Independence
+*Do static linear projection heads bind rules to absolute coordinates, and can tied sequence-space query triggers restore coordinate-free rule binding?*
+* **Inquiry**: Static linear heads ($W_{\text{head}} \mathbf{h}$) project fixed spatial directions. In coordinate-free (NoPE) spaces, we test whether sequence-space query triggers (`[S]`, `[C]`, `[F]`) paired with a parameter-free tied copy head ($W_{\text{head}} = E^T$) allow the model to execute dynamic in-context pointer routing over bound parameters.
+
+### 3.4 Question 4: Prior Suppression & The Rule-Prior Conflict Dial
+*What determines whether a neural model obeys an in-context rule binding when it directly contradicts a deeply learned prior?*
+* **Inquiry**: By varying the training frequency $p_{\text{prior}}$ of canonical numerical order vs. permuted orderings, we measure the **Prior-Override Compliance Curve**. When a model fails under prior conflict, does it fail randomly, or does it suffer from **Prior Intrusion** (emitting the digit expected under the canonical prior rather than the active binding)?
+
+### 3.5 Question 5: Binding Retrieval vs. Procedural Execution
+*When a model fails an algorithmic task, did it fail to bind the rule parameters, or did it fail the multi-step procedural execution?*
+* **Inquiry**: By introducing an isolated **Successor Probe** ($s_i \to s_{i+1}$) answered from the exact same prompt context, we decouple parameter retrieval from execution. The performance gap isolates the exact locus of failure.
+
+---
+
+## 4. Operational Invariants
+
+1. **Universal 1-Byte Vocabulary ($\mathcal{V}$)**: Strictly single-byte tokens ($|\mathcal{V}|=256$, `0x00`–`0xFF`). Sub-word tokenisation is forbidden; every rule parameter, delimiter, and numeral occupies exactly one token slot.
+2. **Procedural Determinism (Zero Disk I/O)**: Data is synthesized on-the-fly as a pure mathematical function of the seed and step index.
+3. **Strict Zero-Shot Evaluation**: Out-of-distribution evaluation is conducted with frozen weights, zero fine-tuning, and zero few-shot demonstrations.
+4. **Full-Sequence Exact Match (EM) as Primary Metric**: A problem is correct if and only if every single step output and the halting token match the ground-truth reference trajectory.
+5. **Stratified Prior Control**: Alphabets are explicitly categorised into novel symbols, canonical orders, and permuted canonical orders to control prior strength.
+
+---
+
+## 5. Scope Boundaries: What This Investigation Cannot Answer
+
+To ensure scientific clarity, we explicitly document the conceptual limits of this investigation:
+
+1. **Binary Compliance Only**: Rules in this study are exact, formal, and unambiguous. This investigation does not address fuzzy, subjective, or conversational rule compliance (e.g. "be helpful and harmless").
+2. **No Applicability Judgment**: The model is explicitly supplied with the active rule binding in its prompt; it is not required to infer *which* of several competing rules applies to a given input.
+3. **Structural Computational Load vs. Semantic Nuance**: Failures observed in this study arise strictly from attention capacity limits, context distance, coordinate degradation, or prior intrusion—not from lexical ambiguity or natural language comprehension failures.
