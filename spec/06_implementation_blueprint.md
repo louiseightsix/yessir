@@ -1,13 +1,58 @@
-# PyTorch Implementation Blueprint, Generation Contracts, and Engineering Guidelines
+# PyTorch Implementation Blueprint, Rule Protocols, and Engineering Guidelines
 
 **Specification Document 06**  
-**TransformAdder Project**
+**TransformAdder Project: Foundational Framework**
 
 ---
 
-## 1. Universal Transformer Architecture
+## 1. The Generic Rule Protocol
 
-All primary models in the TransformAdder project share an identical, tightly controlled architectural footprint to ensure that empirical differences stem strictly from representational and topological inductive biases rather than parameter capacity.
+To ensure that the codebase scales seamlessly from addition to broader algorithmic and ARC-AGI rule-following tasks, data generation and oracle verification are structured around a generic Python `Rule` protocol:
+
+```python
+from typing import Protocol, Any, TypedDict
+
+class RuleInstance(TypedDict):
+    instance_id: str
+    rule_family: str
+    rule_params: dict[str, Any]   # e.g. {"base": 10, "axiom": [...], "alphabet_condition": "canonical_permuted"}
+    inputs: dict[str, Any]        # e.g. {"a": [...], "b": [...]}
+    steps: list[dict[str, Any]]   # Ground truth oracle transition steps
+    expected_out: list[int]       # Final expected output tokens
+
+class Rule(Protocol):
+    """Generic protocol for procedural rule execution engines."""
+    
+    @property
+    def rule_family(self) -> str:
+        """Unique identifier for the rule family (e.g. 'addition', 'arc_grid')."""
+        ...
+
+    def sample_instance(self, seed: int, step_idx: int, p_prior: float = 0.5) -> RuleInstance:
+        """Deterministically generates a problem instance with oracle ground truth."""
+        ...
+
+    def reference_step(self, state: Any, input_slice: Any, rule_params: dict[str, Any]) -> tuple[Any, int, int]:
+        """Executes a single ground-truth transition delta: (state, input) -> (next_state, out, flag)."""
+        ...
+
+    def build_prompt(self, instance: RuleInstance, representation: str) -> Any:
+        """Serializes the problem instance into input token sequences according to representation layout."""
+        ...
+```
+
+### 1.1 Concrete Implementation: `AdditionRule`
+The arithmetic engine is implemented as `AdditionRule(Rule)`:
+* `rule_family = "addition"`.
+* `rule_params` contains `base`, `axiom`, and `alphabet_condition`.
+* `reference_step` computes integer addition with carry.
+* Future tasks (e.g. `CellularAutomataRule`, `GridTransformRule`) implement this protocol directly, reusing the training loop, evaluation logging, and model architectures without modification.
+
+---
+
+## 2. Universal Transformer Architecture
+
+All models share an identical, tightly controlled architectural footprint:
 
 ```
                            UNIVERSAL TRANSFORMER ARCHITECTURE
@@ -32,97 +77,86 @@ All primary models in the TransformAdder project share an identical, tightly con
       Weight-Space Readout (C-Weight)             Sequence-Space Readout (C-Sequence)
       ├── Linear Head W_sum   (256 -> 256)        └── Parameter-Free Tied Head (W = E^T)
       ├── Linear Head W_carry (256 -> 256)            Single projection (256 -> 256)
-      └── Linear Head W_flag  (256 -> 2)              Conditioned on [S], [C], [F] triggers
+      └── Linear Head W_flag  (256 -> 2)              Conditioned on [S], [C], [F], [PROBE]
 ```
 
-### 1.1 Hyperparameter Specifications
-* **Layers ($L$)**: 6 pre-layer-normalised transformer blocks.
+* **Layers ($L$)**: 6.
 * **Model Dimension ($d_{\text{model}}$)**: 256.
 * **Attention Heads ($n_{\text{heads}}$)**: 4 (head dimension $d_{\text{head}} = 64$).
-* **Feed-Forward Dimension ($d_{\text{ff}}$)**: 1024 (expansion factor 4.0).
-* **Activation Function**: SwiGLU (gated linear unit with SiLU) or standard GELU.
-* **Attention Mask**: Strictly lower-triangular causal attention mask ($M_{ij} = -\infty$ for $j > i$).
-* **Dropout**: 0.0 (deterministic inference; pure algorithmic reasoning).
-* **Parameter Count**: ~3.15M parameters under tied sequence heads (`C-Sequence`); ~3.28M under multi-head projections (`C-Weight`).
+* **Feed-Forward Dimension ($d_{\text{ff}}$)**: 1024 (SwiGLU expansion factor 4.0).
+* **Dropout**: 0.0.
+* **Parameter Count**: ~3.15M parameters under tied copy head; ~3.28M under multi-head projections.
 
 ---
 
-## 2. Deterministic Procedural Arithmetic Generator
+## 3. Stratified Procedural Generator Contracts
 
-To ensure absolute reproducibility with zero disk I/O, all training and evaluation samples are generated procedurally from the oracle reference implementation (`core/reference.py`).
+```python
+class ProceduralRuleGenerator:
+    """Deterministic procedural generator with controlled prior dialing."""
+    
+    def __init__(self, seed: int, rule: Rule, p_prior: float = 0.5, curriculum: str = "standard"):
+        self.seed = seed
+        self.rule = rule
+        self.p_prior = p_prior
+        self.curriculum = curriculum
 
-### 2.1 The Data Generation Contract
-Data generation is a deterministic pure function of the random seed:
-$$\text{Sample} = \text{Generator}(\text{seed}, \text{step}, \text{tier}, \text{curriculum})$$
-1. **Radix Selection**: Base $B$ is sampled uniformly from the active regime (e.g. $\{2, 4, 8, 10\}$ for multimodal training; $B=3$ or $12$ for evaluation).
-2. **Alphabet Sampling**: The alphabet $\mathcal{A} = [s_0, \dots, s_{B-1}]$ is sampled from the 240 candidate byte pool $\Sigma$ (or assigned canonical ASCII digits `0`..`9`).
-3. **Operand Length Sampling**:
-   - Under `D-Standard`: $L_a, L_b \sim \mathcal{U}(L_{\min}, L_{\max})$ with $L_{\min} = 1, L_{\max} = 20$.
-   - Under `D-FullSpan`: $L_a, L_b \sim \mathcal{U}(\max(L_{\min}, B), \max(L_{\max}, \max(L_{\min}, B)))$.
-4. **Digit Uniformity**: Operand digits are sampled uniformly from $[0, B-1)$.
+    def sample_alphabet(self, base: int, condition: str, rng: random.Random) -> list[int]:
+        if condition == "canonical_order":
+            return [ord('0') + i for i in range(base)]
+        elif condition == "canonical_permuted":
+            canonical = [ord('0') + i for i in range(base)]
+            perm = canonical[:]
+            while perm == canonical and base > 1:
+                rng.shuffle(perm)
+            return perm
+        elif condition == "symbols_novel":
+            return rng.sample(SIGMA_NOVEL_POOL, base)
+        raise ValueError(f"Unknown alphabet condition: {condition}")
+```
 
-### 2.2 Carry Chain Injection ($p_{\text{chain}} = 0.5$)
-Under purely uniform random digits, the probability that a carry propagates across $L$ consecutive columns decays geometrically as $(1/B)^L$. In Base 10, a carry chain of length 5 occurs with probability $10^{-5}$, rendering deep carry propagation virtually absent from random data.
-
-To force the model to acquire a robust carry-lookahead circuit:
-* With probability $p_{\text{chain}} = 0.5$, an instance is modified to contain an artificial carry cascade:
-  1. A generating column $i$ is chosen where $a_i + b_i \ge B$.
-  2. A chain length $L \in [1, \min(|a|, |b|) - 1 - i]$ is selected.
-  3. For all columns $j \in [i+1, i+L]$, digits are constrained such that $a_j + b_j = B - 1$.
-* This guarantees rich exposure to multi-column carry propagation cascades.
-
-### 2.3 Terminal Step Oversampling ($p_{\text{terminal}} = 0.2$)
-In harnessed state machine training (`SM-MultiHead`, `SM-Fork`, `SM-Seq`, `SM-SeqRev`), an operand of length $L$ produces $L$ continuation steps ($\text{FLAG} = \texttt{FLAG\_CONTINUE}$) and exactly 1 halting step ($\text{FLAG} = \texttt{FLAG\_FINISHED}$). Randomly sampled step transitions would exhibit a severe class imbalance ($10:1$ to $20:1$).
-
-* To counteract this imbalance, the step sampler forces the terminal step $k = K$ with probability $p_{\text{terminal}} = 0.2$, stabilising the convergence of the halting prediction circuit.
-
----
-
-## 3. Training Protocol & Optimization
-
-1. **Optimizer**: AdamW ($\beta_1 = 0.9, \beta_2 = 0.98, \epsilon = 10^{-8}$, weight decay $\lambda = 0.01$).
-2. **Learning Rate Schedule**:
-   - Peak learning rate: $\eta_{\max} = 3 \times 10^{-4}$.
-   - Linear warmup: 2,000 steps from $\eta_{\text{init}} = 10^{-7}$.
-   - Cosine decay: Decays from step 2,000 to 100,000 down to $\eta_{\min} = 3 \times 10^{-5}$.
-3. **Effective Batch Size & Gradient Accumulation**:
-   - Canonical effective batch size: 256 problem instances per optimization step.
-   - For memory-intensive configurations (e.g. `SM-Fork` under long sequence addressing), gradient accumulation is dynamically configured:
-     $$\text{Batch Size per Sub-Step} = 32, \quad \text{Gradient Accumulation Steps} = 8$$
-     $$\text{Effective Batch Size} = 32 \times 8 = 256$$
-4. **Gradient Clipping**: Norm clipping at $\|\mathbf{g}\|_2 \le 1.0$ to prevent optimization instability during early warmup.
+1. **Prior Dialing in Training**: During training, condition is sampled as `canonical_order` with probability $p_{\text{prior}}$, and `symbols_novel` with probability $1 - p_{\text{prior}}$.
+2. **Carry Cascade Injection ($p_{\text{chain}} = 0.5$)**: Forces generating columns ($a_i + b_i \ge B$) followed by propagating columns ($a_j + b_j = B - 1$).
+3. **Terminal Step Oversampling ($p_{\text{terminal}} = 0.2$)**: Alleviates halting flag class imbalance in harnessed training.
 
 ---
 
-## 4. Hardware Optimization & Memory Engineering
+## 4. Evaluation Telemetry & Per-Instance Result Writer
 
-Long-sequence addressing prompts (e.g. `addressed_kv` and `zero_preamble_kv`) reach sequence lengths of up to ~920 tokens, creating high memory pressure on mid-tier accelerators (e.g. NVIDIA L4 24GB GPUs). The following engineering guidelines are mandatory:
+In addition to logging summary metrics (`summary.json`), the evaluation suite writes fine-grained **per-instance records** to a JSONL stream (`instances.jsonl`):
 
-1. **FlashAttention-2 Kernel Routing**:
-   - All attention operations must use `torch.nn.functional.scaled_dot_product_attention`.
-   - In both training and evaluation, operations must be wrapped in `torch.amp.autocast(dtype=torch.bfloat16)` to guarantee that PyTorch routes execution to the FlashAttention-2 or memory-efficient attention CUDA kernel rather than falling back to standard fp32 cubic attention.
-2. **PyTorch Expandable Memory Segments**:
-   - The CUDA memory allocator must be initialized with:
-     ```bash
-     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-     ```
-     This prevents virtual memory fragmentation from triggering premature `CUBLAS_STATUS_ALLOC_FAILED` or `CUDA OOM` errors during large matrix multiplications.
-3. **Evaluation Chunking**:
-   - Evaluation metrics under `teacher_forced_metrics` must process evaluation sets in bounded sub-chunks of 32 rows, preventing memory allocation spikes while evaluating out-of-distribution double-length instances.
+```python
+def write_instance_record(
+    log_dir: str,
+    record: dict[str, Any]
+) -> None:
+    """Appends an instance record containing continuous regressors and error classification."""
+    path = os.path.join(log_dir, "instances.jsonl")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+```
+
+This captures:
+* Token distance from rule definition to query.
+* Intermediate entry counts.
+* Exact error classification (`prior_intrusion`, `out_of_alphabet`, `procedural_error`, `syntax_malformation`).
+* In-context probe accuracy.
 
 ---
 
 ## 5. Checkpoint Schema & Architectural Compatibility
 
-All saved checkpoints store their configuration metadata using the orthogonal 5-axis schema:
+All checkpoints store metadata according to the 7-dimensional design tensor:
 
 ```json
 {
+  "rule_family": "addition",
   "agency": "harnessed",
   "topology": "carry_first",
   "channel": "sequence",
   "representation": "addressed_kv",
   "curriculum": "standard",
+  "p_prior": 0.5,
   "n_layers": 6,
   "d_model": 256,
   "n_heads": 4,
@@ -132,13 +166,13 @@ All saved checkpoints store their configuration metadata using the orthogonal 5-
 ```
 
 ### 5.1 Backward-Compatible Checkpoint Resolver
-To ensure that existing experimental checkpoints produced during earlier phases can be evaluated without modification, model loaders must implement a compact, self-contained configuration resolver:
+To ensure existing model checkpoints can be evaluated without modification, model loaders implement a compact resolver:
 
 ```python
 def resolve_legacy_config(cfg: dict) -> dict:
-    """Maps legacy paradigm/tier metadata into canonical orthogonal coordinates."""
-    if "agency" in cfg:
-        return cfg  # Already canonical
+    """Maps legacy configuration metadata into canonical orthogonal coordinates."""
+    if "agency" in cfg and "rule_family" in cfg:
+        return cfg
     
     paradigm = cfg.get("paradigm", "sm_mh")
     tier = int(cfg.get("tier", 1))
@@ -155,7 +189,14 @@ def resolve_legacy_config(cfg: dict) -> dict:
     representation = repr_map.get(tier, "sinusoidal_pe")
     curriculum = "full_span" if tier == 7 else "standard"
     
-    return {**cfg, "agency": agency, "topology": topology, "channel": channel,
-            "representation": representation, "curriculum": curriculum}
+    return {
+        **cfg,
+        "rule_family": cfg.get("rule_family", "addition"),
+        "agency": agency,
+        "topology": topology,
+        "channel": channel,
+        "representation": representation,
+        "curriculum": curriculum,
+        "p_prior": cfg.get("p_prior", 0.0),
+    }
 ```
-This isolates historical compatibility entirely to checkpoint loading, keeping all core training and inference pathways pure and orthogonal.
