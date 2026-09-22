@@ -183,11 +183,18 @@ With **`R-Pos-NoPE` + `R-Scope-Addressed` + `R-Query-ExplicitKV`**, the prompt t
 
 ---
 
-## 7. Migration Plan for the Codebase
+## 7. Direct Refactoring Strategy (Zero Legacy Debt)
 
-1. **Phase 1: Backward-Compatible Alias Layer**:
-   Update `transformadder/cli.py` and `scripts/configure_experiment.py` with an internal resolver mapping legacy `--paradigm` and `--tier` flags into the 5-axis coordinates defined in Section 5.
-2. **Phase 2: Formalize `AR-CarryFirst`**:
-   Add `--trace-order=sum_first|carry_first` to the CLI and data generation pipeline.
-3. **Phase 3: Native Orthogonal CLI Configuration**:
-   Expose direct orthogonal flags (`--agency`, `--topology`, `--channel`, `--pos-scheme`, `--scope-scheme`, `--curriculum`).
+Because this codebase is under sole development, we explicitly reject backward-compatibility layers, deprecated alias mappings, and legacy fallback logic. The codebase will be migrated directly to native orthogonal primitives:
+
+1. **Direct CLI & Configurator Migration**:
+   Replace `--paradigm` and `--tier` with direct orthogonal arguments:
+   - `--agency`: `harnessed` | `autonomous`
+   - `--topology`: `factored` | `sum_first` | `carry_first`
+   - `--channel`: `weight` | `sequence`
+   - `--representation`: `sinusoidal_pe` | `semantic_nope` | `generic_nope` | `role_embed_nope` | `semantic_origin_nope` | `addressed_kv` | `zero_preamble_kv`
+   - `--curriculum`: `standard` | `full_span`
+2. **First-Class Implementation of `AR-CarryFirst`**:
+   Extend `reference_trace(steps, order="sum_first"|"carry_first")` in `core/reference.py` and parameterize AR data encoding and rollout.
+3. **Clean Codebase Pruning**:
+   Purge legacy conditionals like `if tier == ...` or `if paradigm == ...` in favor of declarative configuration dataclasses.
