@@ -128,7 +128,23 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
     if not hasattr(args, "eval_axioms") or not args.eval_axioms:
         args.eval_axioms = variant.eval_axioms
     if not hasattr(args, "grad_accum_steps") or args.grad_accum_steps is None:
-        args.grad_accum_steps = 2 if variant.tier in (6, 7) else getattr(variant, "grad_accum_steps", 1)
+        if variant.tier in (6, 7):
+            args.grad_accum_steps = 8 if variant.paradigm == "sm_fork" else 2
+        else:
+            args.grad_accum_steps = getattr(variant, "grad_accum_steps", 1)
+
+    # SM-Fork expands each transition into 3 sequences ([S], [C], [F]).
+    # In Tiers 6 & 7 (sequence length ~300), ensure accum_steps >= 8 to prevent CUDA OOM on 24GB GPUs.
+    if variant.paradigm == "sm_fork" and variant.tier in (6, 7) and args.grad_accum_steps < 8:
+        print(f"[*] Auto-adjusting grad_accum_steps from {args.grad_accum_steps} to 8 for SM-Fork (Tier {variant.tier}) "
+              "to match physical VRAM footprint.", flush=True)
+        args.grad_accum_steps = 8
+
+    if device.type == "cuda":
+        try:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        except Exception:
+            pass
     if not hasattr(args, "interactive"):
         args.interactive = False
     if not hasattr(args, "dry_run"):

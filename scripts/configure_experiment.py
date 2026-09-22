@@ -202,7 +202,10 @@ def create_experiment_bundle(
         final_eval_problems = 250 if train_steps >= 50_000 else eval_problems
 
     if grad_accum_steps is None:
-        grad_accum_steps = 2 if tier in (6, 7) else 1
+        if tier in (6, 7):
+            grad_accum_steps = 8 if paradigm == "sm_fork" else 2
+        else:
+            grad_accum_steps = 1
 
     machine_type = gcp_machine_type or ACCELERATOR_MACHINE_MAP.get(gcp_accelerator, "g2-standard-4")
 
