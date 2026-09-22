@@ -96,12 +96,18 @@ def free_running_metrics(model, paradigm: str, tier: int, instances: list[dict],
 
 
 @torch.no_grad()
-def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict], chunk: int = 256) -> dict:
+def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict], chunk: int = None) -> dict:
     """Step-transition accuracy (all of o_k, c_{k+1}, FLAG_k correct) and halting accuracy,
     over every column of every instance. Returns per-transition (step_ok, flag_ok, terminal)."""
     model.eval()
     device = next(model.parameters()).device
     records: list[tuple[bool, bool, bool]] = []
+
+    if chunk is None:
+        if tier in (6, 7):
+            chunk = 33 if paradigm == "sm_fork" else 32
+        else:
+            chunk = 255 if paradigm == "sm_fork" else 256
 
     if paradigm == "ar":
         samples = [encode_ar(inst, tier) for inst in instances]
@@ -124,14 +130,17 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
     if paradigm == "sm_fork":
         chunk = max(3, (chunk // 3) * 3)
 
+    use_amp = device.type == "cuda"
+
     for start in range(0, len(samples), chunk):
         part = samples[start:start + chunk]
 
         if paradigm == "sm_mh":
             batch = _to_device(collate_sm_mh(part), device)
-            ls, lc, lf = model.forward_sm_mh(
-                batch["token_ids"], batch["role_ids"], batch["sig_ids"], batch["lengths"]
-            )
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+                ls, lc, lf = model.forward_sm_mh(
+                    batch["token_ids"], batch["role_ids"], batch["sig_ids"], batch["lengths"]
+                )
             sum_ok = ls.argmax(-1) == batch["target_sum"]
             carry_ok = lc.argmax(-1) == batch["target_carry"]
             flag_ok = lf.argmax(-1) == batch["target_flag"]
@@ -140,7 +149,8 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
             continue
 
         batch = _to_device(collate_labelled(part), device)
-        pred = model(batch["token_ids"], batch["role_ids"], batch["sig_ids"]).argmax(-1).tolist()
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+            pred = model(batch["token_ids"], batch["role_ids"], batch["sig_ids"]).argmax(-1).tolist()
         labels = batch["labels"].tolist()
 
         if paradigm == "sm_fork":
@@ -204,14 +214,18 @@ def evaluate(
     else:  # "both"
         canonical_flags = [False, True]
 
-    for canonical in canonical_flags:
-        for name, bases, (min_len, max_len) in eval_cells(train_bases):
-            gen = ProceduralArithmeticGenerator(
-                bases=bases, min_len=min_len, max_len=max_len, canonical=canonical, seed=seed, tier=tier
-            )
-            instances = [gen.sample_instance() for _ in range(num_problems)]
-            metrics = free_running_metrics(model, paradigm, tier, instances, stepper=stepper)
-            metrics.update(teacher_forced_metrics(model, paradigm, tier, instances))
-            prefix = f"canon_{name}" if canonical else name
-            results.update({f"{prefix}_{k}": v for k, v in metrics.items()})
+    device = next(model.parameters()).device
+    use_amp = device.type == "cuda"
+
+    with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+        for canonical in canonical_flags:
+            for name, bases, (min_len, max_len) in eval_cells(train_bases):
+                gen = ProceduralArithmeticGenerator(
+                    bases=bases, min_len=min_len, max_len=max_len, canonical=canonical, seed=seed, tier=tier
+                )
+                instances = [gen.sample_instance() for _ in range(num_problems)]
+                metrics = free_running_metrics(model, paradigm, tier, instances, stepper=stepper)
+                metrics.update(teacher_forced_metrics(model, paradigm, tier, instances))
+                prefix = f"canon_{name}" if canonical else name
+                results.update({f"{prefix}_{k}": v for k, v in metrics.items()})
     return results

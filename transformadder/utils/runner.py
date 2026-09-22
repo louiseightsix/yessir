@@ -152,12 +152,9 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
         else:
             args.grad_accum_steps = getattr(variant, "grad_accum_steps", 1)
 
-    # SM-Fork expands each transition into 3 sequences ([S], [C], [F]).
-    # In Tiers 6 & 7 (sequence length ~300), ensure accum_steps >= 8 to prevent CUDA OOM on 24GB GPUs.
-    if variant.paradigm == "sm_fork" and variant.tier in (6, 7) and args.grad_accum_steps < 8:
-        print(f"[*] Auto-adjusting grad_accum_steps from {args.grad_accum_steps} to 8 for SM-Fork (Tier {variant.tier}) "
-              "to match physical VRAM footprint.", flush=True)
-        args.grad_accum_steps = 8
+    elif variant.paradigm == "sm_fork" and variant.tier in (6, 7) and args.grad_accum_steps < 8:
+        print(f"[!] Note: grad_accum_steps={args.grad_accum_steps} on SM-Fork (Tier {variant.tier}) "
+              "may exceed 24GB VRAM on NVIDIA L4 GPUs (recommended: >= 8).", flush=True)
 
     if not hasattr(args, "interactive"):
         args.interactive = False
