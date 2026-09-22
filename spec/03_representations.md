@@ -28,36 +28,37 @@ To treat prior suppression as a rigorous experimental variable, we stratify alph
 ```
                            THE THREE ALPHABET REGIMES
                            
-  1. symbols_novel         Arbitrary non-ASCII bytes from Sigma_novel (0x00..0xEF \ ASCII).
-                           Model possesses ZERO pre-existing order prior.
+  1. symbols_novel         Arbitrary non-canonical bytes from Sigma_novel (excluding the 12 canonical
+                           glyphs '0'..'9', 'A', 'B'). Tests generalisation to unfamiliar symbol tokens.
                            
-  2. canonical_order       Standard ASCII digit glyphs ('0'..'9') in standard numerical order.
-                           Rule binding directly aligns with training frequency prior.
+  2. canonical_order       Standard alphanumeric glyphs ('0'..'9' for B <= 10; plus 'A', 'B' for B = 12)
+                           in standard numerical order. Rule binding directly aligns with training prior.
                            
-  3. canonical_permuted    Standard ASCII digit glyphs ('0'..'9') with permuted successor order 
-                           (e.g. '9' -> '0', '2' -> '9'...). 
+  3. canonical_permuted    Standard alphanumeric glyphs ('0'..'9', 'A', 'B') with randomly permuted
+                           successor order (e.g. '9' -> '0', '2' -> '9'...). 
                            DIRECT RULE-VERSUS-PRIOR CONFLICT.
 ```
 
 ### 2.1 The Alphabet Stratification Regimes
-1. **`symbols_novel` (Pure In-Context Binding)**:
-   - Symbols are sampled uniformly from the non-ASCII subset $\Sigma_{\text{novel}} = \Sigma \setminus \{\texttt{'0'}, \dots, \texttt{'9'}\}$.
-   - Because the model has no pre-existing ordering bias over arbitrary bytes, this condition measures pure parameter binding and execution capacity in a neutral setting.
+1. **`symbols_novel` (Unseen Symbol Generalisation)**:
+   - Symbols are sampled uniformly from the subset $\Sigma_{\text{novel}} = \Sigma \setminus \{\texttt{'0'}, \dots, \texttt{'9'}, \texttt{'A'}, \texttt{'B'}\}$, strictly excluding the twelve canonical numeral glyphs.
+   - Measures parameter binding and execution capacity over arbitrary byte tokens.
 2. **`canonical_order` (Prior-Reinforced Baseline)**:
-   - Symbols are the standard ASCII numerals in their standard mathematical order ($\mathcal{A} = [\texttt{'0'}, \texttt{'1'}, \dots]$).
-   - Serves as the positive control where in-context rule binding and weight priors reinforce each other.
+   - Symbols are the standard alphanumeric numerals in standard mathematical order ($\mathcal{A} = [\texttt{'0'}, \texttt{'1'}, \dots, \texttt{'9'}, \texttt{'A'}, \texttt{'B'}]$).
+   - Serves as the positive control where in-context rule binding and frequency priors reinforce each other.
 3. **`canonical_permuted` (The Rule-Prior Conflict Test)**:
-   - The alphabet consists of the familiar ASCII digit glyphs $\{\texttt{'0'}, \dots, \texttt{'9'}\}$, but their successor order is randomly permuted (e.g. $\mathcal{A} = [\texttt{'4'}, \texttt{'7'}, \texttt{'0'}, \texttt{'9'}, \dots]$).
-   - This represents the definitive test of **Prior Suppression**: the in-context definition states that $\texttt{'7'} + \texttt{'4'} = \dots$, while the model's pre-training or training frequency strongly associates $\texttt{'4'} + \texttt{'7'} = \texttt{'11'}$. The model must suppress its internal prior and strictly obey the prompt.
+   - The alphabet consists of the familiar canonical glyphs, but their successor order is randomly permuted (e.g. $\mathcal{A} = [\texttt{'4'}, \texttt{'7'}, \texttt{'0'}, \texttt{'9'}, \dots]$).
+   - This represents the definitive test of **Prior Suppression**: the in-context definition states that $\texttt{'7'}$ is the successor to $\texttt{'4'}$, while the model's training frequency under $p_{\text{prior}} > 0$ associates $\texttt{'4'} + \texttt{'7'}$ with sum digit $\texttt{'1'}$ and carry $\texttt{'1'}$ in Base 10. The model must suppress its internal ordering prior and strictly execute according to the in-context prompt.
+   - **Crucial Distinction**: Because models are trained strictly from scratch, there is zero pre-training. The only prior that exists is the one induced by training exposure to `canonical_order`.
 
-### 2.2 The Training Prior Dial ($p_{\text{prior}} \in [0.0, 1.0]$)
-Prior strength is not merely an evaluation condition; it is a parameter of the training distribution:
-* **$p_{\text{prior}}$**: The fraction of training instances generated under `canonical_order`. The remaining $1 - p_{\text{prior}}$ instances are generated under `symbols_novel`.
-* **The Experimental Spectrum**:
-  - $p_{\text{prior}} = 0.0$: Purely neutral training. Model acquires zero order prior over ASCII digits.
-  - $p_{\text{prior}} = 0.5$: Balanced training. Model develops a strong default prior for ASCII numerals while simultaneously learning that in-context alphabets can vary.
-  - $p_{\text{prior}} = 0.9$: Heavily biased training. Simulates large language models where standard digit arithmetic is deeply entrenched in weights.
-* **The Compliance Curve**: Evaluating models across $p_{\text{prior}} \in \{0.0, 0.25, 0.5, 0.75, 0.9\}$ on `canonical_permuted` yields the **Prior-Override Compliance Curve**, mapping how rule adherence degrades as competing weight priors strengthen.
+### 2.2 Unconfounded Prior Dialing ($p_{\text{prior}} \in [0.0, 1.0]$)
+To ensure the baseline at $p_{\text{prior}} = 0.0$ is completely unconfounded:
+* **Sampling Distribution**: During training, an instance is generated under `canonical_order` with probability $p_{\text{prior}}$. With probability $1 - p_{\text{prior}}$, the alphabet is sampled uniformly at random from the **full candidate pool $\Sigma$** (240 bytes, which includes `'0'`..`'9'`, `'A'`, `'B'`).
+* **Why This Eliminates Confounding**:
+  - If the non-canonical fraction excluded digit glyphs, a model trained at $p_{\text{prior}} = 0.0$ would have never encountered `'0'`..`'9'`, so testing on `canonical_permuted` would confound prior suppression with token novelty.
+  - By sampling the non-canonical fraction from the full $\Sigma$, digit glyphs appear in random orders with the exact same frequency as any other byte. At $p_{\text{prior}} = 0.0$, the model is thoroughly familiar with the digit tokens, but possesses **zero statistical preference for their numerical order**.
+  - As $p_{\text{prior}}$ increases, the canonical order is preferentially reinforced with probability $p_{\text{prior}}$. The parameter $p_{\text{prior}}$ thus serves as a pure, unconfounded dial governing prior strength.
+* **The Compliance Curve**: Evaluating models across $p_{\text{prior}} \in \{0.0, 0.25, 0.5, 0.75, 0.9\}$ on `canonical_permuted` maps the **Prior-Override Compliance Curve**, measuring how rule adherence degrades as competing weight priors strengthen.
 
 ---
 

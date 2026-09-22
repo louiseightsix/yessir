@@ -16,7 +16,7 @@ $$\mathcal{M} = \langle \mathcal{S}_{\text{family}}, \mathcal{S}_{\text{agency}}
 1. **House Style**: British English (UK) is used throughout all specification documents, code docstrings, and comments (e.g. *generalisation*, *behaviour*, *artefact*, *factorisation*, *scaffolding*).
 2. **Universal 1-Byte Vocabulary ($\mathcal{V}$)**:
    - Total vocabulary cardinality $|\mathcal{V}| = 256$ (`0x00` through `0xFF`), ensuring strict single-byte tokenisation with zero multi-byte or sub-word BPE tokenisation artifacts.
-   - $\mathcal{V}_{\text{ctrl}} \subset \mathcal{V}$: Dedicated structural control tokens, probe triggers, and section delimiters reserved in the upper byte range (`0xF0`–`0xFE`).
+   - $\mathcal{V}_{\text{ctrl}} \subset \mathcal{V}$: Dedicated structural control tokens, probe triggers, and section delimiters reserved in the upper byte range (`0xF0`–`0xFF`).
    - $\Sigma = \mathcal{V} \setminus \mathcal{V}_{\text{ctrl}}$: Open candidate pool of candidate numeral bytes (`0x00`–`0xEF`, 240 bytes) from which dynamic alphabets are sampled.
    - $\Sigma_{\text{novel}} = \Sigma \setminus \{\texttt{'0'}, \dots, \texttt{'9'}\}$: Subset of novel symbols with zero pre-existing ASCII order prior.
 3. **Mathematical Notation**:
@@ -50,10 +50,10 @@ Sequence illustrations and formal grammar definitions use canonical single-byte 
 | `[S]` | `TOKEN_S` | `0xF6` | Primary output query trigger (`o_k`) |
 | `[C]` | `TOKEN_C` | `0xF7` | State update query trigger (`c_{k+1}`) |
 | `[F]` | `TOKEN_FLAG` | `0xFC` | Halting query trigger |
-| `[PROBE]` | `TOKEN_PROBE` | `0xFD` | Single-token parameter binding probe trigger |
+| `[PROBE]` | `TOKEN_PROBE` | `0xFF` | Single-token parameter binding probe trigger |
 | `[CONTINUE]` | `FLAG_CONTINUE` | `0xF8` | Loop continuation flag |
 | `[FINISHED]` | `FLAG_FINISHED` | `0xF9` | Loop completion flag |
-| `[PAD]` | `PAD` | `0xFF` | Right-padding token for batched tensors |
+| `[PAD]` | `PAD` | `0xFD` | Right-padding token for batched tensors |
 
 *Note: In all sequence illustrations, numerals are rendered as human-readable glyphs (`0`, `1`, `2`...) for clarity; in physical instances, numerals are arbitrary bytes sampled from $\Sigma$.*
 
