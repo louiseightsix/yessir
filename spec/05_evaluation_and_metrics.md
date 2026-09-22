@@ -16,7 +16,7 @@ To evaluate genuine in-context rule following, models are tested strictly zero-s
 
 ## 2. The Six Evaluation Cells (Stratified Across Prior Regimes)
 
-Each of the six evaluation cells is stratified across the three alphabet regimes (`symbols_novel`, `canonical_order`, `canonical_permuted`) to isolate prior conflict from structural generalisation:
+Each of the six evaluation cells is stratified across the three alphabet regimes (`symbols_random`, `canonical_order`, `canonical_permuted`) to isolate prior conflict from structural generalisation:
 
 ```
                            THE 6 EVALUATION TEST CELLS
@@ -90,7 +90,7 @@ For Base 10, random guessing produces an apparent prior intrusion rate of $1/9 \
 
 To isolate genuine prior regression from random error, the **Chance-Adjusted Prior Intrusion Rate** is reported:
 $$\mathcal{R}_{\text{prior}}^{\text{adj}} = \frac{\mathcal{R}_{\text{prior}} - \frac{1}{B - 1}}{1 - \frac{1}{B - 1}}$$
-where $\mathcal{R}_{\text{prior}} = N_{\text{prior\_intrusion}} / N_{\text{errors}}$. Under `symbols_novel` or `canonical_order`, `prior_intrusion` is undefined and logged as `null`.
+where $\mathcal{R}_{\text{prior}} = N_{\text{prior\_intrusion}} / N_{\text{errors}}$. Under `symbols_random` or `canonical_order`, `prior_intrusion` is undefined and logged as `null`.
 
 ---
 
