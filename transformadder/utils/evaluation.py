@@ -129,7 +129,7 @@ def free_running_metrics(
             if paradigm == "ar":
                 prompt_seq = build_ar_prompt(inst["axiom"], inst["a"], inst["b"], tier)
             else:
-                prompt_seq = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], 0, inst["axiom"][0], tier, TOKEN_S)
+                prompt_seq = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], inst["axiom"][0], [], tier, TOKEN_S)
             prompt_len = len(prompt_seq)
             rule_dist, entry_count = calculate_distance_regressors(
                 prompt_len, len(inst["axiom"]), tier, len(inst["a"]), len(inst["b"])

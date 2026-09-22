@@ -138,3 +138,18 @@ def test_telemetry_logger(tmp_path: Path):
     assert loaded["instance_id"] == "test_001"
     assert loaded["per_step_accuracy"] is None  # NaN sanitized to null
     assert loaded["probe_accuracy"] == 1.0
+
+
+def test_evaluate_with_telemetry_writes_instances_jsonl(tmp_path: Path):
+    """The runner always passes log_dir, so evaluate() must not crash when telemetry is on."""
+    from transformadder.core.model import TransformAdder
+    from transformadder.utils.evaluation import evaluate
+
+    for paradigm, head in (("sm_seq", "single_head"), ("sm_mh", "multi_head"), ("ar", "single_head")):
+        model = TransformAdder(tier=2, head_type=head, n_layers=1)
+        log_dir = tmp_path / paradigm
+        results = evaluate(model, paradigm, 2, [2, 10], num_problems=2, eval_axioms="all", log_dir=log_dir)
+        assert "permuted_id_r_prior_adj" in results
+        records = [json.loads(l) for l in (log_dir / "instances.jsonl").read_text().splitlines()]
+        assert len(records) == 2 * 6 * 3  # problems x cells x conditions
+        assert all(r["prompt_token_length"] > 0 for r in records)
