@@ -178,14 +178,14 @@ To rigorously benchmark Tiers 6 and 7 across the architectural mechanics discove
 | `8028215679284936704` | `SM-SeqRev` | **Tier 6** | 2353 | Batch 256 (micro 128, accum 2) | Active (Step 1,700, Loss: 0.9051) |
 | `3425536860112289792` | `SM-Seq` | **Tier 7** | 32821344 | Batch 256 (micro 128, accum 2) | Active (Step 1,850, Loss: 0.8965) |
 | `2243341957927534592` | `SM-SeqRev` | **Tier 7** | 2002983289 | Batch 256 (micro 128, accum 2) | Active (Step 1,650, Loss: 1.0071) |
-| `3509979353125486592` | `SM-Fork` | **Tier 6** | 92782340 | Batch 256 (micro 32, accum 8) | Resubmitted with accum 8 |
-| `5554613583951691776` | `SM-Fork` | **Tier 7** | 29827321 | Batch 256 (micro 32, accum 8) | Resubmitted with accum 8 |
+| `3509979353125486592` | `SM-Fork` | **Tier 6** | 92782340 | Batch 256 (micro 32, accum 8) | Active (Step 50, Loss: 3.4804) |
+| `5554613583951691776` | `SM-Fork` | **Tier 7** | 29827321 | Batch 256 (micro 32, accum 8) | Active (Step 50, Loss: 3.5317) |
 
 ### Early Convergence Telemetry (Steps 1 to 2,000)
 
-* **Rapid Loss Descent**: All four sequential models (`SM-Seq-T6`, `SM-SeqRev-T6`, `SM-Seq-T7`, `SM-SeqRev-T7`) descended rapidly from initial cross-entropy ($>7.5$) to sub-1.0 loss before Step 2,000.
-* **Tier 6 vs. Tier 7 Convergence**: Tier 6 models show marginally lower loss at step 1,700 (~0.90 vs. ~1.00 for Tier 7), confirming that explicit axiom preambles provide a slight early optimization benefit, but Tier 7 is learning rapidly without any preamble dictionary.
-* **Intra-Column Dynamics**: `SM-SeqRev` models descend with high gradient stability, reflecting the monotonic carry-first hyperplane advantage observed in Round 2.
+* **All 6 Fleet Models Concurrently Active**: All 6 variants across Tiers 6 & 7 (`SM-Seq`, `SM-SeqRev`, and `SM-Fork`) are running stably in parallel on Google Cloud Vertex AI (NVIDIA L4).
+* **`SM-Fork` Verified Stable on L4**: With `grad_accum_steps=8` and FlashAttention engaged, both `SM-Fork-T6` and `SM-Fork-T7` crossed Step 1 cleanly without memory spikes, dropping from initial loss (~7.8–8.9) to ~3.50 by Step 50 (~115 seconds per 50 accumulated optimizer steps).
+* **Sequential Baseline Progress**: All four sequential models (`SM-Seq-T6`, `SM-SeqRev-T6`, `SM-Seq-T7`, `SM-SeqRev-T7`) have descended into sub-1.0 loss before Step 2,000. Tier 6 models are tracking around loss ~0.90 while Tier 7 models track around ~0.95–1.00.
 
 ---
 
