@@ -5,6 +5,8 @@ Each script in experiments/ declares its Variant and delegates here, so that hyp
 
 import argparse
 from dataclasses import dataclass
+import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 import torch.nn.functional as F
@@ -37,6 +39,7 @@ class Variant:
     train_steps: int = 100_000
     eval_interval: int = 5000
     batch_size: int = 256
+    grad_accum_steps: int = 1
     eval_problems: int = 1000
     final_eval_problems: int = 10_000
     train_axiom: str = "random"   # "random" | "canonical" (NC-1)
@@ -60,6 +63,7 @@ def parse_args(variant: Variant):
     parser.add_argument("--train-steps", type=int, default=variant.train_steps, help="Total optimisation steps")
     parser.add_argument("--warmup-steps", type=int, default=1000, help="Linear warm-up steps")
     parser.add_argument("--batch-size", type=int, default=variant.batch_size, help="Samples per batch (SM: step transitions; AR: full traces)")
+    parser.add_argument("--grad-accum-steps", type=int, default=getattr(variant, "grad_accum_steps", None), help="Gradient accumulation steps to divide batch_size into smaller micro-batches")
     parser.add_argument("--lr", type=float, default=3e-4, help="Peak learning rate")
     parser.add_argument("--eval-interval", type=int, default=variant.eval_interval, help="Optimisation steps between evaluations")
     parser.add_argument("--eval-problems", type=int, default=variant.eval_problems, help="Problems per evaluation cell during training")
@@ -123,6 +127,8 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
         args.train_axiom = variant.train_axiom
     if not hasattr(args, "eval_axioms") or not args.eval_axioms:
         args.eval_axioms = variant.eval_axioms
+    if not hasattr(args, "grad_accum_steps") or args.grad_accum_steps is None:
+        args.grad_accum_steps = 2 if variant.tier in (6, 7) else getattr(variant, "grad_accum_steps", 1)
     if not hasattr(args, "interactive"):
         args.interactive = False
     if not hasattr(args, "dry_run"):
@@ -170,24 +176,37 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
     make_batch = getattr(data_gen, f"{variant.paradigm}_batch")
     use_amp = device.type == "cuda"
 
+    accum_steps = max(1, args.grad_accum_steps)
+    micro_batch_size = max(1, args.batch_size // accum_steps)
+
     final_results = None
     for step in range(1, args.train_steps + 1):
         model.train()
-        batch = {k: v.to(device) if v is not None else None
-                 for k, v in make_batch(args.batch_size, variant.tier).items()}
-
-        with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-            loss, parts = compute_loss(model, variant, batch)
-
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+
+        step_loss = 0.0
+        step_parts = {}
+
+        for _ in range(accum_steps):
+            batch = {k: v.to(device) if v is not None else None
+                     for k, v in make_batch(micro_batch_size, variant.tier).items()}
+
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+                loss, parts = compute_loss(model, variant, batch)
+                scaled_loss = loss / accum_steps
+
+            scaled_loss.backward()
+            step_loss += loss.item() / accum_steps
+            for k, v in parts.items():
+                step_parts[k] = step_parts.get(k, 0.0) + v / accum_steps
+
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()
 
         if step == 1 or step % 50 == 0 or args.dry_run:
-            detail = " (" + ", ".join(f"{k}: {v:.3f}" for k, v in parts.items()) + ")" if parts else ""
-            print(f"Step {step:6d} | Loss: {loss.item():.4f}{detail} | LR: {scheduler.get_last_lr()[0]:.2e}", flush=True)
+            detail = " (" + ", ".join(f"{k}: {v:.3f}" for k, v in step_parts.items()) + ")" if step_parts else ""
+            print(f"Step {step:6d} | Loss: {step_loss:.4f}{detail} | LR: {scheduler.get_last_lr()[0]:.2e}", flush=True)
 
         final = step == args.train_steps
         do_eval = final or (step % args.eval_interval == 0) or (step == 1 and args.interactive)
@@ -203,7 +222,7 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
                 eval_axioms=args.eval_axioms,
                 stepper=stepper,
             )
-            logger.log(step=step, metrics={"loss": loss.item(), **results})
+            logger.log(step=step, metrics={"loss": step_loss, **results})
             logger.print_eval_summary(step=step, results=results, train_bases=train_bases)
             if final:
                 final_results = results
