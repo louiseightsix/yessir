@@ -71,8 +71,12 @@ def test_cli_variant_builder(monkeypatch):
     assert variant_fork.grad_accum_steps == 1
 
     MockArgs.tier = 6
-    variant_t6 = build_variant_from_args(MockArgs())
-    assert variant_t6.grad_accum_steps == 2
+    variant_t6_fork = build_variant_from_args(MockArgs())
+    assert variant_t6_fork.grad_accum_steps == 8
+
+    MockArgs.paradigm = "sm_seq"
+    variant_t6_seq = build_variant_from_args(MockArgs())
+    assert variant_t6_seq.grad_accum_steps == 2
 
     MockArgs.grad_accum_steps = 4
     variant_t6_custom = build_variant_from_args(MockArgs())

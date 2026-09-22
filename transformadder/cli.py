@@ -97,7 +97,10 @@ def build_variant_from_args(args) -> Variant:
 
     accum_steps = getattr(args, "grad_accum_steps", None)
     if accum_steps is None:
-        accum_steps = 2 if args.tier in (6, 7) else 1
+        if args.tier in (6, 7):
+            accum_steps = 8 if args.paradigm == "sm_fork" else 2
+        else:
+            accum_steps = 1
 
     return Variant(
         name=exp_name,
