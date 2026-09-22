@@ -98,6 +98,25 @@ def compute_loss(model, variant: Variant, batch: dict) -> tuple[torch.Tensor, di
     return loss, {}
 
 
+def accumulate_gradients(model, variant: Variant, make_batch, micro_batch_size: int, accum_steps: int,
+                         device, use_amp: bool) -> tuple[float, dict]:
+    """Backpropagates `accum_steps` micro-batches of `micro_batch_size` into the existing .grad
+    buffers, each loss scaled by 1/accum_steps so the summed gradient equals that of one batch of
+    accum_steps * micro_batch_size samples (exactly for the SM losses, whose per-row target count
+    is constant). Returns the mean loss and mean loss parts over the micro-batches."""
+    step_loss, step_parts = 0.0, {}
+    for _ in range(accum_steps):
+        batch = {k: v.to(device) if v is not None else None
+                 for k, v in make_batch(micro_batch_size, variant.tier).items()}
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+            loss, parts = compute_loss(model, variant, batch)
+        (loss / accum_steps).backward()
+        step_loss += loss.item() / accum_steps
+        for k, v in parts.items():
+            step_parts[k] = step_parts.get(k, 0.0) + v / accum_steps
+    return step_loss, step_parts
+
+
 def run_experiment(variant: Variant, args: argparse.Namespace = None):
     if args is None:
         args = parse_args(variant)
@@ -139,7 +158,6 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
         print(f"[*] Auto-adjusting grad_accum_steps from {args.grad_accum_steps} to 8 for SM-Fork (Tier {variant.tier}) "
               "to match physical VRAM footprint.", flush=True)
         args.grad_accum_steps = 8
-
 
     if not hasattr(args, "interactive"):
         args.interactive = False
@@ -200,23 +218,9 @@ def run_experiment(variant: Variant, args: argparse.Namespace = None):
     for step in range(1, args.train_steps + 1):
         model.train()
         optimizer.zero_grad(set_to_none=True)
-
-        step_loss = 0.0
-        step_parts = {}
-
-        for _ in range(accum_steps):
-            batch = {k: v.to(device) if v is not None else None
-                     for k, v in make_batch(micro_batch_size, variant.tier).items()}
-
-            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-                loss, parts = compute_loss(model, variant, batch)
-                scaled_loss = loss / accum_steps
-
-            scaled_loss.backward()
-            step_loss += loss.item() / accum_steps
-            for k, v in parts.items():
-                step_parts[k] = step_parts.get(k, 0.0) + v / accum_steps
-
+        step_loss, step_parts = accumulate_gradients(
+            model, variant, make_batch, micro_batch_size, accum_steps, device, use_amp
+        )
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         scheduler.step()

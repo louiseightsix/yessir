@@ -13,7 +13,7 @@ from transformadder.core.model import TransformAdder
 from transformadder.core.sequences import Seq, collate
 from transformadder.core.training import build_optimizer, build_scheduler
 from transformadder.utils.evaluation import evaluate
-from transformadder.utils.runner import Variant, compute_loss
+from transformadder.utils.runner import Variant, accumulate_gradients, compute_loss
 
 
 def small_model(tier, head_type):
@@ -155,6 +155,25 @@ def test_terminal_step_upweighting():
     gen = ProceduralArithmeticGenerator(bases=[10], min_len=10, max_len=20, p_terminal=0.5, seed=0)
     flags = gen.sm_mh_batch(400, tier=2)["target_flag"].float().mean().item()
     assert 0.4 < flags < 0.65
+
+
+def test_gradient_accumulation_matches_single_batch():
+    """accum_steps micro-batches must produce the gradient of one batch of the same samples."""
+    for paradigm, tier in [("sm_mh", 2), ("sm_seq", 6), ("sm_fork", 7)]:
+        variant = Variant(name="t", paradigm=paradigm, tier=tier, log_dir="", n_layers=2)
+        model = small_model(tier, "multi_head" if paradigm == "sm_mh" else "single_head")
+        grads = []
+        for micro, accum in ((8, 1), (2, 4)):        # same 8 transitions, drawn in the same order
+            gen = ProceduralArithmeticGenerator(bases=[2, 10], seed=11, tier=tier)
+            make_batch = getattr(gen, f"{paradigm}_batch")
+            model.zero_grad(set_to_none=True)
+            loss, _ = accumulate_gradients(model, variant, make_batch, micro, accum, torch.device("cpu"), False)
+            grads.append((loss, [p.grad.clone() for p in model.parameters() if p.grad is not None]))
+        (loss1, g1), (loss4, g4) = grads
+        assert abs(loss1 - loss4) < 1e-4, (paradigm, tier)
+        assert len(g1) == len(g4) > 0
+        for a, b in zip(g1, g4):
+            assert torch.allclose(a, b, atol=1e-5, rtol=1e-4), (paradigm, tier)
 
 
 def test_training_step_reduces_loss_each_paradigm():
