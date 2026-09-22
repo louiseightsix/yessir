@@ -39,7 +39,7 @@ def test_embedding_tier1_unit_norm_components():
 
 
 def test_embedding_nope_tiers_shapes_and_zeros():
-    for tier in [2, 3, 5, 6]:
+    for tier in [2, 3, 5, 6, 7]:
         x = SubspaceEmbedding(tier=tier)(torch.randint(0, 256, (3, 7)))
         assert x.shape == (3, 7, 512)
         assert torch.all(x[:, :, D_SYMBOL:] == 0.0), f"Tier {tier} must have zero positional vectors"
@@ -220,7 +220,7 @@ def test_residual_projection_init_scaling():
 
 
 def test_evaluate_runs_end_to_end():
-    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("sm_seq_rev", 4), ("sm_fork", 4), ("sm_fork", 5), ("ar", 3), ("sm_mh", 4), ("sm_seq", 5), ("sm_mh", 6), ("ar", 6)]:
+    for paradigm, tier in [("sm_mh", 1), ("sm_seq", 2), ("sm_seq_rev", 4), ("sm_fork", 4), ("sm_fork", 5), ("ar", 3), ("sm_mh", 4), ("sm_seq", 5), ("sm_mh", 6), ("ar", 6), ("sm_fork", 7)]:
         model = small_model(tier, "multi_head" if paradigm == "sm_mh" else "single_head")
         results = evaluate(model, paradigm, tier, train_bases=[2, 10], num_problems=1)
         for cell in ("id", "ood_base3", "ood_base12", "extrap_len_base12", "canon_ood_base12"):

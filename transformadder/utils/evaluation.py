@@ -207,7 +207,7 @@ def evaluate(
     for canonical in canonical_flags:
         for name, bases, (min_len, max_len) in eval_cells(train_bases):
             gen = ProceduralArithmeticGenerator(
-                bases=bases, min_len=min_len, max_len=max_len, canonical=canonical, seed=seed
+                bases=bases, min_len=min_len, max_len=max_len, canonical=canonical, seed=seed, tier=tier
             )
             instances = [gen.sample_instance() for _ in range(num_problems)]
             metrics = free_running_metrics(model, paradigm, tier, instances, stepper=stepper)

@@ -171,6 +171,7 @@ class ProceduralArithmeticGenerator:
         p_terminal: float = 0.2,
         canonical: bool = False,
         seed: int = 42,
+        tier: int = 1,      # Tier 7 forces operand lengths >= base (see sample_instance)
     ):
         if canonical and max(bases) > len(CANONICAL_AXIOM):
             raise ValueError(f"Canonical axiom supports bases up to {len(CANONICAL_AXIOM)}.")
@@ -180,6 +181,8 @@ class ProceduralArithmeticGenerator:
         self.p_chain = p_chain
         self.p_terminal = p_terminal
         self.canonical = canonical
+        self.seed = seed
+        self.tier = tier
         self.rng = random.Random(seed)
         self.sigma_pool = list(SIGMA_POOL)
 
@@ -193,8 +196,12 @@ class ProceduralArithmeticGenerator:
             axiom = CANONICAL_AXIOM[:base]
         else:
             axiom = self.rng.sample(self.sigma_pool, base)
-        len_a = self.rng.randint(self.min_len, self.max_len)
-        len_b = self.rng.randint(self.min_len, self.max_len)
+        # Tier 7 has no axiom header: the model reads the axiom off the single-symbol addresses
+        # of entries 0..B-1, so both operands must span at least B columns
+        min_l = max(self.min_len, base) if self.tier == 7 else self.min_len
+        max_l = max(self.max_len, min_l)
+        len_a = self.rng.randint(min_l, max_l)
+        len_b = self.rng.randint(min_l, max_l)
         a_vals = [self.rng.randrange(base) for _ in range(len_a)]
         b_vals = [self.rng.randrange(base) for _ in range(len_b)]
         if self.rng.random() < self.p_chain:

@@ -17,7 +17,7 @@ To execute addition, the model must solve two fundamental binding problems:
 1. **Stream Identification (Role)**: Which tokens belong to the axiom, operand $a$, operand $b$, incoming carry, and accumulated output?
 2. **Column Alignment (Significance)**: Which digits in $a$ and $b$ correspond to the current addition column, dynamically indexed by output length ($k = |OUT_k|$) in `SM` or by scratchpad column count in `AR`?
 
-We structure this design space as a **3-tier spectrum of inductive bias**, moving from hard-coded architectural coordinates down to fully emergent in-context coordinate tracking, plus two hybrid tiers (4 and 5, Sections 1.4 and 1.5) that decouple role from significance, and Tier 6 (Section 1.6), which replaces positional inference with explicit in-context addresses:
+We structure this design space as a **3-tier spectrum of inductive bias**, moving from hard-coded architectural coordinates down to fully emergent in-context coordinate tracking, plus two hybrid tiers (4 and 5, Sections 1.4 and 1.5) that decouple role from significance, and Tiers 6 and 7 (Sections 1.6 and 1.7), which replace positional inference with explicit in-context addresses:
 
 ```mermaid
 flowchart TD
@@ -163,7 +163,18 @@ flowchart TD
 
 ---
 
-### 1.7 Pinned Design Decision: LSD-First (LSB-First) Directionality
+### 1.7 Tier 7: Axiom-Free Key-Value Addressing (Zero-Preamble NoPE)
+* **Core Philosophy**: Tier 6 without the `[AXIOM]` header. The prefix is `[BOS] [A] entries [B] entries`; the carry, OUT and query entries are exactly as in Tier 6. The axiom is never listed: the model must recover the symbol order from the **addresses themselves**, since entries $0 \dots B-1$ of each operand are keyed by the single symbols $A_0 \dots A_{B-1}$ in order.
+  * **Sequence Format in `SM`** (base 3, $a = [1, 2, 0]$, $b = [2, 0, 1]$; Step 1):
+    ```text
+    [BOS] [A] | 0 [ORIGIN] 1 | 1 [ORIGIN] 2 | 2 [ORIGIN] 0 [B] | 0 [ORIGIN] 2 | 1 [ORIGIN] 0 | 2 [ORIGIN] 1 [CARRY] | 1 [ORIGIN] 1 [OUT] | 0 [ORIGIN] 0 | 1 [ORIGIN] [S]
+    ```
+* **Full-Span Constraint ("Option A")**: For the axiom to be recoverable, every operand must have at least $B$ digits. `ProceduralArithmeticGenerator(tier=7)` therefore samples lengths from $[\max(\texttt{min\_len}, B), \max(\texttt{max\_len}, B)]$ in **both training and every evaluation cell**. Tier 7 results are consequently **not length-matched** to the other tiers: the standard cell contains no operands shorter than $B$ (for base 12, lengths $12$–$20$ only), and the reference adder, harness and scoring are unchanged.
+* **The Learning Hypothesis**: Isolates whether the explicit-address mechanism of Tier 6 depends on the axiom table at all, or whether symbol order can itself be induced from the key stream.
+
+---
+
+### 1.8 Pinned Design Decision: LSD-First (LSB-First) Directionality
 * **Core Philosophy**: All operands ($a$, $b$, and accumulated $OUT$) are formatted strictly in **algorithmic reading order ($LSD \to MSD$)**, placing the least-significant digit at local offset 0.
 * **Theoretical Rationale**:
   * In conventional reading order ($MSD \to LSD$), column $k$ sits at index $\text{len}(\text{op}) - 1 - k$. Locating column $k$ requires first measuring total operand length and computing a reverse offset, introducing a length-dependent confounding difficulty unrelated to addition itself.
@@ -217,7 +228,7 @@ How raw byte tokens ($b \in \{0, \dots, 255\}$) are converted into vector repres
   * The representation space is strictly partitioned into two orthogonal 256-dimensional blocks:
     $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; \mathbf{p}_t \, ] \in \mathbb{R}^{512}$$
     - **Dimensions $0 \dots 255$ (Symbol Identity)**: At the input, strictly contains the fixed one-hot byte vector $\mathbf{e}_{b_t}$, uncorrupted by positional encodings.
-    - **Dimensions $256 \dots 511$ (Positional & Algorithmic State)**: Holds positional vectors $\mathbf{p}_t = [e_{\text{role}}(r_t) \parallel e_{\text{sig}}(p_t)]$ in Tier 1. In Tier 4 only the role part is populated ($[e_{\text{role}}(r_t) \parallel \mathbf{0}_{192}]$). In Tiers 2, 3, 5 and 6 (NoPE), these dimensions are initialised to zero ($\mathbf{0}_{256}$), serving as dedicated working memory for attention heads and MLPs.
+    - **Dimensions $256 \dots 511$ (Positional & Algorithmic State)**: Holds positional vectors $\mathbf{p}_t = [e_{\text{role}}(r_t) \parallel e_{\text{sig}}(p_t)]$ in Tier 1. In Tier 4 only the role part is populated ($[e_{\text{role}}(r_t) \parallel \mathbf{0}_{192}]$). In Tiers 2, 3, 5, 6 and 7 (NoPE), these dimensions are initialised to zero ($\mathbf{0}_{256}$), serving as dedicated working memory for attention heads and MLPs.
 * **Theoretical Purpose**:
   * **No learned embedding table**: there is no trainable per-token vector in which a symbol's "meaning" could be stored at the input. This does *not* by itself prevent memorisation: the first-layer projections ($W_Q, W_K, W_V$, FFN input) read the one-hot block and can still learn per-byte associations. What removes the *incentive* to do so is per-instance random symbol sampling (Section 2.1), under which no byte has a stable value.
   * Guarantees that the tied copy slice (Section 4.1) reads from a subspace with a fixed, known symbol basis.

@@ -1,6 +1,6 @@
 """Subspace embedding module mapping 1-byte tokens to 512-dimensional representations.
 Dims 0..255: Fixed one-hot symbol basis.
-Dims 256..511: 2D Split PE (Tier 1), Role + NoPE (Tier 4), or static zero-padded state memory (Tiers 2, 3, 5 & 6).
+Dims 256..511: 2D Split PE (Tier 1), Role + NoPE (Tier 4), or static zero-padded state memory (Tiers 2, 3, 5, 6 & 7).
 """
 
 import math
@@ -25,7 +25,7 @@ class SubspaceEmbedding(nn.Module):
     def __init__(self, tier: int = 1, d_model: int = D_MODEL):
         super().__init__()
         assert d_model == D_MODEL, f"TransformAdder requires d_model={D_MODEL}, got {d_model}"
-        assert tier in (1, 2, 3, 4, 5, 6), f"Unknown tier: {tier}"
+        assert tier in (1, 2, 3, 4, 5, 6, 7), f"Unknown tier: {tier}"
         self.tier = tier
 
         if tier in (1, 4):

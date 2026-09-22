@@ -80,8 +80,22 @@ def decode(seq):
         axiom, a, b = ([t for t, r in zip(tokens, seq.roles) if r == role]
                        for role in (ROLE_AXIOM, ROLE_OPERAND_A, ROLE_OPERAND_B))
         return axiom, a, b, tokens[1 + len(axiom) + len(a) + len(b):]
-    if DELIM_ORIGIN in tokens and DELIM_GENERIC in tokens:       # Tier 6: addressed entries
-        axiom, a_block, rest = split(tokens, DELIM_AXIOM, DELIM_A, DELIM_B)
+    if DELIM_ORIGIN in tokens and DELIM_GENERIC in tokens:       # Tier 6 & 7: addressed entries
+        if DELIM_AXIOM in tokens:
+            axiom, a_block, rest = split(tokens, DELIM_AXIOM, DELIM_A, DELIM_B)
+        else:
+            a_block, rest = split(tokens, DELIM_A, DELIM_B)
+            axiom = []
+            i = 0
+            while i < len(a_block):
+                assert a_block[i] == DELIM_GENERIC
+                j = a_block.index(DELIM_ORIGIN, i)
+                addr = a_block[i + 1:j]
+                if len(addr) == 1 and addr[0] not in axiom:
+                    axiom.append(addr[0])
+                    i = j + 2
+                else:
+                    break
         a = tier6_entries(a_block, axiom)
         if START in rest:
             s = rest.index(START)
@@ -190,7 +204,7 @@ class OracleModel:
         return torch.stack([self.next_logits(s) for s in seqs])
 
 
-TIERS = (1, 2, 3, 4, 5, 6)
+TIERS = (1, 2, 3, 4, 5, 6, 7)
 HARNESSES = {
     "sm_mh": run_state_machine_mh,
     "sm_seq": run_state_machine_seq,
@@ -200,15 +214,15 @@ HARNESSES = {
 }
 
 
-def instances(n=200):
-    gen = ProceduralArithmeticGenerator(bases=[2, 3, 10, 12], max_len=12, p_chain=0.5, seed=5)
+def instances(n=200, tier=1):
+    gen = ProceduralArithmeticGenerator(bases=[2, 3, 10, 12], max_len=12, p_chain=0.5, seed=5, tier=tier)
     return [gen.sample_instance() for _ in range(n)]
 
 
 def test_oracle_rollouts_are_exact():
     for paradigm, run in HARNESSES.items():
         for tier in TIERS:
-            for inst in instances():
+            for inst in instances(tier=tier):
                 carries = []
                 out, status = run(OracleModel(), inst["axiom"], inst["a"], inst["b"], tier, carries=carries)
                 assert status == "finished", (paradigm, tier)
@@ -219,7 +233,7 @@ def test_oracle_rollouts_are_exact():
 def test_oracle_scores_perfectly():
     for paradigm in HARNESSES:
         for tier in TIERS:
-            metrics = free_running_metrics(OracleModel(), paradigm, tier, instances(50))
+            metrics = free_running_metrics(OracleModel(), paradigm, tier, instances(50, tier=tier))
             assert metrics["em"] == 1.0 and metrics["digit_acc"] == 1.0 and metrics["carry_acc"] == 1.0
             assert metrics["out_of_axiom"] == 0
 
@@ -233,7 +247,7 @@ def test_non_halting_model_is_bounded_and_scored_as_failure():
     }
     for paradigm, run in HARNESSES.items():
         for tier in TIERS:
-            inst = instances(1)[0]
+            inst = instances(1, tier=tier)[0]
             out, status = run(OracleModel(never_finish=True), inst["axiom"], inst["a"], inst["b"], tier)
             assert status != "finished"
             if paradigm in expected_status:
