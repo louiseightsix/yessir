@@ -1,8 +1,8 @@
-# Decoupled Experimental Taxonomy: An Orthogonal 4-Axis Formalism for Algorithmic Arithmetic Transformers
+# Decoupled Experimental Taxonomy: An Orthogonal Formalism for Algorithmic Arithmetic Transformers
 
 **Specification Document 08**  
 **TransformAdder Project**  
-**Author**: Architectural Redesign Proposal  
+**Author**: Architectural Redesign Proposal (Revised)  
 **Date**: September 21, 2026  
 **Status**: Proposal / RFC
 
@@ -10,246 +10,184 @@
 
 ## 1. Executive Summary & Problem Statement
 
-Throughout the first three experimental campaigns (Rounds 1–3) of the TransformAdder project, models were categorised using two nominal designators:
+Throughout the first three experimental campaigns (Rounds 1–3) of the TransformAdder project, model configurations were designated by two compound labels:
 1. **Runtime Paradigm**: `SM-MH`, `SM-Seq`, `SM-SeqRev`, `SM-Fork`, `AR`.
 2. **Inductive Bias Tier**: `Tier 1` through `Tier 7`.
 
-While this nomenclature enabled rapid empirical iteration, empirical discoveries (the collapse of multi-head decoders under NoPE, the intra-column directional asymmetry of `SM-Seq` vs. `SM-SeqRev`, the delayed grokking of dual-delimiter counting, and the memory scaling of branched queries) have revealed that these nominal categories **conflate multiple independent, orthogonal computational axes**:
+While this nomenclature facilitated early exploration, empirical findings (the collapse of multi-head linear decoders under NoPE, the intra-column directional asymmetry of `SM-Seq` vs. `SM-SeqRev`, the delayed grokking of delimiter-anchored representations, and memory scaling under query expansion) revealed that these labels conflate multiple independent computational variables.
 
-* **Conflation 1 (Harness vs. Model)**: The label "State Machine" hides the fact that the external Python runtime performs critical memory management, column pointer tracking, and prompt re-formatting for the model. In contrast, "AR" demands total autonomous agency from the neural network.
-* **Conflation 2 (Causal Dependency vs. Paradigm)**: `SM-Seq` and `SM-SeqRev` are not a distinct species of state machine; they are simply **Micro-Autoregression** bounded by an external column step. Crucially, standard macro-`AR` suffers from the exact same unaddressed directional ordering dilemma.
-* **Conflation 3 (Factorisation vs. Head Architecture)**: `SM-MH` and `SM-Fork` implement the **exact same order-free causal factorisation**; they differ only in whether decoding occurs in *weight space* (multiple linear heads) or *sequence space* (multiple prompt query triggers with tied copy projection).
-* **Conflation 4 (Positional Bias vs. Semantic Metadata vs. Lexical Dictionary)**: "Tiers" bundled continuous coordinates (PE), discrete delimiter counting, learned subspace role embeddings, explicit numeral coordinate tuples, and the presence or absence of an axiom dictionary into a single linear scale.
-
-This document formally resolves these conflations by replacing the monolithic "Tiers" and "Paradigms" with an **orthogonal 4-dimensional tensor formalism**:
-$$\mathcal{M} = \langle \text{Agency}, \text{Topology}, \text{Channel}, \text{Representation} \rangle$$
+This specification refactors the design space into **five orthogonal axes** governed by an explicit **admissibility matrix**:
+1. **Axis I: Supervisory Agency** (Harnessed State Machine vs. Autonomous Autoregression).
+2. **Axis II: Intra-Step Causal Topology** (Factored/Order-Free vs. Causal Chain: Sum-First vs. Carry-First).
+3. **Axis III: Decoding Channel** (Weight-Space Multi-Head vs. Sequence-Space Query Trigger).
+4. **Axis IV: Representation & Inductive Bias** (Coordinates, Scoping Lexicon, and Preamble).
+5. **Axis V: Problem Distribution & Curriculum** (Standard Length vs. Full-Span Alphabet Guarantee).
 
 ---
 
-## 2. Deconstruction of Historical Conflations
+## 2. Deconstruction of Experimental Conflations
 
-### 2.1 Conflation 1: The Invisible Work of the Runtime Harness
+### 2.1 Conflation 1: The Binary Nature of Supervisory Agency
+In earlier discussions, the runtime harness was described as having multiple "levels" based on whether role embeddings or coordinate markers were passed. In reality, **every State Machine configuration performs the exact same external register management**:
+* Python maintains the carry state $c_k$ and the accumulated output sequence $OUT_k$.
+* Python constructs a fresh prompt slice for each column transition $k$.
+* Python evaluates halting criteria and terminates the loop.
 
-In the original specification, `AR` and `SM-*` were treated as sibling choices. In reality, they represent radically different allocations of computational responsibility between the Python runtime and the neural network:
+Whether the model receives sinusoidal coordinates, role IDs, or discrete address tokens is strictly a property of the **Representation (Axis IV)**, not the harness. The true Agency axis is **strictly binary**:
+* **`A-Harnessed`**: Python acts as the external state register; the model computes single column transitions $\Delta s_k$.
+* **`A-Autonomous`**: Zero external intervention after step 0; the neural network maintains all state and control flow in its own autoregressive KV cache.
 
-```
-                            ALLOCATION OF RESPONSIBILITY
-                            
-   [ Level 3 / Tier 1 SM ] ──► Harness injects Coordinates + Roles + Carry + History
-   [ Level 2 / Tier 4 SM ] ──► Harness injects Roles + Carry + History (NoPE)
-   [ Level 1 / Tier 5 SM ] ──► Harness injects Carry + History (NoPE, pure tokens)
-   [ Level 1 / Tier 6-7 SM] ─► Harness injects Query Coordinate + Carry + History
-   [ Level 0 / Full AR ]   ──► Harness does NOTHING after step 0. Model does all.
-```
+### 2.2 Conflation 2: Micro-AR vs. Macro-AR (Directional Asymmetry in Full AR)
+`SM-Seq` and `SM-SeqRev` are simply micro-autoregressive models bounded by an external prompt reset. The discovery in Round 2 that carry-first emission (`SM-SeqRev`) enables monotonic thresholding followed by conditional subtraction:
+$$\text{Pass 1: } c_{k+1} = \mathbf{1}_{a_k + b_k + c_k \ge B}$$
+$$\text{Pass 2: } o_k = (a_k + b_k + c_k) - c_{k+1} \cdot B$$
+applies identically to full autoregressive models (`AR`). Historically, autoregressive scratchpad addition has hardcoded sum-first emission (`[S] o_k [C] c_{k+1}`). Testing **`AR-CarryFirst`** (`[C] c_{k+1} [S] o_k`) is an immediate, high-leverage empirical consequence of this refactoring.
 
-In Level 3 (`SM-MH-T1`), the model does not need to learn arithmetic control flow; it is an algebraic transition function evaluated inside a rigid external harness. In Level 0 (`AR`), the model must simultaneously act as memory controller, instruction pointer, loop termination judge, and arithmetic ALU.
-
-### 2.2 Conflation 2: Micro-AR vs. Macro-AR (The Order Dependency Blindspot)
-
-The discovery of intra-column directional asymmetry in Round 2 proved that emitting sum before carry (`SM-Seq`) forces the model to solve modular arithmetic without intermediate scratchpad tokens, whereas emitting carry before sum (`SM-SeqRev`) permits monotonic thresholding followed by conditional subtraction:
-
-$$\text{Sum-First: } o_k = (a_k + b_k + c_k) \pmod B \implies c_{k+1} = \mathbf{1}_{a_k + b_k + c_k \ge B}$$
-$$\text{Carry-First: } c_{k+1} = \mathbf{1}_{a_k + b_k + c_k \ge B} \implies o_k = (a_k + b_k + c_k) - c_{k+1} \cdot B$$
-
-Because `SM-Seq` is merely micro-autoregression, **full autoregressive models (`AR`) possess this exact same structural asymmetry**. Historically, autoregressive addition scratchpads have hardcoded a sum-first or carry-first layout without treating this as a primary scientific variable.
-
-### 2.3 Conflation 3: `SM-MH` and `SM-Fork` are Decoupled Implementations of the Same Factorisation
-
-Both `SM-MH` and `SM-Fork` enforce strict **conditional independence** between the column predictions:
+### 2.3 Conflation 3: `SM-MH` vs. `SM-Fork` (Same Factorisation, Distinct Readout)
+Both `SM-MH` and `SM-Fork` enforce strict **conditional independence** between column outputs:
 $$P(o_k, c_{k+1}, \text{FLAG}_k \mid s_k) = P(o_k \mid s_k) \cdot P(c_{k+1} \mid s_k) \cdot P(\text{FLAG}_k \mid s_k)$$
+They compute the exact same mathematical model. They differ solely in the readout channel:
+* **`C-Weight` (`SM-MH`)**: Projects 3 distinct linear heads ($W_{\text{sum}}, W_{\text{carry}}, W_{\text{flag}}$) from a single tail hidden vector $\mathbf{h}_{\text{tail}}$.
+* **`C-Sequence` (`SM-Fork`)**: Uses a single tied copy head ($W_{\text{head}} = E^T$) evaluated across 3 distinct prompt query triggers (`[S]`, `[C]`, `[F]`).
 
-Neither sum nor carry conditions on the other. They are the same mathematical model, differing solely in the decoder implementation:
-* `SM-MH` multiplexes outputs across **weight projections** ($W_{\text{sum}}, W_{\text{carry}}, W_{\text{flag}}$) at a single token position $\mathbf{h}_{\text{tail}}$.
-* `SM-Fork` multiplexes outputs across **prompt query keys** (`[S]`, `[C]`, `[F]`) evaluated by a single tied head ($W_{\text{head}} = E^T$).
-
----
-
-## 3. The 4 Orthogonal Experimental Axes
-
-To eliminate conflation and ensure all future ablations are mathematically well-defined, every experiment configuration is uniquely specified as a point in the product space $\mathcal{S}_{\text{agency}} \times \mathcal{S}_{\text{topology}} \times \mathcal{S}_{\text{channel}} \times \mathcal{S}_{\text{repr}}$.
-
-```
-   ┌────────────────────────────────────────────────────────────────────────┐
-   │                       THE 4-AXIS DESIGN TENSOR                         │
-   └────────────────────────────────────────────────────────────────────────┘
-          │
-          ├─► AXIS I:   SUPERVISORY HARNESS AGENCY  (Levels 0 to 3)
-          │
-          ├─► AXIS II:  INTRA-STEP CAUSAL TOPOLOGY  (Factored vs. Chain)
-          │
-          ├─► AXIS III: DECODING CHANNEL            (Weight vs. Sequence)
-          │
-          └─► AXIS IV:  REPRESENTATION & BIAS       (Coordinates, Delimiters, KV)
-```
+### 2.4 Conflation 4: Curriculum Confounding in Zero-Preamble Addressing
+Tier 7 is not merely an architectural ablation of the `[AXIOM]` preamble. In the procedural generator (`core/data.py`), Tier 7 forces operand lengths to satisfy $L \ge B$ so that all $B$ symbols appear in the operands, ensuring solvability. Consequently, Tier 7 models are trained on a different length distribution than Tiers 1–6 (e.g., $L \in [10, 20]$ for Base 10, omitting short lengths $1..9$). Isolating this requires a dedicated **Problem Distribution Axis (Axis V)**.
 
 ---
 
-### Axis I: Supervisory Harness Agency ($\mathcal{S}_{\text{agency}}$)
+## 3. The 5 Orthogonal Experimental Axes
 
-This axis specifies the degree of external state management and metadata scaffolding supplied by the runtime harness at inference time.
-
-| Level | Name | External State Management | Column Pointer Mechanism | Side-Channel Embeddings |
-| :--- | :--- | :--- | :--- | :--- |
-| **`A3`** | **Dual Oracle** | External register updates carry $c_k$ and outputs $OUT_k$; prompt reset per step. | Harness injects continuous spatial coordinate vector into query embedding. | **Role IDs + Significance Coordinates** injected into transformer layers. |
-| **`A2`** | **Semantic Oracle** | External register updates carry $c_k$ and outputs $OUT_k$; prompt reset per step. | Model must deduce column $k$ by integrating over generic delimiters in output prefix. | **Role IDs only** (64d learned subspace). Positional coordinates zeroed (NoPE). |
-| **`A1-Implicit`** | **State Machine (Counting)** | External register updates carry $c_k$ and outputs $OUT_k$; prompt reset per step. | Model must count delimiters or output tokens $|OUT_k| = k$ to deduce active column. | **None**. Pure 1D token IDs from universal byte vocabulary $\mathcal{V}$. |
-| **`A1-Explicit`** | **State Machine (Addressed)** | External register updates carry $c_k$ and outputs $OUT_k$; prompt reset per step. | Harness explicitly writes target column coordinate in prompt tokens: `[S] (k)`. | **None**. Pure 1D token IDs from universal byte vocabulary $\mathcal{V}$. |
-| **`A0`** | **Autonomous (AR)** | **None**. Model receives problem statement once; maintains state in internal KV cache. | Model generates own column markers or trace tokens sequentially. | **None**. Pure 1D token IDs from universal byte vocabulary $\mathcal{V}$. |
-
----
+### Axis I: Supervisory Agency ($\mathcal{S}_{\text{agency}}$)
+* **`A-Harnessed`**: External state machine. Python maintains $c_k$ and $OUT_k$, advancing column pointers and resetting prompts.
+* **`A-Autonomous`**: Full autoregression. Model emits the complete trace autonomously into its KV cache until emitting `[FINISHED]`.
 
 ### Axis II: Intra-Step Causal Topology ($\mathcal{S}_{\text{topology}}$)
+* **`T-Factored`**: Order-free conditional independence. $o_k$ and $c_{k+1}$ are computed independently conditioned on prior state $s_k$.
+* **`T-SumFirst`**: Causal chain. Emits sum digit $o_k$ first; carry computation conditions on the emitted sum digit.
+* **`T-CarryFirst`**: Causal chain. Emits carry digit $c_{k+1}$ first; sum computation conditions on the emitted carry digit.
 
-This axis specifies the joint distribution factorization between the sum digit $o_k$, the outgoing carry $c_{k+1}$, and the halting signal $\text{FLAG}_k$ for column $k$.
+### Axis III: Decoding Readout Channel ($\mathcal{S}_{\text{channel}}$)
+* **`C-Weight`**: Multi-head projection ($W_{\text{sum}}, W_{\text{carry}}, W_{\text{flag}}$) from a shared hidden state vector $\mathbf{h}_{\text{tail}}$.
+* **`C-Sequence`**: Parameter-free tied copy head ($W_{\text{head}} = E^T$) conditioned on explicit sequence triggers (`[S]`, `[C]`, `[F]`).
 
-#### 1. Factored / Order-Free Topology (`T-Factored`)
-$$P(o_k, c_{k+1}, \text{FLAG}_k \mid s_k) = P(o_k \mid s_k) \cdot P(c_{k+1} \mid s_k) \cdot P(\text{FLAG}_k \mid s_k)$$
-* Neither sum nor carry is causally dependent on the other.
-* Requires the transformer to compute both modular addition and threshold carry directly from input operands.
-
-#### 2. Causal Chain: Sum-First (`T-SumFirst`)
-$$P(o_k, c_{k+1}, \text{FLAG}_k \mid s_k) = P(o_k \mid s_k) \cdot P(c_{k+1} \mid s_k, o_k) \cdot P(\text{FLAG}_k \mid s_k, o_k, c_{k+1})$$
-* Sum digit $o_k$ is emitted first. Carry computation conditions causally on the emitted sum digit.
-
-#### 3. Causal Chain: Carry-First (`T-CarryFirst`)
-$$P(o_k, c_{k+1}, \text{FLAG}_k \mid s_k) = P(c_{k+1} \mid s_k) \cdot P(o_k \mid s_k, c_{k+1}) \cdot P(\text{FLAG}_k \mid s_k, c_{k+1}, o_k)$$
-* Carry digit $c_{k+1}$ is emitted first. Sum computation conditions causally on the emitted carry digit (conditional linear subtraction).
-
----
-
-### Axis III: Decoding Channel ($\mathcal{S}_{\text{channel}}$)
-
-This axis specifies how outputs are extracted from the latent representation of the transformer.
-
-| Channel Mode | Description | Decoding Mechanism | Parameter Cost |
-| :--- | :--- | :--- | :--- |
-| **`C-Weight`** | **Multi-Head Projection** | Single sequence forward pass. Multiple distinct linear heads ($W_{\text{sum}}, W_{\text{carry}}, W_{\text{flag}}$) project from the tail latent vector $\mathbf{h}_{\text{tail}}$. | $3 \times (d_{\text{model}} \times |\mathcal{V}|)$ projection weights. |
-| **`C-Sequence`** | **Tied Copy with Query Keys** | Multiple sequence passes or multiple sequence tokens. Outputs are projected via parameter-free tied embedding head $W_{\text{head}} = E^T$ conditioned on trigger query tokens (`[S]`, `[C]`, `[F]`). | **0 additional parameters** (tied to embedding matrix $E$). |
-
----
-
-### Axis IV: Positional & Symbolic Representation ($\mathcal{S}_{\text{repr}}$)
-
-This axis decouples how coordinates, scopes, and symbol vocabularies are encoded into tokens and embeddings.
+### Axis IV: Representation & Inductive Bias ($\mathcal{S}_{\text{repr}}$)
 
 ```
-                           AXIS IV DECOMPOSITION
-                           
-    Sub-Axis IV-A: Positional Scheme
-    ├── R-Pos-Sinusoidal:   Continuous sinusoidal positional encodings (1D or 2D).
-    ├── R-Pos-Delimiter:    Coordinate-free (NoPE). Positions inferred via punctuation counters.
-    └── R-Pos-SymbolicKV:   Coordinate-free (NoPE). Positions bound explicitly as numeral tuples (v, k).
+                            AXIS IV SUB-COMPONENTS
+                            
+  IV-A: Positional Encoding (Coordinate System)
+  ├── R-Pos-Sinusoidal:   Continuous 2D split sinusoidal PE (Role + Significance).
+  └── R-Pos-NoPE:         Zero positional coordinates; attention is permutation-invariant.
 
-    Sub-Axis IV-B: Scope & Delimiter Lexicon
-    ├── R-Scope-Learned:    64d learned role vectors injected per token.
-    ├── R-Scope-Semantic:   Specialized structural delimiters ([AXIOM], [A], [B], [C], [OUT]).
-    ├── R-Scope-Generic:    Uniform delimiter (|) across all field boundaries.
-    └── R-Scope-Anchored:   Generic delimiter (|) + explicit origin anchor (*) at LSD.
+  IV-B: Scoping & Delimiter Lexicon (Actual Codebase Tokens)
+  ├── R-Scope-RoleEmbed:      Generic delimiter (|) + 64d learned role embedding table.
+  ├── R-Scope-Semantic:       Dedicated tokens ([AXIOM], [A], [B], [CARRY], [OUT]).
+  ├── R-Scope-Generic:        Single generic delimiter (|) across all section boundaries.
+  ├── R-Scope-SemanticOrigin: Semantic section headers + origin anchor token (*) at section starts.
+  ├── R-Scope-Addressed:      Semantic headers + generic entry delimiter (|) + origin token (*) 
+  │                           separating little-endian numeral address from value.
+  └── R-Scope-ZeroPreamble:   Identical to R-Scope-Addressed, but [AXIOM] header is omitted.
 
-    Sub-Axis IV-C: Lexical Preamble
-    ├── R-Axiom-Explicit:   Prompt begins with full ordered axiom string [AXIOM] s_0 s_1 ... s_{B-1}.
-    └── R-Axiom-Zero:       No axiom header. Operands guarantee full symbol span; model deduces order.
+  IV-C: Query Addressing Mode
+  ├── R-Query-Implicit:       Prompt ends on query trigger; model must infer column k from history.
+  └── R-Query-ExplicitKV:     Harness explicitly formats query with target numeral address: [S] (k).
 ```
 
----
-
-## 4. Mapping the Existing Fleet into the Decoupled Taxonomy
-
-Every model variant trained across Rounds 1–3 maps into this 4-axis coordinate space:
-
-| Historical Name | Axis I: Agency | Axis II: Topology | Axis III: Channel | Axis IV: Representation & Bias | Key Empirical Discovery |
-| :--- | :---: | :---: | :---: | :--- | :--- |
-| **`SM-MH-T1`** | `A3` (Dual Oracle) | `T-Factored` | `C-Weight` | Sinusoidal 2D PE + Role Embeddings + Explicit Axiom | 100% In-Domain EM, but 0.0% Length Extrapolation (Phase Drift). |
-| **`SM-Seq-T1`** | `A3` (Dual Oracle) | `T-SumFirst` | `C-Sequence` | Sinusoidal 2D PE + Role Embeddings + Explicit Axiom | High In-Domain stability, but phase drift on length extrapolation. |
-| **`AR-T2`** | `A0` (Autonomous) | `T-SumFirst` | `C-Sequence` | NoPE + Semantic Delimiters (`[A]`, `[B]`) + Explicit Axiom | Strong base generalization (41% Base-12), 0% extrapolation. |
-| **`SM-MH-T4`** | `A2` (Semantic) | `T-Factored` | `C-Weight` | NoPE + 64d Role Embeddings + Generic `\|` + Explicit Axiom | **Total Collapse (0.0% EM)**: Weight heads fail without coordinates. |
-| **`SM-Seq-T4`** | `A2` (Semantic) | `T-SumFirst` | `C-Sequence` | NoPE + 64d Role Embeddings + Generic `\|` + Explicit Axiom | **56.0% Base-3 record**: Eliminating PE fixes coordinate distortion. |
-| **`SM-SeqRev-T4`**| `A2` (Semantic) | `T-CarryFirst` | `C-Sequence` | NoPE + 64d Role Embeddings + Generic `\|` + Explicit Axiom | **First-ever 40-digit Extrap EM (2.4%)**: Monotonic carry enables extrapolation. |
-| **`SM-Seq-T5`** | `A1-Implicit` | `T-SumFirst` | `C-Sequence` | Pure NoPE + Dual Delimiters (`\|`, `*`) + Explicit Axiom | 51.0% EM at 100k; slow counter convergence. |
-| **`SM-SeqRev-T5`**| `A1-Implicit` | `T-CarryFirst` | `C-Sequence` | Pure NoPE + Dual Delimiters (`\|`, `*`) + Explicit Axiom | **Grokking Breakthrough (46.2% at 75k)**: Emergence of global counter. |
-| **`SM-Fork-T5`** | `A1-Implicit` | `T-Factored` | `C-Sequence` | Pure NoPE + Dual Delimiters (`\|`, `*`) + Explicit Axiom | Order-free evaluation without multi-head weight collapse. |
-| **`SM-Seq-T6`** | `A1-Explicit` | `T-SumFirst` | `C-Sequence` | Pure NoPE + Symbolic Numeral Addresses + Explicit Axiom | $O(1)$ address lookup; eliminates delimiter counting dilution. |
-| **`SM-SeqRev-T6`**| `A1-Explicit` | `T-CarryFirst` | `C-Sequence` | Pure NoPE + Symbolic Numeral Addresses + Explicit Axiom | Carry-first micro-AR with exact discrete address matching. |
-| **`SM-Fork-T6`** | `A1-Explicit` | `T-Factored` | `C-Sequence` | Pure NoPE + Symbolic Numeral Addresses + Explicit Axiom | Branching parallel queries with discrete address matching. |
-| **`SM-Seq-T7`** | `A1-Explicit` | `T-SumFirst` | `C-Sequence` | Pure NoPE + Symbolic Numeral Addresses + **Zero Preamble** | In-context grammar deduction from full-span arithmetic constraints. |
-| **`SM-SeqRev-T7`**| `A1-Explicit` | `T-CarryFirst` | `C-Sequence` | Pure NoPE + Symbolic Numeral Addresses + **Zero Preamble** | Zero-preamble in-context deduction with carry-first stability. |
-| **`SM-Fork-T7`** | `A1-Explicit` | `T-Factored` | `C-Sequence` | Pure NoPE + Symbolic Numeral Addresses + **Zero Preamble** | Pure relational arithmetic reasoning under parallel query branching. |
+### Axis V: Problem Distribution & Curriculum ($\mathcal{S}_{\text{dist}}$)
+* **`D-Standard`**: Operand lengths uniformly sampled from $[L_{\min}, L_{\max}]$. Single-digit and short operands permitted ($L \ge 1$).
+* **`D-FullSpan`**: Operand lengths constrained to $L \ge B$. Guarantees all $B$ alphabet symbols appear in operands $A$ and $B$, ensuring zero-preamble solvability.
 
 ---
 
-## 5. Unexplored Frontiers Unlocked by the Decoupled Taxonomy
+## 4. The Admissibility Matrix (Dead-Cell Elimination)
 
-Breaking down the design space reveals multiple high-priority scientific cells that were previously obscured:
+Not all Cartesian product combinations of these axes represent valid or physically realisable models. The table below formalises the **Feasibility Admissibility Rules**:
 
-### 5.1 The Autoregressive Ordering Frontier: `AR-SumFirst` vs. `AR-CarryFirst`
+| Combination | Admissibility | Physical / Mathematical Rationale |
+| :--- | :---: | :--- |
+| `C-Weight` $\times$ `T-SumFirst` | **INVALID** | A multi-head linear layer projects multiple outputs from a single forward pass; it cannot causally chain one head's prediction into another head's input. |
+| `C-Weight` $\times$ `T-CarryFirst`| **INVALID** | Same as above: causal chaining requires sequential token emission. |
+| `C-Weight` $\times$ `A-Autonomous`| **INVALID** | Autoregressive generation emits a 1D token stream; multi-head parallel emission is incompatible with standard sequential trace generation. |
+| `T-Factored` $\times$ `A-Autonomous`| **INVALID** | Standard autoregressive trace generation is fundamentally a causal chain: $x_t \sim P(x_t \mid x_{<t})$. |
+| `R-Pos-Sinusoidal` $\times$ `R-Scope-Semantic` | **INADMISSIBLE** | Tier 1 2D sinusoidal PE requires the role embedding table to provide the role coordinate. |
+| `R-Query-ExplicitKV` without `R-Scope-Addressed` | **INADMISSIBLE** | Explicit numeral address queries require numeral address formatting in the prompt. |
 
-In full autonomous autoregression (`A0`), models have historically been trained with sum-first scratchpads:
-$$\text{Trace: } \dots \ [k] \ \mathbf{o_k} \ [C] \ \mathbf{c_{k+1}} \dots$$
+### Admissible Agency $\times$ Topology $\times$ Channel Subspace
 
-The taxonomy predicts that standard autoregressive models suffer from the exact same modular bottleneck that hindered `SM-Seq`. By reformulating the autoregressive trace to be **Carry-First**:
-$$\text{Trace: } \dots \ [k] \ \mathbf{c_{k+1}} \ [S] \ \mathbf{o_k} \dots$$
-we can test whether full autoregressive scratchpads achieve the same massive length-extrapolation boost observed in `SM-SeqRev`.
+Of the 12 theoretical combinations of Agency $\times$ Topology $\times$ Channel, exactly **four** are structurally sound:
 
-### 5.2 Bridging the Agency Gap: The `A1-Explicit` Autoregressive Model
-
-Can an autonomous model (`A0`) learn to emit its own explicit symbolic coordinates $(v, k)$ into its trace without an external state machine harness?
-* An `AR` model operating in `R-Pos-SymbolicKV` representation would emit:
-  $$\text{Trace: } \dots \ o_0 (0) \ c_1 (1) \ o_1 (1) \ c_2 (2) \dots$$
-* This bridges the gap between state machine reliability and full autoregressive autonomy.
-
-### 5.3 Weight-Space vs. Sequence-Space under Symbolic Addressing
-
-Now that Tier 6 provides discrete address tokens $(k)$, does `C-Weight` (Multi-Head) still collapse?
-* In Round 2, `SM-MH` collapsed under NoPE because the single tail token had no coordinate to anchor the three heads.
-* Under `R-Pos-SymbolicKV`, if the prompt terminates on the explicit address token `(k)`, does the explicit address token provide sufficient conditioning for linear heads to succeed?
+| Configuration Tuple | Canonical Identifier | Operational Description |
+| :--- | :--- | :--- |
+| `⟨A-Harnessed, T-Factored, C-Weight⟩` | **`SM-MultiHead`** | Single forward pass per column; 3 linear projection heads. |
+| `⟨A-Harnessed, T-Factored, C-Sequence⟩` | **`SM-Fork`** | 3 parallel micro-queries (`[S]`, `[C]`, `[F]`) evaluated via tied copy head. |
+| `⟨A-Harnessed, T-SumFirst, C-Sequence⟩` | **`SM-Seq`** | Micro-AR: Emits $o_k$ at `[S]`, then $c_{k+1}$ at `[C]`, then `FLAG` at `[F]`. |
+| `⟨A-Harnessed, T-CarryFirst, C-Sequence⟩` | **`SM-SeqRev`** | Micro-AR: Emits $c_{k+1}$ at `[C]`, then $o_k$ at `[S]`, then `FLAG` at `[F]`. |
+| `⟨A-Autonomous, T-SumFirst, C-Sequence⟩` | **`AR-SumFirst`** | Full autonomous trace: `([S] o_k [C] c_{k+1})* [FINISHED]`. |
+| `⟨A-Autonomous, T-CarryFirst, C-Sequence⟩`| **`AR-CarryFirst`** | Full autonomous trace: `([C] c_{k+1} [S] o_k)* [FINISHED]`. |
 
 ---
 
-## 6. Implementation and Migration Strategy
+## 5. Master Taxonomy Mapping: Empirical Record & Active Fleet
 
-### 6.1 Configuration Schema Refactoring
+The table below maps all historical and active configurations across Rounds 1–3 into the decoupled taxonomy. Empirical observations are strictly segregated from active hypotheses:
 
-The interactive configurator (`scripts/configure_experiment.py`) and experiment runner (`transformadder/cli.py`) will transition from `--paradigm` and `--tier` flags to clean, orthogonal flags:
+| Model Designator | Agency | Topology | Channel | Representation (IV-A / IV-B / IV-C) | Dist | Status | Empirical Observation / Active Telemetry |
+| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- |
+| **`SM-MH-T1`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `Sinusoidal` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; collapses to 0.0% on double lengths ($L=21..40$) due to FFN phase drift. |
+| **`SM-Seq-T1`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `Sinusoidal` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; collapses to 0.0% on double lengths (69.3% per-step acc). |
+| **`AR-T2`** | `A-Autonomous` | `T-SumFirst` | `C-Sequence` | `NoPE` / `Semantic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 100.0% In-Domain EM; 41.0% on Base-12; 0.0% on double lengths. |
+| **`SM-MH-T2`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `Semantic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 0.0% EM (54.0% per-step acc); delimiter subspace fragmentation under linear heads. |
+| **`SM-MH-T3`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `Generic` / `Implicit` | `D-Std` | Evaluated | **Observed**: 51.8% In-Domain EM; plateaus due to directional ambiguity of single `\|`. |
+| **`SM-MH-T4`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: **Total collapse (0.0% EM, 1.8% step acc)**; linear heads fail without coordinates. |
+| **`SM-Seq-T4`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `NoPE` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: **56.0% Base-3 record**; tied copy + role subspaces optimal for interpolation. |
+| **`SM-SeqRev-T4`**| `A-Harnessed` | `T-CarryFirst`| `C-Sequence` | `NoPE` / `RoleEmbed` / `Implicit` | `D-Std` | Evaluated | **Observed**: **2.4% full 40-digit EM**; carry-first monotonic threshold stabilizes rollouts. |
+| **`SM-MH-T5`** | `A-Harnessed` | `T-Factored` | `C-Weight` | `NoPE` / `SemanticOrigin` / `Implicit` | `D-Std` | Evaluated | **Observed**: **Total collapse (0.0% EM, 1.2% step acc)**; reinforces weight-head failure. |
+| **`SM-Seq-T5`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `NoPE` / `SemanticOrigin` / `Implicit` | `D-Std` | Evaluated | **Observed**: 51.0% EM at 100k; slow counter circuit convergence. |
+| **`SM-SeqRev-T5`**| `A-Harnessed` | `T-CarryFirst`| `C-Sequence` | `NoPE` / `SemanticOrigin` / `Implicit` | `D-Std` | Evaluated | **Observed**: **Grokking at step 75k (46.2% EM, seed 5329)**; global counter emerges. |
+| **`SM-Fork-T5`** | `A-Harnessed` | `T-Factored` | `C-Sequence` | `NoPE` / `SemanticOrigin` / `Implicit` | `D-Std` | Unrun | **Hypothesised**: Order-free factorisation without multi-head linear collapse. |
+| **`SM-Seq-T6`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `NoPE` / `Addressed` / `ExplicitKV` | `D-Std` | Training | **Active Telemetry**: Step 1,700, Loss ~0.91 on L4 GPU. |
+| **`SM-SeqRev-T6`**| `A-Harnessed` | `T-CarryFirst`| `C-Sequence` | `NoPE` / `Addressed` / `ExplicitKV` | `D-Std` | Training | **Active Telemetry**: Step 1,750, Loss ~0.90 on L4 GPU. |
+| **`SM-Fork-T6`** | `A-Harnessed` | `T-Factored` | `C-Sequence` | `NoPE` / `Addressed` / `ExplicitKV` | `D-Std` | Training | **Active Telemetry**: Step 50, Loss 3.48; accum=8 stable on L4 GPU. |
+| **`SM-Seq-T7`** | `A-Harnessed` | `T-SumFirst` | `C-Sequence` | `NoPE` / `ZeroPreamble` / `ExplicitKV`| `D-Full`| Training | **Active Telemetry**: Step 1,900, Loss ~0.89 on L4 GPU. |
+| **`SM-SeqRev-T7`**| `A-Harnessed` | `T-CarryFirst`| `C-Sequence` | `NoPE` / `ZeroPreamble` / `ExplicitKV`| `D-Full`| Training | **Active Telemetry**: Step 1,700, Loss ~1.00 on L4 GPU. |
+| **`SM-Fork-T7`** | `A-Harnessed` | `T-Factored` | `C-Sequence` | `NoPE` / `ZeroPreamble` / `ExplicitKV`| `D-Full`| Training | **Active Telemetry**: Step 50, Loss 3.53; accum=8 stable on L4 GPU. |
 
-```bash
-python -m transformadder.cli \
-  --agency=harnessed_addressed \    # A0, A1_implicit, A1_addressed, A2, A3
-  --topology=carry_first \          # factored, sum_first, carry_first
-  --channel=sequence_query \        # weight_head, sequence_query
-  --pos-scheme=symbolic_kv \        # sinusoidal, delimiter, symbolic_kv
-  --scope-scheme=generic \          # learned_roles, semantic_tokens, generic, anchored
-  --axiom-preamble=none \           # explicit, none
-  --batch-size=256 \
-  --grad-accum-steps=8
-```
+---
 
-### 6.2 Backward Compatibility Alias Layer
+## 6. Immediate Experimental Priorities
 
-To preserve compatibility with all existing experiment bundles in `experiments/`, an explicit alias mapper will translate historical names (`sm_seq`, `sm_fork`, `tier 6`) directly into their 4-axis tensor coordinates:
+### 6.1 The Autoregressive Ordering Frontier (`AR-SumFirst` vs. `AR-CarryFirst`)
 
+In autonomous models (`A-Autonomous`), the ground-truth scratchpad generated by `core/reference.py` has historically emitted sum before carry:
 ```python
-LEGACY_VARIANT_MAP = {
-    ("sm_seq", 6): {
-        "agency": "A1_addressed",
-        "topology": "sum_first",
-        "channel": "sequence_query",
-        "pos_scheme": "symbolic_kv",
-        "scope_scheme": "semantic",
-        "axiom_preamble": "explicit",
-    },
-    ("sm_fork", 7): {
-        "agency": "A1_addressed",
-        "topology": "factored",
-        "channel": "sequence_query",
-        "pos_scheme": "symbolic_kv",
-        "scope_scheme": "semantic",
-        "axiom_preamble": "none",
-    },
-}
+# Canonical Sum-First Trace (core/reference.py)
+for s in steps:
+    trace.extend([TOKEN_S, s["o"], TOKEN_C, s["c_out"]])
+trace.append(FLAG_FINISHED)
 ```
+
+The decoupled taxonomy highlights this as an arbitrary directional inductive bias. We define **`AR-CarryFirst`**:
+```python
+# Carry-First Trace
+for s in steps:
+    trace.extend([TOKEN_C, s["c_out"], TOKEN_S, s["o"]])
+trace.append(FLAG_FINISHED)
+```
+This isolates the effect of intra-step causal topology in an unsupervised, autonomous setting. Implementing this requires minimal code modifications (in `core/reference.py` and `core/sequences.py:trace_coords`).
+
+### 6.2 Testing Multi-Head Decoders under Explicit Symbolic Addressing
+
+In Round 2, `C-Weight` (`SM-MH`) scored 0.0% EM across Tiers 4 and 5 because the single tail vector contained no coordinate to anchor distinct linear projections.
+
+With **`R-Pos-NoPE` + `R-Scope-Addressed` + `R-Query-ExplicitKV`**, the prompt terminates on the explicit numeral address `(k)`. Does the presence of this discrete address token in the attention context provide sufficient conditioning for linear heads ($W_{\text{sum}}, W_{\text{carry}}, W_{\text{flag}}$) to succeed without continuous positional encodings? This represents a clean mechanistic test of whether the collapse of multi-head decoding was caused by coordinate-free representations or by the lack of local conditioning.
 
 ---
 
-## 7. Conclusion
+## 7. Migration Plan for the Codebase
 
-By decomposing TransformAdder into its fundamental constituents—**Harness Agency**, **Causal Topology**, **Decoding Channel**, and **Representation Scheme**—we transform an ad-hoc collection of empirical tricks into a rigorous, predictive, and scalable framework for studying algorithmic reasoning in transformers.
+1. **Phase 1: Backward-Compatible Alias Layer**:
+   Update `transformadder/cli.py` and `scripts/configure_experiment.py` with an internal resolver mapping legacy `--paradigm` and `--tier` flags into the 5-axis coordinates defined in Section 5.
+2. **Phase 2: Formalize `AR-CarryFirst`**:
+   Add `--trace-order=sum_first|carry_first` to the CLI and data generation pipeline.
+3. **Phase 3: Native Orthogonal CLI Configuration**:
+   Expose direct orthogonal flags (`--agency`, `--topology`, `--channel`, `--pos-scheme`, `--scope-scheme`, `--curriculum`).
