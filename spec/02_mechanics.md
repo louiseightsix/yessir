@@ -31,13 +31,14 @@ flowchart TD
         T4["Tier 4: Generic Delimiters + Role"]
         T5["Tier 5: Dual Delimiters + NoPE"]
         T6["Tier 6: Axiom Key-Value Addressing + NoPE"]
+        T7["Tier 7: Axiom-Free Key-Value Addressing + NoPE"]
     end
 
-    SM_MH --> T1 & T2 & T3 & T4 & T5 & T6
-    SM_Seq --> T1 & T2 & T3 & T4 & T5 & T6
-    SM_SeqRev --> T1 & T2 & T3 & T4 & T5 & T6
-    SM_Fork --> T1 & T2 & T3 & T4 & T5 & T6
-    AR --> T1 & T2 & T3 & T4 & T5 & T6
+    SM_MH --> T1 & T2 & T3 & T4 & T5 & T6 & T7
+    SM_Seq --> T1 & T2 & T3 & T4 & T5 & T6 & T7
+    SM_SeqRev --> T1 & T2 & T3 & T4 & T5 & T6 & T7
+    SM_Fork --> T1 & T2 & T3 & T4 & T5 & T6 & T7
+    AR --> T1 & T2 & T3 & T4 & T5 & T6 & T7
 ```
 
 ---
@@ -80,7 +81,7 @@ $$\texttt{[BOS]} \quad \underbrace{\mathcal{A}}_{\text{Axiom}} \quad \underbrace
 * **Invariant Query Token**: Because the tail token is `[S]` at every step (including Step 0, where $OUT_0$ is empty), the model decodes from the same query representation at every step; there is no Step-0 special case in any tier.
 * **Dynamic Column Indexing**: The column to compute is $k = |OUT_k|$, the number of sum digits lying between the start of the OUT block and the `[S]` query.
 
-The six tiers differ only in how blocks are delimited and how position is communicated:
+The seven tiers differ only in how blocks are delimited and how position is communicated:
 
 * **Tier 1 (2D Split PE)**: No delimiter tokens; every token carries explicit $(r, p)$ coordinates (see [`03_levers.md`](03_levers.md) Section 1.1).
   ```text
@@ -117,6 +118,7 @@ The six tiers differ only in how blocks are delimited and how position is commun
   Step 1:  [BOS] [AXIOM] 0 1 2 [A] | 0 [ORIGIN] 1 | 1 [ORIGIN] 2 [B] | 0 [ORIGIN] 2 [CARRY] | 1 [ORIGIN] 1 [OUT] | 0 [ORIGIN] 0 | 1 [ORIGIN] [S]
   ```
   Column index $k$ is read directly off the query entry's address.
+* **Tier 7 (Axiom-Free Key-Value Addressing + NoPE)**: Tier 6 with the `[AXIOM] A` header removed; operands are guaranteed to have at least $B$ digits so that the addresses of entries $0 \dots B-1$ spell out the axiom ([`03_levers.md`](03_levers.md) Section 1.7).
 
 ### 3.2 Emission Sub-Variants: SM-MH vs. SM-Seq
 
@@ -147,7 +149,7 @@ We define four distinct sub-variants for how these three outputs are emitted by 
      $$(\dots, \texttt{[S]}, o_k, \texttt{[C]}) \longrightarrow \text{emits } c_{k+1}$$
   3. **Pass 3 (Flag Query)**: Transient prompt appends $c_{k+1}$ and the flag trigger `[F]`:
      $$(\dots, \texttt{[S]}, o_k, \texttt{[C]}, c_{k+1}, \texttt{[F]}) \longrightarrow \text{emits } \text{FLAG}_k$$
-* **Transient Token Coordinates (Tier 1)**: The transient tokens follow the same coordinate rules as everywhere else: `[S]` and $o_k$ at $(\texttt{ROLE\_OUT}, k)$; `[C]` and $c_{k+1}$ at $(\texttt{ROLE\_CARRY}, k+1)$; `[F]` at $(\texttt{ROLE\_FLAG}, k)$. In Tier 4 the transient tokens carry the same roles but no significance coordinate. In Tiers 2, 3, 5 and 6 the transient tokens carry no coordinates (NoPE); in Tier 6 they also carry no address.
+* **Transient Token Coordinates (Tier 1)**: The transient tokens follow the same coordinate rules as everywhere else: `[S]` and $o_k$ at $(\texttt{ROLE\_OUT}, k)$; `[C]` and $c_{k+1}$ at $(\texttt{ROLE\_CARRY}, k+1)$; `[F]` at $(\texttt{ROLE\_FLAG}, k)$. In Tier 4 the transient tokens carry the same roles but no significance coordinate. In Tiers 2, 3, 5, 6 and 7 the transient tokens carry no coordinates (NoPE); in Tiers 6 and 7 they also carry no address.
 * **Harness Transient Flush**:
   * The harness ingests the 3 emitted tokens, appends $o_k$ to $OUT$, updates persistent carry $c \gets c_{k+1}$, checks $\text{FLAG}_k$, and **discards all transient micro-step tokens** ($o_k$ *in its transient position*, `[C]`, $c_{k+1}$, `[F]`, $\text{FLAG}_k$).
   * The prompt is rebuilt cleanly for column $k+1$ as $(\texttt{[BOS]}, \mathcal{A}, a, b, c_{k+1}, OUT_{k+1}, \texttt{[S]})$. The state carried between columns is $O(1)$ (one carry digit), plus the accumulated output.
@@ -329,7 +331,7 @@ The external harness does not reformat, slice, or re-inject prompts.
 
 ### 4.2 Intermediate Scratchpad Grammar
 
-Following `[START]`, the model autoregressively generates a structured column-by-column calculation trace in harmonised **Sum $\to$ Carry** order. **The trace grammar is identical in all six tiers**; tiers differ only in how the *prompt* is delimited and whether coordinates are supplied:
+Following `[START]`, the model autoregressively generates a structured column-by-column calculation trace in harmonised **Sum $\to$ Carry** order. **The trace grammar is identical in all seven tiers**; tiers differ only in how the *prompt* is delimited and whether coordinates are supplied:
 
 $$\underbrace{\texttt{[S]} \, o_0 \, \texttt{[C]} \, c_1}_{\text{Column 0}} \quad \underbrace{\texttt{[S]} \, o_1 \, \texttt{[C]} \, c_2}_{\text{Column 1}} \quad \dots \quad \underbrace{\texttt{[S]} \, o_K \, \texttt{[C]} \, c_{K+1}}_{\text{Column } K} \quad \texttt{[FINISHED]}$$
 
@@ -351,7 +353,7 @@ This matches the `SM` convention (Section 3.1): sum digits sit at the index of t
 
 ### 4.3 Zero-Arithmetic Generation Contract
 
-The runtime harness for Paradigm B performs **no state re-injection and no numeral arithmetic**: it runs an ordinary greedy decoding loop. The project uses no external inference framework, so the loop is specified explicitly rather than delegated to a library `generate()`; in Tiers 2, 3, 5 and 6 it is behaviourally identical to stock greedy decoding with an EOS token. In Tier 1 the loop additionally stamps each emitted token with the slot coordinates of Section 4.2; in Tier 4 it stamps only the slot role.
+The runtime harness for Paradigm B performs **no state re-injection and no numeral arithmetic**: it runs an ordinary greedy decoding loop. The project uses no external inference framework, so the loop is specified explicitly rather than delegated to a library `generate()`; in Tiers 2, 3, 5, 6 and 7 it is behaviourally identical to stock greedy decoding with an EOS token. In Tier 1 the loop additionally stamps each emitted token with the slot coordinates of Section 4.2; in Tier 4 it stamps only the slot role.
 
 #### Phase 1: Problem Prompt Ingestion
 The harness formats the input problem prefix once:

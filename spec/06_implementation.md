@@ -26,7 +26,7 @@ To ensure auditability, minimal dependency rot, and reproducibility, the impleme
 │   │   ├── model.py         # Modular Transformer trunk, initialisation, batch-of-one helpers
 │   │   ├── heads.py         # Multi-Head projections vs Tied Sliced Identity Head
 │   │   ├── reference.py     # Reference adder (ground-truth oracle)
-│   │   ├── sequences.py     # Seq container; SM / AR prompt builders for Tiers 1-6; collator
+│   │   ├── sequences.py     # Seq container; SM / AR prompt builders for Tiers 1-7; collator
 │   │   ├── data.py          # Deterministic procedural generator, sample encoders, batch builders
 │   │   └── training.py      # Seeding, AdamW parameter groups, warm-up + cosine schedule
 │   ├── harnesses/
@@ -71,7 +71,7 @@ $$\mathbf{x}_t = [ \, \mathbf{e}_{b_t} \;\parallel\; \mathbf{p}_t \, ] \in \math
       $$e_{\text{sig}}(p)_{2i} = \sin(p \cdot \omega_i), \quad e_{\text{sig}}(p)_{2i+1} = \cos(p \cdot \omega_i), \quad \text{where } \omega_i = 10000^{-2i/192}, \; i \in \{0, \dots, 95\}$$
   * **Tier 4 (Role only)**:
     $$\mathbf{p}_t = [ \, e_{\text{role}}(r_t) \;\parallel\; \mathbf{0}_{192} \, ]$$
-  * **Tiers 2, 3, 5 and 6 (NoPE)**:
+  * **Tiers 2, 3, 5, 6 and 7 (NoPE)**:
     $$\mathbf{p}_t = \mathbf{0}_{256}$$
     Implemented via zero padding `torch.nn.functional.pad(one_hot, (0, 256))`.
 
@@ -240,7 +240,7 @@ class MultiHeadOutput(nn.Module):
 Dataset instances are generated on the fly, without disk I/O, by a deterministic generator seeded by a global seed. The generator (unlike the harness) is free to perform arithmetic: it is the oracle side of the experiment.
 
 * **Axiom**: $B$ distinct bytes sampled uniformly from $\Sigma$, in random order (`canonical=True` instead yields the fixed ASCII axiom `0`–`9`, `A`, `B` truncated to $B$, used only for the canonical evaluation set of [`01_research_goal.md`](01_research_goal.md) Section 4.1).
-* **Operands**: lengths independent and uniform on `[min_len, max_len]`; digits uniform over the axiom. Most-significant zeros are permitted (operands need not be canonical numerals).
+* **Operands**: lengths independent and uniform on `[min_len, max_len]` (Tier 7 only: on `[max(min_len, B), max(max_len, B)]`, see [`03_levers.md`](03_levers.md) Section 1.7); digits uniform over the axiom. Most-significant zeros are permitted (operands need not be canonical numerals).
 * **Carry-Chain Enrichment**: with probability `p_chain` (default 0.25), a carry chain is constructed deliberately: one column is forced to *generate* a carry ($a_i + b_i \ge B$) and the following $L$ columns are forced to *propagate* it ($a_j + b_j = B - 1$). Uniformly random digits produce a propagating column with probability only $1/B$, so long chains would otherwise be essentially absent in Base-10 and Base-12.
 * **Regime**: `bases` must be passed explicitly (`[2, 10]` bimodal or `[2, 4, 8, 10]` multimodal); there is no default, to prevent silently training the wrong regime.
 

@@ -1,4 +1,4 @@
-"""Sequence container, prompt builders for Tiers 1-6, and the right-padding batch collator.
+"""Sequence container, prompt builders for Tiers 1-7, and the right-padding batch collator.
 Conforms to the layouts of spec/02_mechanics.md Sections 3.1, 3.2, 4.1 and 4.2.
 
 Tier 1 coordinate convention (both paradigms): a sum digit o_j sits at p = j; a carry digit c_j
@@ -124,6 +124,14 @@ def build_prefix(axiom: list[int], a: list[int], b: list[int], tier: int) -> Seq
         for j, val in enumerate(b):
             formatted_b += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]
         return Seq([BOS, DELIM_AXIOM] + axiom + [DELIM_A] + formatted_a + [DELIM_B] + formatted_b)
+    if tier == 7:
+        formatted_a = []
+        for j, val in enumerate(a):
+            formatted_a += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]
+        formatted_b = []
+        for j, val in enumerate(b):
+            formatted_b += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]
+        return Seq([BOS, DELIM_A] + formatted_a + [DELIM_B] + formatted_b)
     raise ValueError(f"Unknown tier: {tier}")
 
 
@@ -180,7 +188,7 @@ def build_sm_prompt(
         return Seq(tokens, roles, None)
     if tier == 5:
         return Seq(seq.tokens + [DELIM_CARRY, DELIM_ORIGIN, carry, DELIM_OUT, DELIM_ORIGIN] + out_digits + [query_token])
-    if tier == 6:
+    if tier in (6, 7):
         formatted_out = []
         for j, val in enumerate(out_digits):
             formatted_out += [DELIM_GENERIC] + int_to_axiom_address(j, axiom) + [DELIM_ORIGIN, val]

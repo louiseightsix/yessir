@@ -92,7 +92,7 @@ class TransformAdder(nn.Module):
     ) -> torch.Tensor:
         """Tied-slice logits [B, T, 256] (SM-Seq, SM-SeqRev, SM-Fork, AR).
 
-        role_ids is required for Tiers 1 and 4, sig_ids for Tier 1; both are None for Tiers 2, 3, 5 and 6. attn_mask=None selects
+        role_ids is required for Tiers 1 and 4, sig_ids for Tier 1; both are None for Tiers 2, 3, 5, 6 and 7. attn_mask=None selects
         strict causal attention; a supplied mask must be complete (see blocks.prefix_lm_mask).
         """
         if self.head_type != "single_head":
