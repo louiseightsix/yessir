@@ -59,14 +59,17 @@ class SubspaceEmbedding(nn.Module):
 
     def __init__(
         self,
-        tier: int = 1,
+        tier: int | None = None,
         representation: str | Representation | None = None,
         d_model: int = D_MODEL,
     ):
         super().__init__()
         assert d_model == D_MODEL, f"TransformAdder requires d_model={D_MODEL}, got {d_model}"
-        if representation is not None:
-            tier = REPRESENTATION_TO_TIER.get(representation, tier)
+        if tier is None:
+            if representation is not None:
+                tier = REPRESENTATION_TO_TIER.get(representation, 1)
+            else:
+                tier = 1
         assert tier in (1, 2, 3, 4, 5, 6, 7), f"Unknown tier: {tier}"
         self.tier = tier
         self.representation = TIER_TO_REPRESENTATION.get(tier, Representation.EXPLICIT_CONTINUOUS)
