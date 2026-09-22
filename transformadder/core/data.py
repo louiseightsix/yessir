@@ -18,12 +18,15 @@ from transformadder.core.constants import (
     SIGMA_POOL,
     TOKEN_C,
     TOKEN_FLAG,
+    TOKEN_PROBE,
     TOKEN_S,
 )
 from transformadder.core.reference import reference_add, reference_out, reference_trace
+from transformadder.core.rule import AdditionRule, Rule, get_canonical_alphabet, sample_alphabet
 from transformadder.core.sequences import (
     Seq,
     build_ar_prompt,
+    build_probe_prompt,
     build_sm_prompt,
     carry_coords,
     collate,
@@ -131,6 +134,22 @@ def encode_ar(inst: dict, tier: int, order: str = "sum_first") -> tuple[Seq, lis
     return seq, labels
 
 
+def encode_probe(inst: dict, tier: int, query_symbol: int | None = None) -> tuple[Seq, list[int]]:
+    """Single-token successor binding probe sample:
+    input: [BOS] A a b [PROBE] s_i
+    labels: [IGNORE_LABEL] * (len(prompt) - 1) + [s_{i+1}]
+    """
+    axiom = inst["axiom"]
+    if query_symbol is None:
+        query_symbol = random.choice(axiom)
+    idx = axiom.index(query_symbol)
+    target = axiom[(idx + 1) % len(axiom)]
+    prompt = build_probe_prompt(axiom, inst["a"], inst["b"], query_symbol, tier)
+    labels = [IGNORE_LABEL] * len(prompt)
+    labels[len(prompt) - 1] = target
+    return prompt, labels
+
+
 def collate_labels(label_lists: list[list[int]], T: int) -> torch.Tensor:
     labels = torch.full((len(label_lists), T), IGNORE_LABEL, dtype=torch.long)
     for i, row in enumerate(label_lists):
@@ -170,9 +189,13 @@ class ProceduralArithmeticGenerator:
         p_chain: float = 0.25,
         p_terminal: float = 0.2,
         canonical: bool = False,
+        p_prior: float = 0.0,
+        p_probe: float = 0.0,
+        alphabet_condition: str | None = None,
         seed: int = 42,
         tier: int = 1,      # Tier 7 forces operand lengths >= base (see sample_instance)
         trace_order: str = "sum_first",
+        rule: Rule | None = None,
     ):
         if canonical and max(bases) > len(CANONICAL_AXIOM):
             raise ValueError(f"Canonical axiom supports bases up to {len(CANONICAL_AXIOM)}.")
@@ -182,59 +205,44 @@ class ProceduralArithmeticGenerator:
         self.p_chain = p_chain
         self.p_terminal = p_terminal
         self.canonical = canonical
+        self.p_prior = p_prior
+        self.p_probe = p_probe
+        self.alphabet_condition = alphabet_condition
         self.seed = seed
         self.tier = tier
         self.trace_order = trace_order
+        self.rule = rule if rule is not None else AdditionRule()
         self.rng = random.Random(seed)
         self.sigma_pool = list(SIGMA_POOL)
 
-    def sample_instance(self) -> dict:
+    def sample_instance(self, alphabet_condition: str | None = None) -> dict:
         """Sample a single problem instance with its ground-truth transitions.
 
         Operand digits are uniform over the axiom; most-significant zeros are permitted.
         """
         base = self.rng.choice(self.bases)
-        if self.canonical:
-            axiom = CANONICAL_AXIOM[:base]
+        if alphabet_condition is not None:
+            condition = alphabet_condition
+        elif self.alphabet_condition is not None:
+            condition = self.alphabet_condition
+        elif self.canonical:
+            condition = "canonical_order"
         else:
-            axiom = self.rng.sample(self.sigma_pool, base)
-        # Tier 7 has no axiom header: the model reads the axiom off the single-symbol addresses
-        # of entries 0..B-1, so both operands must span at least B columns
-        min_l = max(self.min_len, base) if self.tier == 7 else self.min_len
-        max_l = max(self.max_len, min_l)
-        len_a = self.rng.randint(min_l, max_l)
-        len_b = self.rng.randint(min_l, max_l)
-        a_vals = [self.rng.randrange(base) for _ in range(len_a)]
-        b_vals = [self.rng.randrange(base) for _ in range(len_b)]
-        if self.rng.random() < self.p_chain:
-            self._inject_carry_chain(a_vals, b_vals, base)
+            if self.p_prior > 0.0 and self.rng.random() < self.p_prior:
+                condition = "canonical_order"
+            else:
+                condition = "symbols_random"
 
-        a = [axiom[v] for v in a_vals]
-        b = [axiom[v] for v in b_vals]
-        steps = reference_add(axiom, a, b)
-        return {
-            "base": base,
-            "axiom": axiom,
-            "a": a,
-            "b": b,
-            "steps": steps,
-            "expected_out": reference_out(steps),
-        }
-
-    def _inject_carry_chain(self, a_vals: list[int], b_vals: list[int], base: int) -> None:
-        """Forces one generating column (a_i + b_i >= base) followed by L propagating columns
-        (a_j + b_j == base - 1). Uniform digits propagate with probability only 1/base, so long
-        chains would otherwise be essentially absent in larger bases."""
-        n = min(len(a_vals), len(b_vals))
-        if n < 2:
-            return
-        L = self.rng.randint(1, n - 1)                 # number of propagating columns
-        i = self.rng.randint(0, n - 1 - L)             # generating column
-        a_vals[i] = self.rng.randint(1, base - 1)
-        b_vals[i] = self.rng.randint(base - a_vals[i], base - 1)
-        for j in range(i + 1, i + 1 + L):
-            a_vals[j] = self.rng.randrange(base)
-            b_vals[j] = base - 1 - a_vals[j]
+        return self.rule.sample_instance(
+            rng=self.rng,
+            base=base,
+            condition=condition,
+            min_len=self.min_len,
+            max_len=self.max_len,
+            p_chain=self.p_chain,
+            p_terminal=self.p_terminal,
+            tier=self.tier,
+        )
 
     def sample_sm_step(self) -> tuple[dict, int]:
         """One column transition of a fresh instance: the terminal step k = K with probability
@@ -244,25 +252,66 @@ class ProceduralArithmeticGenerator:
         k = K if self.rng.random() < self.p_terminal else self.rng.randint(0, K)
         return inst, k
 
+    def probe_batch(self, batch_size: int, tier: int) -> dict:
+        """Batch of pure auxiliary binding probe queries ([PROBE] s_i -> s_{i+1})."""
+        items = []
+        for _ in range(batch_size):
+            inst = self.sample_instance()
+            s_i = self.rng.choice(inst["axiom"])
+            items.append(encode_probe(inst, tier, s_i))
+        return collate_labelled(items)
+
     # Training batches (CPU tensors; the runner moves them to the training device)
     def sm_mh_batch(self, batch_size: int, tier: int) -> dict:
         return collate_sm_mh([encode_sm_mh(*self.sample_sm_step(), tier) for _ in range(batch_size)])
 
     def sm_seq_batch(self, batch_size: int, tier: int) -> dict:
-        return collate_labelled([encode_sm_seq(*self.sample_sm_step(), tier) for _ in range(batch_size)])
+        samples = []
+        for _ in range(batch_size):
+            if self.p_probe > 0.0 and self.rng.random() < self.p_probe:
+                inst = self.sample_instance()
+                s_i = self.rng.choice(inst["axiom"])
+                samples.append(encode_probe(inst, tier, s_i))
+            else:
+                samples.append(encode_sm_seq(*self.sample_sm_step(), tier))
+        return collate_labelled(samples)
 
     def sm_seq_rev_batch(self, batch_size: int, tier: int) -> dict:
-        return collate_labelled([encode_sm_seq_rev(*self.sample_sm_step(), tier) for _ in range(batch_size)])
+        samples = []
+        for _ in range(batch_size):
+            if self.p_probe > 0.0 and self.rng.random() < self.p_probe:
+                inst = self.sample_instance()
+                s_i = self.rng.choice(inst["axiom"])
+                samples.append(encode_probe(inst, tier, s_i))
+            else:
+                samples.append(encode_sm_seq_rev(*self.sample_sm_step(), tier))
+        return collate_labelled(samples)
 
     def sm_fork_batch(self, batch_size: int, tier: int) -> dict:
         items = []
         for _ in range(batch_size):
-            inst, k = self.sample_sm_step()
-            items.append(encode_sm_fork(inst, k, tier, TOKEN_S))
-            items.append(encode_sm_fork(inst, k, tier, TOKEN_C))
-            items.append(encode_sm_fork(inst, k, tier, TOKEN_FLAG))
+            if self.p_probe > 0.0 and self.rng.random() < self.p_probe:
+                inst = self.sample_instance()
+                s_i = self.rng.choice(inst["axiom"])
+                items.append(encode_probe(inst, tier, s_i))
+            else:
+                inst, k = self.sample_sm_step()
+                items.append(encode_sm_fork(inst, k, tier, TOKEN_S))
+                items.append(encode_sm_fork(inst, k, tier, TOKEN_C))
+                items.append(encode_sm_fork(inst, k, tier, TOKEN_FLAG))
         return collate_labelled(items)
 
     def ar_batch(self, batch_size: int, tier: int, order: str | None = None) -> dict:
         trace_order = order if order is not None else self.trace_order
-        return collate_labelled([encode_ar(self.sample_instance(), tier, order=trace_order) for _ in range(batch_size)])
+        samples = []
+        for _ in range(batch_size):
+            if self.p_probe > 0.0 and self.rng.random() < self.p_probe:
+                inst = self.sample_instance()
+                s_i = self.rng.choice(inst["axiom"])
+                samples.append(encode_probe(inst, tier, s_i))
+            else:
+                samples.append(encode_ar(self.sample_instance(), tier, order=trace_order))
+        return collate_labelled(samples)
+
+
+ProceduralRuleGenerator = ProceduralArithmeticGenerator
