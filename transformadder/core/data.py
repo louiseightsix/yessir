@@ -116,16 +116,16 @@ def encode_sm_fork(inst: dict, k: int, tier: int, query_token: int) -> tuple[Seq
     return prompt, labels
 
 
-def encode_ar(inst: dict, tier: int) -> tuple[Seq, list[int]]:
+def encode_ar(inst: dict, tier: int, order: str = "sum_first") -> tuple[Seq, list[int]]:
     """AR sample: input [BOS] A a b [START] trace[:-1] and next-token labels aligned to the
-    input positions. Every trace token carries loss, including [S], [C] and [FINISHED];
+    input positions. Every trace token carries loss, including delimiters/triggers and [FINISHED];
     [FINISHED] is terminal and is never an input.
     """
     prompt = build_ar_prompt(inst["axiom"], inst["a"], inst["b"], tier)
-    trace = reference_trace(inst["steps"])
+    trace = reference_trace(inst["steps"], order=order)
     seq = prompt
     for i, token in enumerate(trace[:-1]):
-        seq = seq.push(token, *trace_coords(i))
+        seq = seq.push(token, *trace_coords(i, order=order))
     labels = [IGNORE_LABEL] * (len(prompt) - 1) + trace
     assert len(labels) == len(seq)
     return seq, labels
@@ -172,6 +172,7 @@ class ProceduralArithmeticGenerator:
         canonical: bool = False,
         seed: int = 42,
         tier: int = 1,      # Tier 7 forces operand lengths >= base (see sample_instance)
+        trace_order: str = "sum_first",
     ):
         if canonical and max(bases) > len(CANONICAL_AXIOM):
             raise ValueError(f"Canonical axiom supports bases up to {len(CANONICAL_AXIOM)}.")
@@ -183,6 +184,7 @@ class ProceduralArithmeticGenerator:
         self.canonical = canonical
         self.seed = seed
         self.tier = tier
+        self.trace_order = trace_order
         self.rng = random.Random(seed)
         self.sigma_pool = list(SIGMA_POOL)
 
@@ -261,5 +263,6 @@ class ProceduralArithmeticGenerator:
             items.append(encode_sm_fork(inst, k, tier, TOKEN_FLAG))
         return collate_labelled(items)
 
-    def ar_batch(self, batch_size: int, tier: int) -> dict:
-        return collate_labelled([encode_ar(self.sample_instance(), tier) for _ in range(batch_size)])
+    def ar_batch(self, batch_size: int, tier: int, order: str | None = None) -> dict:
+        trace_order = order if order is not None else self.trace_order
+        return collate_labelled([encode_ar(self.sample_instance(), tier, order=trace_order) for _ in range(batch_size)])

@@ -131,8 +131,9 @@ def decode(seq):
 class OracleModel:
     """Answers prompts of any tier with the reference adder. `never_finish` makes it adversarial."""
 
-    def __init__(self, never_finish: bool = False):
+    def __init__(self, never_finish: bool = False, trace_order: str = "sum_first"):
         self.never_finish = never_finish
+        self.trace_order = trace_order
 
     def eval(self):
         return self
@@ -176,9 +177,10 @@ class OracleModel:
         if START in seq.tokens:
             axiom, a, b, rest = decode(seq)
             emitted = rest[1:]
-            trace = reference_trace(reference_add(axiom, a, b))
+            trace = reference_trace(reference_add(axiom, a, b), order=self.trace_order)
             if self.never_finish:
-                trace = trace[:-1] + [TOKEN_S] * 8
+                first_trigger = TOKEN_C if self.trace_order == "carry_first" else TOKEN_S
+                trace = trace[:-1] + [first_trigger] * 8
             return one_hot(trace[len(emitted)])
 
         step, transient, mode = self._sm_state(seq)
@@ -288,3 +290,32 @@ def test_metrics_log_is_standard_json(tmp_path):
     assert "NaN" not in text
     record = json.loads(text)
     assert record["carry_acc"] is None and record["em"] == 0.5
+
+
+def test_oracle_rollouts_carry_first():
+    oracle = OracleModel(trace_order="carry_first")
+    for tier in TIERS:
+        for inst in instances(tier=tier):
+            carries = []
+            out, status = run_autoregressive_trace(
+                oracle, inst["axiom"], inst["a"], inst["b"], tier, carries=carries, order="carry_first"
+            )
+            assert status == "finished", (tier, "ar_carry_first")
+            assert out == inst["expected_out"], (tier, "ar_carry_first")
+            assert carries == [s["c_out"] for s in inst["steps"]], (tier, "ar_carry_first")
+
+
+def test_parse_trace_carry_first():
+    from transformadder.harnesses.autoregressive import parse_trace
+
+    # Well-formed carry_first trace: [C] c [S] o [C] c [S] o [FINISHED]
+    trace = [TOKEN_C, 1, TOKEN_S, 5, TOKEN_C, 0, TOKEN_S, 8, FLAG_FINISHED]
+    out, carries, status = parse_trace(trace, order="carry_first")
+    assert status == "finished"
+    assert out == [5, 8]
+    assert carries == [1, 0]
+
+    # Trying to parse a carry_first trace with sum_first expectations should fail as malformed
+    out_sf, carries_sf, status_sf = parse_trace(trace, order="sum_first")
+    assert status_sf == "malformed"
+

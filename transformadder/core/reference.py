@@ -45,10 +45,16 @@ def reference_out(steps: list[dict]) -> list[int]:
     return [s["o"] for s in steps]
 
 
-def reference_trace(steps: list[dict]) -> list[int]:
-    """AR scratchpad trace: ([S] o_k [C] c_{k+1})* [FINISHED]."""
+def reference_trace(steps: list[dict], order: str = "sum_first") -> list[int]:
+    """AR scratchpad trace:
+    sum_first:   ([S] o_k [C] c_{k+1})* [FINISHED]
+    carry_first: ([C] c_{k+1} [S] o_k)* [FINISHED]
+    """
     trace = []
     for s in steps:
-        trace.extend([TOKEN_S, s["o"], TOKEN_C, s["c_out"]])
+        if order == "carry_first":
+            trace.extend([TOKEN_C, s["c_out"], TOKEN_S, s["o"]])
+        else:
+            trace.extend([TOKEN_S, s["o"], TOKEN_C, s["c_out"]])
     trace.append(FLAG_FINISHED)
     return trace

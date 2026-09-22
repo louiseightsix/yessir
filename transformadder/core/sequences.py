@@ -67,10 +67,12 @@ def flag_coords(k: int) -> tuple[int, int]:
     return ROLE_FLAG, k
 
 
-def trace_coords(i: int) -> tuple[int, int]:
+def trace_coords(i: int, order: str = "sum_first") -> tuple[int, int]:
     """Coordinates of the AR trace token at 0-indexed trace slot i. Depends only on the slot
     index, never on the content of the emitted token."""
     k = i // 4
+    if order == "carry_first":
+        return carry_coords(k) if i % 4 < 2 else sum_coords(k)
     return sum_coords(k) if i % 4 < 2 else carry_coords(k)
 
 

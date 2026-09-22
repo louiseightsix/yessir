@@ -61,7 +61,9 @@ def _to_device(batch: dict, device) -> dict:
 
 
 @torch.no_grad()
-def free_running_metrics(model, paradigm: str, tier: int, instances: list[dict], stepper=None) -> dict:
+def free_running_metrics(
+    model, paradigm: str, tier: int, instances: list[dict], stepper=None, trace_order: str = "sum_first"
+) -> dict:
     """Exact match, digit accuracy, carry-chain accuracy and failure counts over rollouts."""
     run = HARNESSES[paradigm]
     n_em = n_digits = n_digits_ok = n_carry = n_carry_ok = n_out_of_axiom = 0
@@ -69,7 +71,12 @@ def free_running_metrics(model, paradigm: str, tier: int, instances: list[dict],
 
     for inst in instances:
         carries: list[int] = []
-        out, status = run(model, inst["axiom"], inst["a"], inst["b"], tier, stepper=stepper, carries=carries)
+        if paradigm == "ar":
+            out, status = run(
+                model, inst["axiom"], inst["a"], inst["b"], tier, stepper=stepper, carries=carries, order=trace_order
+            )
+        else:
+            out, status = run(model, inst["axiom"], inst["a"], inst["b"], tier, stepper=stepper, carries=carries)
         statuses[status] = statuses.get(status, 0) + 1
         n_em += int(status == "finished" and out == inst["expected_out"])
         n_out_of_axiom += sum(1 for t in out + carries if t not in inst["axiom"])  # sum digits and carries
@@ -96,7 +103,9 @@ def free_running_metrics(model, paradigm: str, tier: int, instances: list[dict],
 
 
 @torch.no_grad()
-def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict], chunk: int = None) -> dict:
+def teacher_forced_metrics(
+    model, paradigm: str, tier: int, instances: list[dict], chunk: int = None, trace_order: str = "sum_first"
+) -> dict:
     """Step-transition accuracy (all of o_k, c_{k+1}, FLAG_k correct) and halting accuracy,
     over every column of every instance. Returns per-transition (step_ok, flag_ok, terminal)."""
     model.eval()
@@ -110,7 +119,7 @@ def teacher_forced_metrics(model, paradigm: str, tier: int, instances: list[dict
             chunk = 255 if paradigm == "sm_fork" else 256
 
     if paradigm == "ar":
-        samples = [encode_ar(inst, tier) for inst in instances]
+        samples = [encode_ar(inst, tier, order=trace_order) for inst in instances]
     elif paradigm == "sm_fork":
         samples = [
             encode_sm_fork(inst, k, tier, q)
@@ -200,6 +209,7 @@ def evaluate(
     eval_axioms: str = "both",
     seed: int = 999,
     stepper=None,
+    trace_order: str = "sum_first",
 ) -> dict:
     """Runs evaluation cells on configured axiom sets (random, canonical ASCII, or both).
 
@@ -221,11 +231,21 @@ def evaluate(
         for canonical in canonical_flags:
             for name, bases, (min_len, max_len) in eval_cells(train_bases):
                 gen = ProceduralArithmeticGenerator(
-                    bases=bases, min_len=min_len, max_len=max_len, canonical=canonical, seed=seed, tier=tier
+                    bases=bases,
+                    min_len=min_len,
+                    max_len=max_len,
+                    canonical=canonical,
+                    seed=seed,
+                    tier=tier,
+                    trace_order=trace_order,
                 )
                 instances = [gen.sample_instance() for _ in range(num_problems)]
-                metrics = free_running_metrics(model, paradigm, tier, instances, stepper=stepper)
-                metrics.update(teacher_forced_metrics(model, paradigm, tier, instances))
+                metrics = free_running_metrics(
+                    model, paradigm, tier, instances, stepper=stepper, trace_order=trace_order
+                )
+                metrics.update(
+                    teacher_forced_metrics(model, paradigm, tier, instances, trace_order=trace_order)
+                )
                 prefix = f"canon_{name}" if canonical else name
                 results.update({f"{prefix}_{k}": v for k, v in metrics.items()})
     return results

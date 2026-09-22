@@ -29,6 +29,7 @@ def parse_args():
         description="TransformAdder: Zero-Shot Algorithmic Generalisation CLI & Cloud Runner"
     )
     parser.add_argument("--paradigm", choices=["sm_mh", "sm_seq", "sm_seq_rev", "sm_fork", "ar"], default="sm_mh", help="Runtime paradigm")
+    parser.add_argument("--trace-order", choices=["sum_first", "carry_first"], default="sum_first", help="AR scratchpad trace factorisation order")
     parser.add_argument(
         "--tier",
         type=int,
@@ -71,7 +72,7 @@ def build_variant_from_args(args) -> Variant:
         "sm_seq": "SM-Seq",
         "sm_seq_rev": "SM-SeqRev",
         "sm_fork": "SM-Fork",
-        "ar": "AR",
+        "ar": "AR-CarryFirst" if getattr(args, "trace_order", "sum_first") == "carry_first" else "AR",
     }
     p_str = p_map.get(args.paradigm, args.paradigm.upper())
     ffn_str = "SwiGLU" if args.ffn_type == "swiglu" else "GELU"
@@ -106,6 +107,7 @@ def build_variant_from_args(args) -> Variant:
         name=exp_name,
         paradigm=args.paradigm,
         tier=args.tier,
+        trace_order=getattr(args, "trace_order", "sum_first"),
         log_dir=log_dir,
         n_layers=args.n_layers,
         ffn_type=args.ffn_type,

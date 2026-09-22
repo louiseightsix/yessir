@@ -245,3 +245,25 @@ def test_evaluate_runs_end_to_end():
         for cell in ("id", "ood_base3", "ood_base12", "extrap_len_base12", "canon_ood_base12"):
             assert 0.0 <= results[f"{cell}_em"] <= 1.0
             assert 0.0 <= results[f"{cell}_step_acc"] <= 1.0
+
+
+def test_ar_carry_first_optimization_and_eval():
+    tier = 2
+    variant = Variant(name="t", paradigm="ar", tier=tier, log_dir="", n_layers=2, trace_order="carry_first")
+    model = small_model(tier, "single_head")
+    optimizer = build_optimizer(model, lr=1e-3)
+    gen = ProceduralArithmeticGenerator(bases=[2, 10], max_len=4, seed=0, trace_order="carry_first")
+    batch = gen.ar_batch(8, tier)
+    losses = []
+    for _ in range(8):
+        loss, _ = compute_loss(model, variant, batch)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        losses.append(loss.item())
+    assert losses[-1] < losses[0]
+
+    results = evaluate(model, "ar", tier, train_bases=[2, 10], num_problems=1, trace_order="carry_first")
+    assert 0.0 <= results["id_em"] <= 1.0
+    assert 0.0 <= results["id_step_acc"] <= 1.0
+
