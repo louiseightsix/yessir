@@ -588,7 +588,10 @@ def main():
         launch_now = not args.no_run
 
     final_eval_problems = 250 if train_steps >= 50_000 else eval_problems
-    grad_accum_steps = args.grad_accum_steps if args.grad_accum_steps is not None else (2 if tier in (6, 7) else 1)
+    if args.grad_accum_steps is not None:
+        grad_accum_steps = args.grad_accum_steps
+    else:
+        grad_accum_steps = (8 if paradigm == "sm_fork" else 2) if tier in (6, 7) else 1
 
     # Create experiment bundle inside experiments/
     exp_dir, exp_name = create_experiment_bundle(
