@@ -3,6 +3,7 @@ adder. Free-running metrics drive the model through its harness; teacher-forced 
 each transition from the oracle state, isolating single-step fidelity from error accumulation.
 """
 
+import math
 import torch
 
 from transformadder.core.constants import (
@@ -23,12 +24,20 @@ from transformadder.core.data import (
     encode_sm_seq,
     encode_sm_seq_rev,
 )
+from transformadder.core.sequences import build_sm_prompt, build_ar_prompt, build_probe_prompt
 from transformadder.harnesses.autoregressive import run_autoregressive_trace
 from transformadder.harnesses.state_machine import (
     run_state_machine_fork,
     run_state_machine_mh,
     run_state_machine_seq,
     run_state_machine_seq_rev,
+)
+from transformadder.utils.telemetry import (
+    InstanceTelemetryLogger,
+    calculate_distance_regressors,
+    classify_first_error,
+    compute_chance_adjusted_prior_intrusion,
+    eval_binding_probe,
 )
 
 HARNESSES = {
@@ -44,8 +53,7 @@ EXTRAP_LEN = (21, 40)
 
 
 def eval_cells(train_bases: list[int]) -> list[tuple[str, list[int], tuple[int, int]]]:
-    """Evaluation cells of spec/01_research_goal.md Section 4.1 (in-domain bases follow the
-    active training regime)."""
+    """Evaluation cells of spec/05_evaluation_and_metrics.md Section 2."""
     return [
         ("id", list(train_bases), STANDARD_LEN),
         ("ood_base3", [3], STANDARD_LEN),
@@ -62,12 +70,26 @@ def _to_device(batch: dict, device) -> dict:
 
 @torch.no_grad()
 def free_running_metrics(
-    model, paradigm: str, tier: int, instances: list[dict], stepper=None, trace_order: str = "sum_first"
+    model,
+    paradigm: str,
+    tier: int,
+    instances: list[dict],
+    stepper=None,
+    trace_order: str = "sum_first",
+    telemetry_logger: InstanceTelemetryLogger | None = None,
+    p_prior: float | None = None,
+    p_probe: float | None = None,
 ) -> dict:
-    """Exact match, digit accuracy, carry-chain accuracy and failure counts over rollouts."""
+    """Exact match, digit accuracy, carry-chain accuracy, 4-way error counts, and telemetry logging."""
     run = HARNESSES[paradigm]
     n_em = n_digits = n_digits_ok = n_carry = n_carry_ok = n_out_of_axiom = 0
     statuses: dict[str, int] = {}
+    error_type_counts = {
+        "prior_intrusion": 0,
+        "out_of_alphabet": 0,
+        "procedural_error": 0,
+        "syntax_malformation": 0,
+    }
 
     for inst in instances:
         carries: list[int] = []
@@ -78,24 +100,88 @@ def free_running_metrics(
         else:
             out, status = run(model, inst["axiom"], inst["a"], inst["b"], tier, stepper=stepper, carries=carries)
         statuses[status] = statuses.get(status, 0) + 1
-        n_em += int(status == "finished" and out == inst["expected_out"])
-        n_out_of_axiom += sum(1 for t in out + carries if t not in inst["axiom"])  # sum digits and carries
+        is_em = int(status == "finished" and out == inst["expected_out"])
+        n_em += is_em
+        n_out_of_axiom += sum(1 for t in out + carries if t not in inst["axiom"])
 
+        inst_digits = 0
+        inst_digits_ok = 0
         s_0 = inst["axiom"][0]
         for j, step in enumerate(inst["steps"]):
             ok = int(j < len(out) and out[j] == step["o"])
             n_digits += 1
             n_digits_ok += ok
+            inst_digits += 1
+            inst_digits_ok += ok
             if step["c_in"] != s_0 or step["c_out"] != s_0:
                 n_carry += 1
                 n_carry_ok += ok
 
+        per_step_acc = inst_digits_ok / inst_digits if inst_digits > 0 else 0.0
+
+        # Classify first error token
+        err_info = classify_first_error(inst, out, carries, status)
+        if err_info["first_error_type"] is not None:
+            error_type_counts[err_info["first_error_type"]] += 1
+
+        # Instance telemetry logging
+        if telemetry_logger is not None:
+            if paradigm == "ar":
+                prompt_seq = build_ar_prompt(inst["axiom"], inst["a"], inst["b"], tier)
+            else:
+                prompt_seq = build_sm_prompt(inst["axiom"], inst["a"], inst["b"], 0, inst["axiom"][0], tier, TOKEN_S)
+            prompt_len = len(prompt_seq)
+            rule_dist, entry_count = calculate_distance_regressors(
+                prompt_len, len(inst["axiom"]), tier, len(inst["a"]), len(inst["b"])
+            )
+
+            probe_acc_inst = None
+            if getattr(model, "head_type", None) != "multi_head":
+                s_i = inst["axiom"][len(inst["axiom"]) // 2]
+                pr_prompt = build_probe_prompt(inst["axiom"], inst["a"], inst["b"], s_i, tier)
+                target = inst["axiom"][(inst["axiom"].index(s_i) + 1) % len(inst["axiom"])]
+                logits = model.next_logits(pr_prompt)
+                probe_acc_inst = 1.0 if int(logits.argmax(-1).item()) == target else 0.0
+
+            telemetry_logger.log_instance({
+                "instance_id": inst.get("instance_id", f"{hash(str(inst)):08x}"),
+                "rule_family": inst.get("rule_family", "addition"),
+                "base": inst["base"],
+                "alphabet_condition": inst.get("alphabet_condition", "symbols_random"),
+                "p_prior": p_prior,
+                "p_probe": p_probe,
+                "len_a": len(inst["a"]),
+                "len_b": len(inst["b"]),
+                "prompt_token_length": prompt_len,
+                "rule_to_query_distance": rule_dist,
+                "entry_count_between": entry_count,
+                "outcome_em": is_em,
+                "per_step_accuracy": per_step_acc,
+                "probe_accuracy": probe_acc_inst,
+                "first_error_step_k": err_info["first_error_step_k"],
+                "first_error_type": err_info["first_error_type"],
+                "first_predicted_token": err_info["first_predicted_token"],
+                "first_expected_token": err_info["first_expected_token"],
+                "canonical_expected_token": err_info["canonical_expected_token"],
+            })
+
     n = len(instances)
+    total_errors = n - n_em
+    base_0 = instances[0]["base"] if instances else 10
+    r_prior_adj = compute_chance_adjusted_prior_intrusion(
+        error_type_counts["prior_intrusion"], total_errors, base_0
+    )
+
     metrics = {
-        "em": n_em / n,
-        "digit_acc": n_digits_ok / n_digits,
+        "em": n_em / n if n else 0.0,
+        "digit_acc": n_digits_ok / n_digits if n_digits else 0.0,
         "carry_acc": n_carry_ok / n_carry if n_carry else float("nan"),
         "out_of_axiom": n_out_of_axiom,
+        "prior_intrusion_count": error_type_counts["prior_intrusion"],
+        "out_of_alphabet_count": error_type_counts["out_of_alphabet"],
+        "procedural_error_count": error_type_counts["procedural_error"],
+        "syntax_malformation_count": error_type_counts["syntax_malformation"],
+        "r_prior_adj": r_prior_adj,
     }
     for status in ("max_steps_exceeded", "max_tokens_exceeded", "malformed"):
         metrics[status] = statuses.get(status, 0)
@@ -210,42 +296,78 @@ def evaluate(
     seed: int = 999,
     stepper=None,
     trace_order: str = "sum_first",
+    log_dir=None,
+    p_prior: float | None = None,
+    p_probe: float | None = None,
 ) -> dict:
-    """Runs evaluation cells on configured axiom sets (random, canonical ASCII, or both).
+    """Runs evaluation cells on configured alphabet conditions (random, canonical, permuted, or all).
 
-    Keys are `{cell}_{metric}` for random axioms and `canon_{cell}_{metric}` for canonical ones.
+    Keys are `{condition}_{cell}_{metric}`.
     The evaluation seed is disjoint from the training seeds {0, 1, 2}.
     """
     results = {}
-    if eval_axioms == "random":
-        canonical_flags = [False]
-    elif eval_axioms == "canonical":
-        canonical_flags = [True]
-    else:  # "both"
-        canonical_flags = [False, True]
+    conditions = []
+    if eval_axioms in ("random", "symbols_random"):
+        conditions = [("random", "symbols_random")]
+    elif eval_axioms in ("canonical", "canonical_order"):
+        conditions = [("canon", "canonical_order")]
+    elif eval_axioms in ("permuted", "canonical_permuted"):
+        conditions = [("permuted", "canonical_permuted")]
+    elif eval_axioms == "all":
+        conditions = [
+            ("random", "symbols_random"),
+            ("canon", "canonical_order"),
+            ("permuted", "canonical_permuted"),
+        ]
+    else:  # "both" (default)
+        conditions = [
+            ("random", "symbols_random"),
+            ("canon", "canonical_order"),
+        ]
+
+    telemetry_logger = InstanceTelemetryLogger(log_dir) if log_dir is not None else None
 
     device = next(model.parameters()).device
     use_amp = device.type == "cuda"
 
     with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-        for canonical in canonical_flags:
+        for prefix_label, condition in conditions:
             for name, bases, (min_len, max_len) in eval_cells(train_bases):
                 gen = ProceduralArithmeticGenerator(
                     bases=bases,
                     min_len=min_len,
                     max_len=max_len,
-                    canonical=canonical,
+                    alphabet_condition=condition,
                     seed=seed,
                     tier=tier,
                     trace_order=trace_order,
                 )
                 instances = [gen.sample_instance() for _ in range(num_problems)]
                 metrics = free_running_metrics(
-                    model, paradigm, tier, instances, stepper=stepper, trace_order=trace_order
+                    model,
+                    paradigm,
+                    tier,
+                    instances,
+                    stepper=stepper,
+                    trace_order=trace_order,
+                    telemetry_logger=telemetry_logger,
+                    p_prior=p_prior,
+                    p_probe=p_probe,
                 )
                 metrics.update(
                     teacher_forced_metrics(model, paradigm, tier, instances, trace_order=trace_order)
                 )
-                prefix = f"canon_{name}" if canonical else name
+
+                # Evaluate in-context binding probe
+                probe_acc = eval_binding_probe(model, tier, instances, device=device)
+                metrics["probe_acc"] = probe_acc
+                # Retrieval-execution gap: Delta_exec = probe_acc - step_acc
+                if not math.isnan(probe_acc) and not math.isnan(metrics.get("step_acc", float("nan"))):
+                    metrics["delta_exec"] = probe_acc - metrics["step_acc"]
+                else:
+                    metrics["delta_exec"] = float("nan")
+
+                prefix = f"{prefix_label}_{name}"
                 results.update({f"{prefix}_{k}": v for k, v in metrics.items()})
     return results
+
