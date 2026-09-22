@@ -11,6 +11,7 @@ Cloud Storage URIs (gs://bucket/path) to Cloud Storage FUSE mounts (/gcs/bucket/
 
 import argparse
 import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 from pathlib import Path
 
 from transformadder.utils.runner import REGIMES, Variant, run_experiment
@@ -45,6 +46,7 @@ def parse_args():
     parser.add_argument("--train-steps", type=int, default=100_000, help="Total training steps")
     parser.add_argument("--warmup-steps", type=int, default=1000, help="Linear warm-up steps")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
+    parser.add_argument("--grad-accum-steps", type=int, default=None, help="Gradient accumulation steps (defaults to 2 for Tier 6/7, 1 otherwise)")
     parser.add_argument("--lr", type=float, default=3e-4, help="Peak learning rate")
     parser.add_argument("--eval-interval", type=int, default=5000, help="Steps between evaluations")
     parser.add_argument("--eval-problems", type=int, default=100, help="Problems per evaluation cell during training")
@@ -93,6 +95,10 @@ def build_variant_from_args(args) -> Variant:
     if final_eval is None:
         final_eval = 250 if args.train_steps >= 50_000 else args.eval_problems
 
+    accum_steps = getattr(args, "grad_accum_steps", None)
+    if accum_steps is None:
+        accum_steps = 2 if args.tier in (6, 7) else 1
+
     return Variant(
         name=exp_name,
         paradigm=args.paradigm,
@@ -105,6 +111,7 @@ def build_variant_from_args(args) -> Variant:
         train_steps=args.train_steps,
         eval_interval=args.eval_interval,
         batch_size=args.batch_size,
+        grad_accum_steps=accum_steps,
         eval_problems=args.eval_problems,
         final_eval_problems=final_eval,
         train_axiom=args.train_axiom,

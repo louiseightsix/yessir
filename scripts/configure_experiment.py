@@ -181,6 +181,7 @@ def create_experiment_bundle(
     train_steps: int = 100_000,
     eval_interval: int = 5000,
     batch_size: int = 256,
+    grad_accum_steps: int = None,
     eval_problems: int = 100,
     train_axiom: str = "random",
     eval_axioms: str = "both",
@@ -200,6 +201,9 @@ def create_experiment_bundle(
     if final_eval_problems is None:
         final_eval_problems = 250 if train_steps >= 50_000 else eval_problems
 
+    if grad_accum_steps is None:
+        grad_accum_steps = 2 if tier in (6, 7) else 1
+
     machine_type = gcp_machine_type or ACCELERATOR_MACHINE_MAP.get(gcp_accelerator, "g2-standard-4")
 
     # 1. Save config.json
@@ -215,6 +219,7 @@ def create_experiment_bundle(
         "train_steps": train_steps,
         "eval_interval": eval_interval,
         "batch_size": batch_size,
+        "grad_accum_steps": grad_accum_steps,
         "eval_problems": eval_problems,
         "final_eval_problems": final_eval_problems,
         "train_axiom": train_axiom,
@@ -262,6 +267,7 @@ VARIANT = Variant(
     train_steps={train_steps},
     eval_interval={eval_interval},
     batch_size={batch_size},
+    grad_accum_steps={grad_accum_steps},
     eval_problems={eval_problems},
     final_eval_problems={final_eval_problems},
     train_axiom="{train_axiom}",
@@ -412,7 +418,7 @@ JOB_RESOURCE_NAME=$(gcloud ai custom-jobs create \\
     --display-name="$JOB_NAME" \\
     --python-package-uris="$PACKAGE_GCS_URI" \\
     --worker-pool-spec="$WORKER_POOL_SPEC" \\
-    --args="--paradigm={paradigm},--tier={tier},--n-layers={n_layers},--ffn-type={ffn_type},--attn-type={attn_type},--regime={regime},--seed={seed},--train-steps={train_steps},--eval-interval={eval_interval},--batch-size={batch_size},--eval-problems={eval_problems},--final-eval-problems={final_eval_problems},--train-axiom={train_axiom},--eval-axioms={eval_axioms},--log-dir=$BUCKET/experiments/{exp_name}" \\
+    --args="--paradigm={paradigm},--tier={tier},--n-layers={n_layers},--ffn-type={ffn_type},--attn-type={attn_type},--regime={regime},--seed={seed},--train-steps={train_steps},--eval-interval={eval_interval},--batch-size={batch_size},--grad-accum-steps={grad_accum_steps},--eval-problems={eval_problems},--final-eval-problems={final_eval_problems},--train-axiom={train_axiom},--eval-axioms={eval_axioms},--log-dir=$BUCKET/experiments/{exp_name}" \\
     --format="value(name)")
 
 echo ""
@@ -445,6 +451,7 @@ def main():
     parser.add_argument("--train-steps", type=int, default=None, help="Total training steps")
     parser.add_argument("--eval-interval", type=int, default=None, help="Steps between evaluations")
     parser.add_argument("--batch-size", type=int, default=None, help="Batch size")
+    parser.add_argument("--grad-accum-steps", type=int, default=None, help="Gradient accumulation steps")
     parser.add_argument("--eval-problems", type=int, default=None, help="Evaluation problems per cell")
     parser.add_argument("--train-axiom", choices=["random", "canonical"], default=None, help="Training axiom alphabet: random symbols (default) or fixed canonical ASCII numerals (NC-1)")
     parser.add_argument("--eval-axioms", choices=["both", "random", "canonical"], default=None, help="Evaluation axiom sets: both (default), random only, or canonical only")
@@ -578,6 +585,7 @@ def main():
         launch_now = not args.no_run
 
     final_eval_problems = 250 if train_steps >= 50_000 else eval_problems
+    grad_accum_steps = args.grad_accum_steps if args.grad_accum_steps is not None else (2 if tier in (6, 7) else 1)
 
     # Create experiment bundle inside experiments/
     exp_dir, exp_name = create_experiment_bundle(
@@ -591,6 +599,7 @@ def main():
         train_steps=train_steps,
         eval_interval=eval_interval,
         batch_size=batch_size,
+        grad_accum_steps=grad_accum_steps,
         eval_problems=eval_problems,
         final_eval_problems=final_eval_problems,
         train_axiom=train_axiom,
@@ -620,7 +629,10 @@ def main():
     print(f"  Train Axiom:   {train_axiom}")
     print(f"  Eval Axioms:   {eval_axioms}")
     print(f"  Train Steps:   {train_steps:,} (eval every {eval_interval:,} steps)")
-    print(f"  Batch Size:    {batch_size}")
+    if grad_accum_steps > 1:
+        print(f"  Batch Size:    {batch_size} (micro-batch: {batch_size // grad_accum_steps}, accum: {grad_accum_steps})")
+    else:
+        print(f"  Batch Size:    {batch_size}")
     print("=" * 72)
 
     if launch_now:

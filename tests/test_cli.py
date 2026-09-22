@@ -68,6 +68,15 @@ def test_cli_variant_builder(monkeypatch):
     MockArgs.paradigm = "sm_fork"
     variant_fork = build_variant_from_args(MockArgs())
     assert variant_fork.name == "SM-Fork-T1-L6-SwiGLU-Causal-multimodal-seed42"
+    assert variant_fork.grad_accum_steps == 1
+
+    MockArgs.tier = 6
+    variant_t6 = build_variant_from_args(MockArgs())
+    assert variant_t6.grad_accum_steps == 2
+
+    MockArgs.grad_accum_steps = 4
+    variant_t6_custom = build_variant_from_args(MockArgs())
+    assert variant_t6_custom.grad_accum_steps == 4
 
 
 def test_create_experiment_bundle_vertex(tmp_path, monkeypatch):
