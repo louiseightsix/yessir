@@ -46,6 +46,15 @@ class LiteralTokenSets(bytes, Enum):
     HEX = b"0123456789ABCDEF"
 
 
+# Static validation: ensure every predefined literal set contains only valid literal bytes
+for _token_set in LiteralTokenSets:
+    for _byte in _token_set.value:
+        assert _byte in _LITERAL_RANGE, (
+            f"LiteralTokenSets.{_token_set.name} contains invalid token 0x{_byte:02X} "
+            f"(must be within literal range 0x00..0xEF)"
+        )
+
+
 class SharedControlToken(IntEnum):
     """Universal shared control tokens (0xF0..0xF7)."""
 
