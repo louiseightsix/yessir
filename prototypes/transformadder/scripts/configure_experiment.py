@@ -6,7 +6,7 @@ reproducible run directory in prototypes/transformadder/results/, creates self-c
 run.sh and run.py scripts with an explicit random seed, and optionally launches execution.
 
 Usage:
-    ./prototypes/transformadder/run.sh                 # Interactive configuration wizard (sets up the venv)
+    ./prototypes/transformadder/run.sh                 # Interactive configuration wizard (environment managed by uv)
     ./prototypes/transformadder/run.sh --help          # CLI flag options
     ./prototypes/transformadder/run.sh --dry-run ...   # Non-interactive / scripted execution
 """
@@ -297,25 +297,8 @@ set -e
 EXP_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
 REPO_DIR="$(cd "$EXP_DIR/../../../.." && pwd)"
 
-# Resolve active or platform-appropriate virtual environment
-VENV_DIR=""
-OS_TYPE="$(uname -s | tr '[:upper:]' '[:lower:]')"
-if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ] && "$VIRTUAL_ENV/bin/python" -c "import sys" >/dev/null 2>&1; then
-    VENV_DIR="$VIRTUAL_ENV"
-elif [ -x "$REPO_DIR/.venv/bin/python" ] && "$REPO_DIR/.venv/bin/python" -c "import sys" >/dev/null 2>&1; then
-    VENV_DIR="$REPO_DIR/.venv"
-elif [ -x "$REPO_DIR/.venv-$OS_TYPE/bin/python" ] && "$REPO_DIR/.venv-$OS_TYPE/bin/python" -c "import sys" >/dev/null 2>&1; then
-    VENV_DIR="$REPO_DIR/.venv-$OS_TYPE"
-fi
-
-if [ -n "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
-    # shellcheck disable=SC1091
-    source "$VENV_DIR/bin/activate"
-fi
-
-export PYTHONPATH="$REPO_DIR:$PYTHONPATH"
-
-exec python "$EXP_DIR/run.py" "$@"
+# uv picks (and syncs) the project environment
+exec uv run --project "$REPO_DIR" python "$EXP_DIR/run.py" "$@"
 '''
     sh_script_path = exp_dir / "run.sh"
     with open(sh_script_path, "w", encoding="utf-8") as f:
@@ -358,18 +341,7 @@ JOB_NAME="ta-${{CLEAN_EXP_NAME:0:45}}-$(date +%s)"
 
 echo "Building Python package from $REPO_DIR..."
 cd "$REPO_DIR"
-PYTHON_BIN=""
-OS_TYPE="$(uname -s | tr '[:upper:]' '[:lower:]')"
-for candidate in "$REPO_DIR/.venv/bin/python" "$REPO_DIR/.venv-$OS_TYPE/bin/python"; do
-    if [ -x "$candidate" ] && "$candidate" -c "import sys" >/dev/null 2>&1; then
-        PYTHON_BIN="$candidate"
-        break
-    fi
-done
-if [ -z "$PYTHON_BIN" ]; then
-    PYTHON_BIN="$(command -v python3 || command -v python)"
-fi
-"$PYTHON_BIN" "$REPO_DIR/setup.py" sdist --formats=gztar --dist-dir="$REPO_DIR/dist" > /dev/null
+uv build --sdist --out-dir "$REPO_DIR/dist" > /dev/null
 
 PACKAGE_FILE="$(ls -t "$REPO_DIR"/dist/yessir-*.tar.gz | head -n 1)"
 TIMESTAMP="$(date +%s)"

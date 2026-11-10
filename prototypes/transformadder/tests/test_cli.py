@@ -128,8 +128,7 @@ def test_create_experiment_bundle_vertex(tmp_path, monkeypatch):
     with open(exp_dir / "submit_vertex.sh", encoding="utf-8") as f:
         sh_content = f.read()
     assert "gcloud ai custom-jobs create" in sh_content
-    assert "sdist --formats=gztar" in sh_content
-    assert ".venv-$OS_TYPE/bin/python" in sh_content
+    assert "uv build --sdist" in sh_content
     assert "buckets create" in sh_content
     assert "--python-package-uris=\"$PACKAGE_GCS_URI\"" in sh_content
     assert "--worker-pool-spec=\"$WORKER_POOL_SPEC\"" in sh_content
