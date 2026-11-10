@@ -65,4 +65,5 @@ results/                 results of live experiments, one directory per experime
 
 - British English in docs, docstrings and comments (*generalisation*, *behaviour*).
 - Plain text and code formatting only in docs, specs, and comments—never LaTeX maths (`$...$`, `\mathcal`, etc.).
+- Follow standard AI research and transformer community naming conventions where they exist (e.g. `special_tokens`, `vocab_size`, `input_ids`, `position_ids`, `collate_fn`, `reference` / `oracle`). Avoid idiosyncratic home-brewed terms when an established research standard already exists, so the codebase is immediately recognisable and legible to researchers.
 - Specs live next to the experiment they describe (`experiments/<name>/spec/`). A prototype's spec is a record of what it tested, not a plan.
