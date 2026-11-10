@@ -120,7 +120,7 @@ def main():
     if not rows:
         print(f"No completed run summaries or metrics found in {exp_root}.", file=sys.stderr)
         print("Run the sync command first to pull results from Google Cloud Storage:", file=sys.stderr)
-        print("  gcloud storage rsync -r gs://north-shore-software-ca-vertex-staging/experiments/ .prototypes/transformadder/results/", file=sys.stderr)
+        print("  gcloud storage rsync -r $GCP_BUCKET/experiments/ .prototypes/transformadder/results/", file=sys.stderr)
         sys.exit(0)
 
     if args.format == "markdown":
