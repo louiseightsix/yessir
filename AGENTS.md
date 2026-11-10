@@ -29,8 +29,22 @@ prototypes/transformadder/   the original, unreviewed exploration: code, tests, 
 | :--- | :--- |
 | `experiments/` | **Kept live.** It runs and `./yessir.sh test` passes. Code arrives in small pieces that Louis has reviewed. |
 | `yessir/` | Only reviewed code that is **clearly shared by more than one experiment**. Don't create abstractions in advance. |
-| `results/` | Only results Louis would stand by. A flawed run keeps a `README.md` in its directory whose first line is `FLAWED: <reason>` (see `results/README.md`). Never present a flawed result without its annotation. |
+| `results/` | Only defensible results, or runs explicitly marked as flawed (see [Results](#results) below). |
 | `prototypes/` | **Allowed to rot.** Reference only: read it, learn from it, point to it. Don't maintain it, don't fix it unless asked, and never copy it wholesale into `experiments/` or `yessir/`. Its results are leads, not findings. |
+
+### Results
+
+Everything in `results/` is either a defensible result or explicitly marked as flawed.
+
+To mark a run as flawed, put a `README.md` in its directory whose first line is
+
+```
+FLAWED: <one-line reason>
+```
+
+followed by any detail: what is wrong, what it affects, and whether a corrected run exists. Flawed runs stay, so the history is honest, and they are never cited without their annotation.
+
+Prototype results are not in `results/`. They live with their prototype under `prototypes/` and carry no such guarantee.
 
 ### Environment
 

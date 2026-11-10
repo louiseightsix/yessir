@@ -15,7 +15,7 @@ Each experiment picks one small, exact rule. The rule's parameters are stated in
 | Directory | What lives there | Promise |
 | :--- | :--- | :--- |
 | `experiments/` | Live experiments: code, tests, spec | **Kept live.** It runs and its tests pass. Code is added in small, reviewed pieces. |
-| `results/` | Outputs of live experiments, one directory per experiment | **Stand-by-able.** Every result is one you would stand by, or is marked `FLAWED:` with a reason ([details](results/README.md)). |
+| `results/` | Outputs of live experiments, one directory per experiment | **Stand-by-able.** Every result is one you would stand by, or is marked `FLAWED:` with a reason ([details](AGENTS.md#results)). |
 | `yessir/` | Code shared by more than one experiment | Reviewed, and only there once it's clearly shared. |
 | `prototypes/` | Quick explorations, each with its own code, spec, notes and results | **Allowed to rot.** Kept as reference only; not maintained, not tested by default. |
 
