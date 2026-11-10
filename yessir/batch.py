@@ -17,8 +17,8 @@ class Batch:
         input_ids: LongTensor of shape (batch_size, max_seq_len), right-padded
             with `SpecialToken.PAD`.
         lengths: LongTensor of shape (batch_size,) with each example's unpadded
-            length. Output heads that read the final token of each prompt index
-            into `lengths - 1`.
+            length. Output heads and losses use `lengths` (or an ignore mask) to
+            discard outputs at padded positions `>= length`.
         token_type_ids: LongTensor of shape (batch_size, max_seq_len) right-padded
             with 0, or None when examples omit `token_type_ids`.
         position_ids: LongTensor of shape (batch_size, max_seq_len) right-padded
@@ -44,13 +44,15 @@ def collate(examples: Sequence[Example]) -> Batch:
     """Right-pad a non-empty sequence of `Example`s into a `Batch`.
 
     Why right-padding:
-    - Under a causal attention mask, tokens at indices `0 .. length - 1` cannot
-      attend to later positions, so trailing `PAD` tokens never affect real
-      token representations and no attention padding mask is needed.
+    - Under a causal attention mask, real tokens at indices `0 .. length - 1`
+      cannot attend to later positions, so trailing `PAD` tokens do not affect
+      real token representations and no attention padding mask is needed.
     - `[BOS]` stays fixed at index 0 for every example in the batch.
     - Padded positions in `token_type_ids` and `position_ids` are filled with 0
-      so embedding lookups stay in bounds; those positions are never attended to
-      or read from.
+      so embedding lookups stay in bounds. Those padded positions still run
+      through the model and produce outputs, so output heads and loss functions
+      must ignore positions `>= length` (e.g. by reading at `lengths - 1` or
+      masking target labels with `-100`).
     """
     if not examples:
         raise ValueError("cannot collate an empty sequence of Example")
