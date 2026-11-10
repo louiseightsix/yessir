@@ -23,6 +23,7 @@ Needs [uv](https://docs.astral.sh/uv/). Everything goes through `yessir.sh`, whi
 ```bash
 ./yessir.sh test             # run the tests
 ./yessir.sh check            # lint and typecheck (ruff check + ty check)
+./yessir.sh fix              # typecheck, autofix lint issues, and format
 ./yessir.sh format           # format with ruff format
 ```
 

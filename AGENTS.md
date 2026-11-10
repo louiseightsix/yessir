@@ -14,7 +14,7 @@ Guidance for AI coding agents working in this repo. Read it before doing anythin
 AGENTS.md                this file: instructions for agents
 .agents/                 topic-specific instructions, linked from this file
 README.md                project intro for humans
-yessir.sh                runner: ./yessir.sh test | check | format | uv <args>
+yessir.sh                runner: ./yessir.sh test | check | fix | format | uv <args>
 pyproject.toml, uv.lock  one uv project; Python 3.12; package name "yessir"
 yessir/                  shared code (currently empty)
 experiments/sir_yes_sir/ minimal smoke-test and reference experiment (see .agents/sir-yes-sir.md)
@@ -34,7 +34,7 @@ results/                 results of live experiments, one directory per experime
 
 ### Environment
 
-- Use `./yessir.sh` for everything in the live repo. `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh check` runs `ruff check` and `ty check`; `./yessir.sh format` runs `ruff format`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
+- Use `./yessir.sh` for everything in the live repo. `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh check` runs `ruff check` and `ty check`; `./yessir.sh fix` typechecks, autofixes lint issues, and formats; `./yessir.sh format` runs `ruff format`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
 - There is one venv per OS (`.venv-darwin`, `.venv-linux`), because the same checkout is used from a macOS host and a Linux VM. Don't set a global `UV_PROJECT_ENVIRONMENT`, and don't create or delete venvs unless asked.
 - Plain `pytest` collects nothing until the first live tests exist. That's expected.
 - Prototypes keep their own run instructions (see each prototype's README).
