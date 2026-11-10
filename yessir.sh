@@ -3,6 +3,8 @@
 #
 # Usage:
 #   ./yessir.sh test [pytest args]   # run the live experiments' tests
+#   ./yessir.sh check [ruff args]    # lint live code (ruff check)
+#   ./yessir.sh format [ruff args]   # format live code (ruff format)
 #   ./yessir.sh uv <uv args>         # any uv command against this repo's environment,
 #                                    #   e.g. ./yessir.sh uv add numpy
 #
@@ -26,15 +28,17 @@ export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-.venv-$OS}"
 [ "$OS" = linux ] && export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
 usage() {
-    sed -n '4,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '4,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 
 case "$cmd" in
-    test) exec uv run pytest "$@" ;;
-    uv)   exec uv "$@" ;;
+    test)   exec uv run pytest "$@" ;;
+    check)  exec uv run ruff check "$@" ;;
+    format) exec uv run ruff format "$@" ;;
+    uv)     exec uv "$@" ;;
     ""|-h|--help|help) usage ;;
     *) echo "unknown command: $cmd" >&2; usage >&2; exit 1 ;;
 esac

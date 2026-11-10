@@ -13,10 +13,16 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "pytest",
+    "ruff>=0.17.4",
+]
 
 [tool.setuptools.packages.find]
 include = ["yessir*", "experiments*"]
 
 [tool.pytest.ini_options]
 testpaths = ["experiments", "yessir"]
+
+[tool.ruff]
+include = ["experiments/**/*.py", "yessir/**/*.py", "pyproject.toml"]
