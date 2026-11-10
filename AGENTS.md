@@ -64,4 +64,5 @@ results/                 results of live experiments, one directory per experime
 ## House style
 
 - British English in docs, docstrings and comments (*generalisation*, *behaviour*).
+- Plain text and code formatting only in docs, specs, and comments—never LaTeX maths (`$...$`, `\mathcal`, etc.).
 - Specs live next to the experiment they describe (`experiments/<name>/spec/`). A prototype's spec is a record of what it tested, not a plan.
