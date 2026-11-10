@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yessir"
 version = "0.1.0"
-description = "yessir: experiments in getting transformers to follow rules they are given in context"
+description = "yessir: playground for exploring rule-following behaviour in transformers"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
