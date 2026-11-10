@@ -13,12 +13,13 @@ Each experiment stands on its own. Don't frame addition as "a step toward ARC-AG
 ## Repo layout
 
 ```
-AGENTS.md                this file
-README.md                project intro and the repo rules
+AGENTS.md                this file: instructions for agents
+.agents/                 topic-specific instructions, linked from this file
+README.md                project intro for humans
 yessir.sh                runner: ./yessir.sh test [pytest args] | ./yessir.sh uv <uv args>
 pyproject.toml, uv.lock  one uv project; Python 3.12; package name "yessir"
 yessir/                  shared code (currently empty)
-experiments/addition/    the live addition experiment (currently just a README)
+experiments/addition/    the live addition experiment (see .agents/addition.md)
 results/                 results of live experiments, one directory per experiment
 prototypes/transformadder/   the original, unreviewed exploration: code, tests, spec, notes, ~40 runs
 ```
@@ -29,22 +30,8 @@ prototypes/transformadder/   the original, unreviewed exploration: code, tests, 
 | :--- | :--- |
 | `experiments/` | **Kept live.** It runs and `./yessir.sh test` passes. Code arrives in small pieces that Louis has reviewed. |
 | `yessir/` | Only reviewed code that is **clearly shared by more than one experiment**. Don't create abstractions in advance. |
-| `results/` | Only defensible results, or runs explicitly marked as flawed (see [Results](#results) below). |
+| `results/` | Only defensible results, or runs explicitly marked as flawed (see [`.agents/results.md`](.agents/results.md)). |
 | `prototypes/` | **Allowed to rot.** Reference only: read it, learn from it, point to it. Don't maintain it, don't fix it unless asked, and never copy it wholesale into `experiments/` or `yessir/`. Its results are leads, not findings. |
-
-### Results
-
-Everything in `results/` is either a defensible result or explicitly marked as flawed.
-
-To mark a run as flawed, put a `README.md` in its directory whose first line is
-
-```
-FLAWED: <one-line reason>
-```
-
-followed by any detail: what is wrong, what it affects, and whether a corrected run exists. Flawed runs stay, so the history is honest, and they are never cited without their annotation.
-
-Prototype results are not in `results/`. They live with their prototype under `prototypes/` and carry no such guarantee.
 
 ### Environment
 
@@ -52,6 +39,17 @@ Prototype results are not in `results/`. They live with their prototype under `p
 - There is one venv per OS (`.venv-darwin`, `.venv-linux`), because the same checkout is used from a macOS host and a Linux VM. Don't set a global `UV_PROJECT_ENVIRONMENT`, and don't create or delete venvs unless asked.
 - Plain `pytest` collects nothing until the first live tests exist. That's expected.
 - Prototypes keep their own run instructions (see each prototype's README).
+
+### Where text goes
+
+- **Instructions for agents** go in this file, or in a topic file under `.agents/` linked from here. There are no nested `AGENTS.md` files.
+- **Every `README.md` is for a human new to the repo.** It describes what exists *now*. No plans or intentions ("will be", "being rebuilt"), no process, no instructions for agents. If a sentence wouldn't help a newcomer understand what's in front of them, it doesn't belong in a README.
+- The same goes for module docstrings: describe the code, not repo policy.
+
+### Topic files
+
+- [`.agents/addition.md`](.agents/addition.md): working on the addition experiment.
+- [`.agents/results.md`](.agents/results.md): what may go in `results/`, and how to mark a flawed run.
 
 ## Working with Louis
 
@@ -66,4 +64,4 @@ Prototype results are not in `results/`. They live with their prototype under `p
 ## House style
 
 - British English in docs, docstrings and comments (*generalisation*, *behaviour*).
-- Specs live next to the experiment they describe (`experiments/<name>/spec/`). The live addition spec hasn't been written yet; `prototypes/transformadder/spec/` is a record of what the prototype tested, not the plan.
+- Specs live next to the experiment they describe (`experiments/<name>/spec/`). A prototype's spec is a record of what it tested, not a plan.

@@ -1,6 +1,6 @@
 # TransformAdder (prototype)
 
-> **Reference only. Allowed to rot.** This prototype was written quickly, mostly by Claude, as an exploration of whether the idea was worth pursuing, and it was not reviewed line by line. It was made runnable on 2026-11-10 and won't be maintained after that. The live experiment is being rebuilt, with review, in [`experiments/addition/`](../../experiments/addition/).
+> **Reference only. Allowed to rot.** This prototype was written quickly, mostly by Claude, as an exploration of whether the idea was worth pursuing, and it was not reviewed line by line. It was last made runnable on 2026-11-10 and is not maintained. The current addition experiment is in [`experiments/addition/`](../../experiments/addition/).
 
 **Question:** can a transformer add in a numeral system it is only told about in the prompt?
 

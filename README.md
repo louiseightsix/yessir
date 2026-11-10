@@ -10,20 +10,20 @@ Each experiment picks one small, exact rule. The rule's parameters are stated in
 - does it keep following the rule on unseen parameters and longer inputs, zero-shot?
 - when it fails, did it misread the rule or mis-execute it?
 
-## Repo rules
+## Layout
 
-| Directory | What lives there | Promise |
-| :--- | :--- | :--- |
-| `experiments/` | Live experiments: code, tests, spec | **Kept live.** It runs and its tests pass. Code is added in small, reviewed pieces. |
-| `results/` | Outputs of live experiments, one directory per experiment | **Stand-by-able.** Every result is one you would stand by, or is marked `FLAWED:` with a reason ([details](AGENTS.md#results)). |
-| `yessir/` | Code shared by more than one experiment | Reviewed, and only there once it's clearly shared. |
-| `prototypes/` | Quick explorations, each with its own code, spec, notes and results | **Allowed to rot.** Kept as reference only; not maintained, not tested by default. |
+| Directory | What's there |
+| :--- | :--- |
+| `experiments/` | The experiments: code, tests and spec for each. |
+| `results/` | Results from the experiments, one directory per experiment. A run whose `README.md` starts with `FLAWED:` is known to be wrong, for the reason given. |
+| `yessir/` | Code shared between experiments (currently none). |
+| `prototypes/` | Early, quick explorations, each with its own code, spec, notes and results. Unmaintained and unreviewed: useful as background, not as evidence. |
 
 ## Experiments
 
 | Experiment | Rule | Status |
 | :--- | :--- | :--- |
-| [`addition`](experiments/addition/) | Column addition in a numeral system defined in the prompt (an ordered alphabet of arbitrary digit symbols, so any base) | Being rebuilt piece by piece |
+| [`addition`](experiments/addition/) | Column addition in a numeral system defined in the prompt (an ordered alphabet of arbitrary digit symbols, so any base) | No code |
 
 ## Prototypes
 

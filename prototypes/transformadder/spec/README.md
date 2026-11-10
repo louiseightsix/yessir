@@ -1,6 +1,6 @@
 # Addition Experiment: Specification
 
-> **Record, not maintained.** This is what the TransformAdder prototype tested, as of 2026-11-10. The live addition experiment in `experiments/addition/` will have its own spec.
+> **Record, not maintained.** This is what the TransformAdder prototype tested, as of 2026-11-10. It is not the spec of the current experiment in `experiments/addition/`.
 
 This directory is the specification for the **addition experiment**: can a transformer trained from scratch learn column addition in a way that is driven by an **in-context numeral system** (an ordered alphabet of digit symbols given in the prompt) rather than by symbols and bases memorised in its weights? And does it then transfer **zero-shot** to bases, alphabets and operand lengths it never saw in training?
 

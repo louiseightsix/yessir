@@ -1,1 +1,1 @@
-"""yessir prototypes: quick explorations kept for reference. Not maintained; allowed to rot."""
+"""yessir prototypes: early, unmaintained explorations kept for reference."""
