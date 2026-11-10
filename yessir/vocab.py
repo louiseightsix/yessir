@@ -1,31 +1,53 @@
-"""Byte-level vocabulary constants and alphabet sampling.
-
-Every token in yessir is a single byte in 0x00..0xFF (VOCAB_SIZE = 256),
-split into three non-overlapping ranges:
-
-1. LITERAL_TOKENS (0x00..0xEF, 240 bytes):
-   The reservoir of literal symbols from which task alphabets are sampled.
-2. SHARED_CONTROL_TOKENS (0xF0..0xF7, 8 bytes):
-   Universal framework control tokens shared across all experiments.
-3. EXPERIMENT_CONTROL_TOKENS (0xF8..0xFF, 8 bytes):
-   Reserved for experiment-specific control tokens (e.g. query triggers, task flags).
-"""
+"""Byte-level vocabulary definitions, token sets, and alphabet sampling."""
 
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import Enum, IntEnum
 
-VOCAB_SIZE = 256
+# ---------------------------------------------------------------------------
+# 1. Byte Vocabulary Partition Geometry
+# ---------------------------------------------------------------------------
+#
+# The 256-byte vocabulary is partitioned into three contiguous segments:
+#
+#   0x00                     0xEF  0xF0            0xF7  0xF8            0xFF
+#  ┌─────────────────────────────┬─────────────────────┬─────────────────────┐
+#  │       Literal Tokens        │   Shared Control    │ Experiment Control  │
+#  │         (240 bytes)         │      (8 bytes)      │      (8 bytes)      │
+#  └─────────────────────────────┴─────────────────────┴─────────────────────┘
+#  0                             _SHARED_START         _EXPERIMENT_START     256
+#                                (240 / 0xF0)          (248 / 0xF8)
+#
+_YESSIR_VOCAB_SIZE = 256
 
-# The three non-overlapping token partitions of the 256-byte vocabulary:
-LITERAL_TOKENS: range = range(0xF0)  # 0x00..0xEF (240 bytes)
-SHARED_CONTROL_TOKENS: range = range(0xF0, 0xF8)  # 0xF0..0xF7 (8 bytes)
-EXPERIMENT_CONTROL_TOKENS: range = range(0xF8, 0x100)  # 0xF8..0xFF (8 bytes)
+_NUM_SHARED_CONTROL = 8
+_NUM_EXPERIMENT_CONTROL = 8
+_NUM_LITERALS = _YESSIR_VOCAB_SIZE - _NUM_SHARED_CONTROL - _NUM_EXPERIMENT_CONTROL
+
+_SHARED_START = _NUM_LITERALS
+_EXPERIMENT_START = _NUM_LITERALS + _NUM_SHARED_CONTROL
+
+_LITERAL_RANGE = range(_SHARED_START)
+_SHARED_RANGE = range(_SHARED_START, _EXPERIMENT_START)
+_EXPERIMENT_RANGE = range(_EXPERIMENT_START, _YESSIR_VOCAB_SIZE)
 
 
-class SharedControl(IntEnum):
-    """Universal shared control tokens in SHARED_CONTROL_TOKENS (0xF0..0xF7)."""
+# ---------------------------------------------------------------------------
+# 2. Token Enums
+# ---------------------------------------------------------------------------
+
+
+class LiteralTokenSets(bytes, Enum):
+    """Predefined collections of literal tokens for alphabet selection."""
+
+    ALL = bytes(_LITERAL_RANGE)
+    DECIMAL = b"0123456789"
+    HEX = b"0123456789ABCDEF"
+
+
+class SharedControlToken(IntEnum):
+    """Universal shared control tokens (0xF0..0xF7)."""
 
     DELIM = 0xF0  # | generic section delimiter
     PAD = 0xF1  # [PAD] right-padding token for batched sequences
@@ -33,9 +55,15 @@ class SharedControl(IntEnum):
     EOS = 0xF3  # [EOS] end-of-sequence marker
 
 
-# Standard character sets as raw bytes
-DECIMAL_TOKENS: bytes = b"0123456789"
-HEX_TOKENS: bytes = b"0123456789ABCDEF"
+for _tok in SharedControlToken:
+    assert _tok in _SHARED_RANGE, (
+        f"SharedControlToken {_tok.name} not in {_SHARED_RANGE}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. Experiment Vocabulary Container & Builder
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -46,13 +74,22 @@ class ExperimentVocab:
     control_tokens: tuple[int, ...]
 
     @property
-    def all_tokens(self) -> tuple[int, ...]:
-        """Union of literals and all active control tokens."""
-        return self.literals + self.control_tokens
+    def alphabet_size(self) -> int:
+        """Number of active literal symbols in the task alphabet (e.g. base B)."""
+        return len(self.literals)
+
+    @property
+    def model_vocab_size(self) -> int:
+        """Fixed size of the neural network's token space (embedding and logit dimension).
+
+        In yessir, every token is a single byte, so the model always predicts across
+        all 256 byte classes regardless of how small the active task alphabet is.
+        """
+        return _YESSIR_VOCAB_SIZE
 
 
 def create_vocab(
-    literals: Sequence[int] | bytes,
+    literals: Sequence[int] | bytes | LiteralTokenSets,
     *,
     sample_size: int | None = None,
     rng: random.Random | None = None,
@@ -72,9 +109,9 @@ def create_vocab(
         random sampling or shuffling to ensure experiment reproducibility.
 
     Validation:
-    - All tokens in `literals` must be strictly within LITERAL_TOKENS (0x00..0xEF).
+    - All tokens in `literals` must be strictly within the literal range (0x00..0xEF).
     - If `sample_size` is specified, it must satisfy 2 <= sample_size <= len(literals).
-    - All tokens in `experiment_controls` must be in EXPERIMENT_CONTROL_TOKENS (0xF8..0xFF).
+    - All tokens in `experiment_controls` must be in the experiment control range (0xF8..0xFF).
     """
     if sample_size is not None and rng is None:
         raise ValueError(
@@ -84,9 +121,9 @@ def create_vocab(
     # 1. Validate the literal pool
     literal_list = list(literals)
     for tok in literal_list:
-        if tok not in LITERAL_TOKENS:
+        if tok not in _LITERAL_RANGE:
             raise ValueError(
-                f"Literal token 0x{tok:02X} is not within LITERAL_TOKENS (0x00..0xEF)."
+                f"Literal token 0x{tok:02X} is not within literal range (0x00..0xEF)."
             )
 
     # 2. Select / sample / permute literals
@@ -115,12 +152,12 @@ def create_vocab(
         else [int(t) for t in experiment_controls]
     )
     for tok in exp_ctrls:
-        if tok not in EXPERIMENT_CONTROL_TOKENS:
+        if tok not in _EXPERIMENT_RANGE:
             raise ValueError(
-                f"Experiment control token 0x{tok:02X} is not within EXPERIMENT_CONTROL_TOKENS (0xF8..0xFF)."
+                f"Experiment control token 0x{tok:02X} is not within experiment control range (0xF8..0xFF)."
             )
 
-    all_controls = tuple(int(tok) for tok in SharedControl) + tuple(exp_ctrls)
+    all_controls = tuple(int(tok) for tok in SharedControlToken) + tuple(exp_ctrls)
     if len(set(all_controls)) != len(all_controls):
         raise ValueError(
             "Control tokens contain duplicates between shared and experiment controls."
