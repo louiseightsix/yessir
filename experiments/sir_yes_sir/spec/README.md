@@ -49,25 +49,25 @@ k = 3:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q # [S]
 - **`symbols_random`**: `B` distinct bytes sampled uniformly without replacement from the 240-byte symbol pool (`0x00`–`0xEF`).
 - **`canonical_order`**: conventional ASCII characters `'0'`–`'9'` followed by `'A'`–`'Z'`, truncated to length `B` (supports `2 <= B <= 36`).
 
-## 2. Prompt Layout (Stage A: `sm_mh`)
+## 2. Input Layout (Stage A: `sm_mh`)
 
-At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine prompt is a single sequence of tokens separated by the delimiter `[SEP]`:
+At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]`:
 
 ```
 [BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  o_0 ... o_{k-1}  [S]
 ```
 
-Each position in the sequence has an entry in each of `input_ids`, `role_ids` and `position_ids`. Role ids mark which section a token belongs to, like BERT's `token_type_ids`; position ids restart at `0` in each section.
+Each position in the sequence has an entry in each of `input_ids`, `token_type_ids` and `position_ids`. Token type ids mark which section a token belongs to (like BERT's segment ids); position ids restart at `0` in each section.
 
-| Section | `input_ids` | `role_ids` | `position_ids` |
+| Section | `input_ids` | `token_type_ids` | `position_ids` |
 | :--- | :--- | :--- | :--- |
-| Start marker | `[BOS]` | `ROLE_SPECIAL` | `0` |
-| Alphabet | `s_0, ..., s_{B-1}` | `ROLE_ALPHABET` | `0, 1, ..., B - 1` |
-| Delimiter | `[SEP]` | `ROLE_SPECIAL` | `0` |
-| Input `x` | `x_0, ..., x_{L-1}` | `ROLE_INPUT` | `0, 1, ..., L - 1` |
-| Delimiter | `[SEP]` | `ROLE_SPECIAL` | `0` |
-| Output history `out_k` | `o_0, ..., o_{k-1}` | `ROLE_OUT` | `0, 1, ..., k - 1` |
-| Step query trigger | `[S]` | `ROLE_OUT` | `k` |
+| Start marker | `[BOS]` | `TokenType.SPECIAL` (`0`) | `0` |
+| Alphabet | `s_0, ..., s_{B-1}` | `TokenType.ALPHABET` (`1`) | `0, 1, ..., B - 1` |
+| Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
+| Input `x` | `x_0, ..., x_{L-1}` | `TokenType.INPUT` (`2`) | `0, 1, ..., L - 1` |
+| Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
+| Output history `out_k` | `o_0, ..., o_{k-1}` | `TokenType.OUT` (`3`) | `0, 1, ..., k - 1` |
+| Step query trigger | `[S]` | `TokenType.OUT` (`3`) | `k` |
 
 In `sm_mh`, the three output heads (`head_out`, `head_wrap`, `head_flag`) read the hidden state at the final unpadded position (`[S]`) to predict `(o_k, w_k, flag_k)`.
 
