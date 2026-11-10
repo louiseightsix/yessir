@@ -44,20 +44,24 @@ k = 3:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q # [S]
         out: ('q', '#', FLAG_FINISHED)
 ```
 
-### Alphabets
+### Alphabets (`yessir.alphabet`)
 
-- **`symbols_random`**: `B` distinct bytes sampled uniformly without replacement from the 240-byte symbol pool (`0x00`–`0xEF`).
-- **`canonical_order`**: conventional ASCII characters `'0'`–`'9'` followed by `'A'`–`'Z'`, truncated to length `B` (supports `2 <= B <= 36`).
+Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rng=None)` from `SymbolSet`:
+- **Random symbols**: `create_alphabet(SymbolSet.ALL, sample_size=B, rng=rng)` — `B` distinct bytes sampled uniformly without replacement from the 240-byte symbol pool (`0x00`–`0xEF`).
+- **Canonical order**: `create_alphabet(SymbolSet.DECIMAL[:B])` or `create_alphabet(SymbolSet.HEX[:B])` — conventional ASCII characters in order (`'0'`–`'9'` or `'0'`–`'9'`, `'A'`–`'F'`).
+- **Canonical permuted**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` — the same canonical glyphs shuffled into a random order.
 
-## 2. Input Layout (Stage A: `sm_mh`)
+## 2. Input Layouts (`experiments/sir_yes_sir/inputs.py`)
 
-At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]`:
+### 2.1 State-machine input (`build_sm_example`)
+
+At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]` and ending with the step query trigger `[S]`:
 
 ```
 [BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  o_0 ... o_{k-1}  [S]
 ```
 
-Each position in the sequence has an entry in each of `input_ids`, `token_type_ids` and `position_ids`. Token type ids mark which section a token belongs to (like BERT's segment ids); position ids restart at `0` in each section.
+Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) optional entries in `token_type_ids` and `position_ids`. Token type ids mark which section a token belongs to (like BERT's segment ids); position ids restart at `0` in each section.
 
 | Section | `input_ids` | `token_type_ids` | `position_ids` |
 | :--- | :--- | :--- | :--- |
@@ -70,6 +74,20 @@ Each position in the sequence has an entry in each of `input_ids`, `token_type_i
 | Step query trigger | `[S]` | `TokenType.OUT` (`3`) | `k` |
 
 In `sm_mh`, the three output heads (`head_out`, `head_wrap`, `head_flag`) read the hidden state at the final unpadded position (`[S]`) to predict `(o_k, w_k, flag_k)`.
+
+### 2.2 Autoregressive input (`build_ar_example`)
+
+In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and any `trace` tokens generated so far follow in a single `TokenType.OUT` section with sequential `position_ids = 0, 1, ..., len(trace) - 1`:
+
+```
+[BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  trace_0 ... trace_{m-1}
+```
+
+### 2.3 Embedding modes (`EmbeddingMode`)
+
+- **`TOKEN_TYPE_PE`**: attaches both `token_type_ids` and `position_ids`.
+- **`TOKEN_TYPE_NOPE`**: attaches `token_type_ids` only (`position_ids=None`).
+- **`NOPE`**: attaches neither (`token_type_ids=None`, `position_ids=None`).
 
 ## 3. Scoring
 
