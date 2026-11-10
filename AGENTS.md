@@ -4,23 +4,22 @@ Guidance for AI coding agents working in this repo. Read it before doing anythin
 
 ## What this project is for
 
-**yessir** is a set of experiments on whether transformers can follow a rule that is given to them **in context**, rather than one memorised from training. The first experiment is **addition**: column addition in a numeral system defined in the prompt by an ordered alphabet of arbitrary digit symbols (so any base). It asks whether a model trained on a few bases can add zero-shot in unseen bases and at longer lengths.
+**yessir** is a set of experiments probing what rule-following behaviour transformers are capable of.
 
-**The real goal is for Louis to learn how this works**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `prototypes/transformadder/` as a reference, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
-
-Each experiment stands on its own. Don't frame addition as "a step toward ARC-AGI" or as one instance of a generic rule-following framework.
+**This project doubles as a learning exercise for Louis**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `.prototypes/transformadder/` as Louis's internal reference notes, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
 
 ## Repo layout
 
 ```
-AGENTS.md                this file
-README.md                project intro and the repo rules
+AGENTS.md                this file: instructions for agents
+.agents/                 topic-specific instructions, linked from this file
+README.md                project intro for humans
 yessir.sh                runner: ./yessir.sh test [pytest args] | ./yessir.sh uv <uv args>
 pyproject.toml, uv.lock  one uv project; Python 3.12; package name "yessir"
 yessir/                  shared code (currently empty)
-experiments/addition/    the live addition experiment (currently just a README)
+experiments/addition/    the live addition experiment (see .agents/addition.md)
 results/                 results of live experiments, one directory per experiment
-prototypes/transformadder/   the original, unreviewed exploration: code, tests, spec, notes, ~40 runs
+.prototypes/transformadder/  Louis's internal notes: the original, unreviewed exploration (code, tests, spec, notes, ~40 runs)
 ```
 
 ### Rules per directory
@@ -29,15 +28,26 @@ prototypes/transformadder/   the original, unreviewed exploration: code, tests, 
 | :--- | :--- |
 | `experiments/` | **Kept live.** It runs and `./yessir.sh test` passes. Code arrives in small pieces that Louis has reviewed. |
 | `yessir/` | Only reviewed code that is **clearly shared by more than one experiment**. Don't create abstractions in advance. |
-| `results/` | Only results Louis would stand by. A flawed run keeps a `README.md` in its directory whose first line is `FLAWED: <reason>` (see `results/README.md`). Never present a flawed result without its annotation. |
-| `prototypes/` | **Allowed to rot.** Reference only: read it, learn from it, point to it. Don't maintain it, don't fix it unless asked, and never copy it wholesale into `experiments/` or `yessir/`. Its results are leads, not findings. |
+| `results/` | Only defensible results, or runs explicitly marked as flawed (see [`.agents/results.md`](.agents/results.md)). |
+| `.prototypes/` | **Louis's internal notes. Allowed to rot.** Never mention it in any README. Reference only: read it, learn from it, point to it. Don't maintain it, don't fix it unless asked, and never copy it wholesale into `experiments/` or `yessir/`. Its results are leads, not findings. |
 
 ### Environment
 
-- Use `./yessir.sh` for everything in the live repo. `./yessir.sh test` runs the tests in `experiments/`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
+- Use `./yessir.sh` for everything in the live repo. `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
 - There is one venv per OS (`.venv-darwin`, `.venv-linux`), because the same checkout is used from a macOS host and a Linux VM. Don't set a global `UV_PROJECT_ENVIRONMENT`, and don't create or delete venvs unless asked.
 - Plain `pytest` collects nothing until the first live tests exist. That's expected.
 - Prototypes keep their own run instructions (see each prototype's README).
+
+### Where text goes
+
+- **Instructions for agents** go in this file, or in a topic file under `.agents/` linked from here. There are no nested `AGENTS.md` files.
+- **Every `README.md` is for a human new to the repo.** It describes what exists *now*. No plans or intentions ("will be", "being rebuilt"), no process, no instructions for agents. If a sentence wouldn't help a newcomer understand what's in front of them, it doesn't belong in a README.
+- The same goes for module docstrings: describe the code, not repo policy.
+
+### Topic files
+
+- [`.agents/addition.md`](.agents/addition.md): working on the addition experiment.
+- [`.agents/results.md`](.agents/results.md): what may go in `results/`, and how to mark a flawed run.
 
 ## Working with Louis
 
@@ -52,4 +62,4 @@ prototypes/transformadder/   the original, unreviewed exploration: code, tests, 
 ## House style
 
 - British English in docs, docstrings and comments (*generalisation*, *behaviour*).
-- Specs live next to the experiment they describe (`experiments/<name>/spec/`). The live addition spec hasn't been written yet; `prototypes/transformadder/spec/` is a record of what the prototype tested, not the plan.
+- Specs live next to the experiment they describe (`experiments/<name>/spec/`). A prototype's spec is a record of what it tested, not a plan.

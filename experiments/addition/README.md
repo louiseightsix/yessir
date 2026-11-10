@@ -1,7 +1,5 @@
 # Addition
 
-**Can a transformer add in a numeral system it is only told about in the prompt?**
+**Can a transformer trained to do long addition in a few bases, each defined in the prompt, add in bases it never saw in training?**
 
-Being rebuilt from scratch, one reviewed piece at a time. The spec will be written here as the pieces go in.
-
-The quick exploration that motivated this experiment, with its code, spec and results, is kept for reference in [`prototypes/transformadder/`](../../prototypes/transformadder/). Nothing is copied from it wholesale; it is a reference to read, not a base to build on.
+There is no code here (yet!).

@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yessir"
 version = "0.1.0"
-description = "yessir: experiments in getting transformers to follow rules they are given in context"
+description = "yessir: playground for exploring rule-following behaviour in transformers"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "torch>=2.0.0",
 ]
@@ -16,7 +16,7 @@ dependencies = [
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
-include = ["yessir*", "experiments*", "prototypes*"]
+include = ["yessir*", "experiments*"]
 
 [tool.pytest.ini_options]
-testpaths = ["experiments"]
+testpaths = ["experiments", "yessir"]
