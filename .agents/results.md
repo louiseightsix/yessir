@@ -10,4 +10,4 @@ FLAWED: <one-line reason>
 
 followed by any detail: what is wrong, what it affects, and whether a corrected run exists. Flawed runs stay, so the history is honest, and they are never cited without their annotation.
 
-Prototype results are not in `results/`. They live with their prototype under `prototypes/` and carry no such guarantee.
+Prototype results are not in `results/`. They live with their prototype under `.prototypes/` and carry no such guarantee.

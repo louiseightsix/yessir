@@ -1,12 +1,12 @@
 # Yessir! 🫡
 
-**Yessir!** is a playground for exploring rule-following behaviour in Transformers-based models. 
+**Yessir!** is a playground for exploring rule-following behaviour in transformer-based models. 
 
 ## Experiments
 
 | Experiment | Rule | Status |
 | :--- | :--- | :--- |
-| [`addition`](experiments/addition/) | Column addition in a numeral system defined in the prompt (an ordered alphabet of arbitrary digit symbols, so any base) | No code |
+| [`addition`](experiments/addition/) | Long addition in bases defined in the prompt | Prototype done; implementation in progress |
 
 ## Layout
 
@@ -15,25 +15,23 @@
 | `experiments/` | The experiments: code, tests and spec for each. |
 | `results/` | Results from the experiments, one directory per experiment. A run whose `README.md` starts with `FLAWED:` is known to be wrong, for the reason given. |
 | `yessir/` | Code shared between experiments. |
-| `prototypes/` | Early, quick explorations, each with its own code, spec, notes and results. Unmaintained and unreviewed: useful as background, not as evidence. |
 
 ## Let's Play
 
 Needs [uv](https://docs.astral.sh/uv/). Everything goes through `yessir.sh`, which creates and syncs the environment on first use:
 
 ```bash
-./yessir.sh test             # live experiments only; prototypes: ./yessir.sh test prototypes/<name>
-./yessir.sh uv add <pkg>     # add a dependency (any uv command works: ./yessir.sh uv <args>)
+./yessir.sh test             # run the tests
 ```
 
 ## Housekeeping
 
-Add a dep:
+### Adding a dependency
 
 ```bash
 ./yessir.sh uv add <pkg>     # add a dependency (any uv command works: ./yessir.sh uv <args>)
 ```
 
-Agent sandboxes
+### Agent sandboxes
 
-The environment is per OS (`.venv-darwin`, `.venv-linux`), so a checkout shared between a macOS host and a Linux VM works from both. Set `UV_PROJECT_ENVIRONMENT` to override. Prototypes keep their own instructions and use plain `uv` (a single `.venv`).
+The environment is per OS (`.venv-darwin`, `.venv-linux`), so a checkout shared between a macOS host and a Linux VM works from both. Set `UV_PROJECT_ENVIRONMENT` to override.

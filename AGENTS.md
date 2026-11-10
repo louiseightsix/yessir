@@ -6,7 +6,7 @@ Guidance for AI coding agents working in this repo. Read it before doing anythin
 
 **yessir** is a set of experiments on whether transformers can follow a rule that is given to them **in context**, rather than one memorised from training. The first experiment is **addition**: column addition in a numeral system defined in the prompt by an ordered alphabet of arbitrary digit symbols (so any base). It asks whether a model trained on a few bases can add zero-shot in unseen bases and at longer lengths.
 
-**The real goal is for Louis to learn how this works**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `prototypes/transformadder/` as a reference, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
+**The real goal is for Louis to learn how this works**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `.prototypes/transformadder/` as Louis's internal reference notes, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
 
 Each experiment stands on its own. Don't frame addition as "a step toward ARC-AGI" or as one instance of a generic rule-following framework.
 
@@ -21,7 +21,7 @@ pyproject.toml, uv.lock  one uv project; Python 3.12; package name "yessir"
 yessir/                  shared code (currently empty)
 experiments/addition/    the live addition experiment (see .agents/addition.md)
 results/                 results of live experiments, one directory per experiment
-prototypes/transformadder/   the original, unreviewed exploration: code, tests, spec, notes, ~40 runs
+.prototypes/transformadder/  Louis's internal notes: the original, unreviewed exploration (code, tests, spec, notes, ~40 runs)
 ```
 
 ### Rules per directory
@@ -31,7 +31,7 @@ prototypes/transformadder/   the original, unreviewed exploration: code, tests, 
 | `experiments/` | **Kept live.** It runs and `./yessir.sh test` passes. Code arrives in small pieces that Louis has reviewed. |
 | `yessir/` | Only reviewed code that is **clearly shared by more than one experiment**. Don't create abstractions in advance. |
 | `results/` | Only defensible results, or runs explicitly marked as flawed (see [`.agents/results.md`](.agents/results.md)). |
-| `prototypes/` | **Allowed to rot.** Reference only: read it, learn from it, point to it. Don't maintain it, don't fix it unless asked, and never copy it wholesale into `experiments/` or `yessir/`. Its results are leads, not findings. |
+| `.prototypes/` | **Louis's internal notes. Allowed to rot.** Never mention it in any README. Reference only: read it, learn from it, point to it. Don't maintain it, don't fix it unless asked, and never copy it wholesale into `experiments/` or `yessir/`. Its results are leads, not findings. |
 
 ### Environment
 
