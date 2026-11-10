@@ -50,7 +50,7 @@ Why this task:
 1. **Byte vocabulary & sequence primitives**:
    - 1-byte = 1-token (`0x00`–`0xFF`), reserving `0xF0`–`0xFF` for special tokens and `0x00`–`0xEF` for numeral/symbol alphabets.
    - Alphabet sampling (`canonical_order`, `canonical_permuted`, `symbols_random`).
-   - `Seq` container (`input_ids`, optional `role_ids`, optional `position_ids`) and right-padding batch collators (`collate`, `collate_labelled` with `IGNORE_INDEX = -100`, as in PyTorch's `ignore_index`).
+   - `Example` container (`input_ids`, optional `token_type_ids`, optional `position_ids` in `yessir/example.py`) and right-padding batch collators (`Batch`, `collate` in `yessir/batch.py`; `collate_labelled` with `IGNORE_INDEX = -100` in Stage B).
 2. **Transformer architecture**:
    - `SubspaceEmbedding` (dims `0..255` fixed one-hot byte identity; dims `256..511` supporting all three modes: NoPE zeros, unit-norm learned Role + NoPE, and unit-norm Role + Sinusoidal PE).
    - Pre-LN `TransformerBlock` (`RMSNorm` with/without gain, causal `MultiHeadSelfAttention` via SDPA, `SwiGLU` and `GELU` FFNs, residual projection scaling).
@@ -80,7 +80,7 @@ The order is: first build one path end to end, then add a second variant of each
 1. **Spec skeleton** in `experiments/sir_yes_sir/spec/`: the task, plus the prompt layout (how the alphabet and `x` are laid out, and the role of each position). Louis decides the layout.
 2. **Vocabulary and alphabets**: byte constants (symbol pool and special tokens), `symbols_random`, `canonical_order`. Tests cover the ranges, distinct symbols and `B ≥ 2`.
 3. **Reference rule**: `step(alphabet, x, k) -> (o_k, w_k, flag)`. Tests reproduce Examples 1 and 2 exactly.
-4. **`Seq`, the SM-MH prompt builder and `collate`**. Tests check shapes and padding.
+4. **`Example`, the `sir_yes_sir` input builders (`build_sm_example`, `build_ar_example` in `inputs.py`) and `collate` (`batch.py`)**. Tests check shapes and padding.
 5. **Minimal model**: `SubspaceEmbedding` in one mode (proposed: Role + Sinusoidal, the mode most likely to converge), pre-LN block (`RMSNorm` with gain, `SwiGLU`, causal SDPA attention) and `MultiTaskHead`. Shape tests.
 6. **Minimal training**: `seed_everything`, AdamW, multi-head cross-entropy, fp32 on CPU, no scheduler.
 7. **`sm_mh` harness and teacher-forced evaluation**: exact match, step accuracy, halting accuracy.
@@ -92,7 +92,7 @@ The order is: first build one path end to end, then add a second variant of each
 10. The remaining embedding modes: NoPE, and Role + NoPE.
 11. `GELU` FFN, and `RMSNorm` without gain.
 12. Sequence channel: `TiedIdentityHead`, `collate_labelled`, masked cross-entropy, `sm_seq` harness.
-13. `ar` prompt and free-running generation driver.
+13. `ar` free-running generation driver: `build_ar_example` is already in `experiments/sir_yes_sir/inputs.py` (passive `TokenType.OUT` section with sequential `position_ids = 0, 1, ...`). The `ar` harness will define `StepOrder` (`OUT_FIRST`: `(o_k, w_k, flag_k)` vs. `WRAP_FIRST`: `(w_k, o_k, flag_k)`), `build_ar_trace` (serialising `reference_step` across `k = 0 .. L - 1` into a flat target trace for training), and trace parsing/rollout until `FLAG_FINISHED`.
 14. Training extras: warm-up + cosine scheduler, selective weight decay, gradient accumulation, `bfloat16` autocast, clipping.
 15. Evaluation extras: free-running evaluation, plus an error taxonomy defined for this task (or dropped where a category doesn't apply).
 16. Out-of-distribution splits: unseen `B`, longer `L`, `canonical_permuted`. These are measurements, not part of the convergence test.

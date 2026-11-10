@@ -2,7 +2,12 @@
 
 import pytest
 
-from experiments.sir_yes_sir.inputs import EmbeddingMode, TokenType, build_sm_example
+from experiments.sir_yes_sir.inputs import (
+    EmbeddingMode,
+    TokenType,
+    build_ar_example,
+    build_sm_example,
+)
 from yessir.special_tokens import SpecialToken
 
 
@@ -118,3 +123,47 @@ def test_rejects_symbols_not_in_alphabet():
 def test_rejects_unknown_embedding_mode():
     with pytest.raises(ValueError, match="unknown embedding_mode"):
         build_sm_example(b"01", b"0", embedding_mode="invalid")  # ty: ignore[invalid-argument-type]
+
+
+def test_ar_example_empty_and_with_trace():
+    alphabet = b"0123"
+    x = b"130"
+
+    # Start of generation (empty trace): ends at second [SEP]
+    ex_start = build_ar_example(alphabet, x)
+    assert ex_start.input_ids == (
+        SpecialToken.BOS,
+        ord("0"),
+        ord("1"),
+        ord("2"),
+        ord("3"),
+        SpecialToken.SEP,
+        ord("1"),
+        ord("3"),
+        ord("0"),
+        SpecialToken.SEP,
+    )
+    assert ex_start.token_type_ids == (
+        TokenType.SPECIAL,
+        TokenType.ALPHABET,
+        TokenType.ALPHABET,
+        TokenType.ALPHABET,
+        TokenType.ALPHABET,
+        TokenType.SPECIAL,
+        TokenType.INPUT,
+        TokenType.INPUT,
+        TokenType.INPUT,
+        TokenType.SPECIAL,
+    )
+    assert ex_start.position_ids == (0, 0, 1, 2, 3, 0, 0, 1, 2, 0)
+
+    # With a trace appended in TokenType.OUT
+    trace = (ord("2"), ord("0"), SpecialToken.FLAG_CONTINUE)
+    ex_trace = build_ar_example(alphabet, x, trace=trace)
+    assert ex_trace.input_ids == ex_start.input_ids + trace
+    assert ex_trace.token_type_ids == ex_start.token_type_ids + (
+        TokenType.OUT,
+        TokenType.OUT,
+        TokenType.OUT,
+    )
+    assert ex_trace.position_ids == ex_start.position_ids + (0, 1, 2)
