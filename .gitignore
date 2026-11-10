@@ -219,6 +219,3 @@ __marimo__/
 .streamlit/secrets.toml
 /.idea/
 
-# Experiments (local generated runs and artifacts, keep placeholder README)
-experiments/*
-!experiments/README.md

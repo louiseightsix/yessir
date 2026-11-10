@@ -3,14 +3,20 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "transformadder"
+name = "yessir"
 version = "0.1.0"
-description = "TransformAdder: Zero-Shot Algorithmic Generalisation of Base-Conditioned Addition"
+description = "yessir: experiments in getting transformers to follow rules they are given in context"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [tool.setuptools.packages.find]
-include = ["transformadder*", "scripts*"]
+include = ["yessir*", "experiments*"]
+
+[tool.pytest.ini_options]
+testpaths = ["experiments"]
