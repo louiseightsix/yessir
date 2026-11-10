@@ -4,9 +4,9 @@ Guidance for AI coding agents working in this repo. Read it before doing anythin
 
 ## What this project is for
 
-**yessir** is a set of experiments on probing what rule-following behaviour transformers are capable of.
+**yessir** is a set of experiments probing what rule-following behaviour transformers are capable of.
 
-**This project doubles as a learning exercise**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `.prototypes/transformadder/` as Louis's internal reference notes, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
+**This project doubles as a learning exercise for Louis**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `.prototypes/transformadder/` as Louis's internal reference notes, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
 
 ## Repo layout
 
