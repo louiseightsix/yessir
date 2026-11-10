@@ -17,6 +17,7 @@ README.md                project intro for humans
 yessir.sh                runner: ./yessir.sh test [pytest args] | ./yessir.sh uv <uv args>
 pyproject.toml, uv.lock  one uv project; Python 3.12; package name "yessir"
 yessir/                  shared code (currently empty)
+experiments/sir_yes_sir/ minimal smoke-test and reference experiment (see .agents/sir-yes-sir.md)
 experiments/addition/    the live addition experiment (see .agents/addition.md)
 results/                 results of live experiments, one directory per experiment
 .prototypes/transformadder/  Louis's internal notes: the original, unreviewed exploration (code, tests, spec, notes, ~40 runs)
@@ -46,6 +47,7 @@ results/                 results of live experiments, one directory per experime
 
 ### Topic files
 
+- [`.agents/sir-yes-sir.md`](.agents/sir-yes-sir.md): the smoke-test and reference experiment (`experiments/sir_yes_sir/`).
 - [`.agents/addition.md`](.agents/addition.md): working on the addition experiment.
 - [`.agents/results.md`](.agents/results.md): what may go in `results/`, and how to mark a flawed run.
 

@@ -4,9 +4,9 @@
 # Created at: 2026-09-21T18:59:46.700297
 set -e
 
-PROJECT_ID="${GCP_PROJECT:-north-shore-software-ca}"
+PROJECT_ID="${GCP_PROJECT:-}"
 REGION="${GCP_REGION:-us-east4}"
-BUCKET="${GCP_BUCKET:-gs://north-shore-software-ca-vertex-staging}"
+BUCKET="${GCP_BUCKET:-}"
 ACCELERATOR="${GCP_ACCELERATOR:-NVIDIA_L4}"
 MACHINE_TYPE="${GCP_MACHINE_TYPE:-g2-standard-4}"
 
