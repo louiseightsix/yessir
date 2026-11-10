@@ -65,14 +65,16 @@ def test_collate_rejects_empty_sequence():
 
 
 def test_collate_rejects_inconsistent_token_type_ids():
-    ex1 = Example(input_ids=(1, 2), token_type_ids=(0, 1))
-    ex2 = Example(input_ids=(1, 2), token_type_ids=None)
-    with pytest.raises(ValueError, match="token_type_ids"):
-        collate([ex1, ex2])
+    ex_with = Example(input_ids=(1, 2), token_type_ids=(0, 1))
+    ex_without = Example(input_ids=(1, 2), token_type_ids=None)
+    for pair in ([ex_with, ex_without], [ex_without, ex_with]):
+        with pytest.raises(ValueError, match="token_type_ids"):
+            collate(pair)
 
 
 def test_collate_rejects_inconsistent_position_ids():
-    ex1 = Example(input_ids=(1, 2), position_ids=(0, 1))
-    ex2 = Example(input_ids=(1, 2), position_ids=None)
-    with pytest.raises(ValueError, match="position_ids"):
-        collate([ex1, ex2])
+    ex_with = Example(input_ids=(1, 2), position_ids=(0, 1))
+    ex_without = Example(input_ids=(1, 2), position_ids=None)
+    for pair in ([ex_with, ex_without], [ex_without, ex_with]):
+        with pytest.raises(ValueError, match="position_ids"):
+            collate(pair)

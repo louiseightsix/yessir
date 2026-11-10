@@ -1,5 +1,7 @@
 """Tests for `Example`."""
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from yessir.example import Example
@@ -31,6 +33,9 @@ def test_example_is_immutable_and_hashable():
         token_type_ids=(0, 1),
         position_ids=(0, 0),
     )
+    with pytest.raises(FrozenInstanceError):
+        ex.input_ids = (0,)  # ty: ignore[invalid-assignment]
+
     assert hash(ex) == hash(
         Example(
             input_ids=(SpecialToken.BOS, 0x30),
