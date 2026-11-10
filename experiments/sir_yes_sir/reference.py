@@ -12,7 +12,7 @@ from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token, TokenSequence
 
 
-def step(
+def reference_step(
     alphabet: TokenSequence,
     x: TokenSequence,
     k: int,

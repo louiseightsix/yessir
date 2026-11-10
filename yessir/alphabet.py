@@ -6,10 +6,9 @@ value i.
 """
 
 import random
-from collections.abc import Sequence
 from enum import Enum
 
-from yessir.vocab import SYMBOL_RANGE
+from yessir.vocab import SYMBOL_RANGE, TokenSequence
 
 
 class SymbolSet(bytes, Enum):
@@ -21,7 +20,7 @@ class SymbolSet(bytes, Enum):
 
 
 def create_alphabet(
-    symbols: Sequence[int],
+    symbols: TokenSequence,
     *,
     sample_size: int | None = None,
     rng: random.Random | None = None,
