@@ -4,11 +4,9 @@ Guidance for AI coding agents working in this repo. Read it before doing anythin
 
 ## What this project is for
 
-**yessir** is a set of experiments on whether transformers can follow a rule that is given to them **in context**, rather than one memorised from training. The first experiment is **addition**: column addition in a numeral system defined in the prompt by an ordered alphabet of arbitrary digit symbols (so any base). It asks whether a model trained on a few bases can add zero-shot in unseen bases and at longer lengths.
+**yessir** is a set of experiments on probing what rule-following behaviour transformers are capable of.
 
-**The real goal is for Louis to learn how this works**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `.prototypes/transformadder/` as Louis's internal reference notes, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
-
-Each experiment stands on its own. Don't frame addition as "a step toward ARC-AGI" or as one instance of a generic rule-following framework.
+**This project doubles as a learning exercise**: transformers, training, and running careful experiments. A working result produced by code he hasn't understood is worth little here. The first version of the code was written quickly by an agent and never reviewed. It now lives in `.prototypes/transformadder/` as Louis's internal reference notes, and the live experiment is being rebuilt **one small, reviewed piece at a time**.
 
 ## Repo layout
 
