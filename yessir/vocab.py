@@ -59,9 +59,12 @@ class SharedControlToken(IntEnum):
     """Universal shared control tokens (0xF0..0xF7)."""
 
     DELIM = 0xF0  # | generic section delimiter
-    PAD = 0xF1  # [PAD] right-padding token for batched sequences
+    PAD = 0xF1  # [PAD] padding token for batching
     BOS = 0xF2  # [BOS] beginning-of-sequence marker
     EOS = 0xF3  # [EOS] end-of-sequence marker
+    QUERY_STEP = 0xF4  # [S] prompt tail marker where the step output is queried
+    NOTIFY_CONTINUE = 0xF5  # [CONTINUE] loop continuation flag
+    NOTIFY_FINISHED = 0xF6  # [FINISHED] loop termination flag
 
 
 for _tok in SharedControlToken:
