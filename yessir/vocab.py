@@ -4,6 +4,11 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum, IntEnum
+from typing import Annotated
+
+# Semantic token types (byte tokens in 0..255)
+type Token = Annotated[int, "Value in 0..255"]
+type TokenSequence = Sequence[Token] | bytes
 
 # ---------------------------------------------------------------------------
 # 1. The vocabulary and how it is split
@@ -85,8 +90,8 @@ for _tok in SpecialToken:
 class ExperimentVocab:
     """The complete vocabulary configuration for an experiment or problem instance."""
 
-    symbols: tuple[int, ...]
-    special_tokens: tuple[int, ...]
+    symbols: tuple[Token, ...]
+    special_tokens: tuple[Token, ...]
 
     @property
     def alphabet_size(self) -> int:
@@ -104,11 +109,11 @@ class ExperimentVocab:
 
 
 def create_vocab(
-    symbols: Sequence[int] | bytes | SymbolSets,
+    symbols: TokenSequence | SymbolSets,
     *,
     sample_size: int | None = None,
     rng: random.Random | None = None,
-    experiment_specials: Sequence[int] | type[IntEnum] = (),
+    experiment_specials: Sequence[Token] | type[IntEnum] = (),
 ) -> ExperimentVocab:
     """Create and validate an ExperimentVocab from a pool of symbols.
 
