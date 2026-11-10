@@ -34,7 +34,7 @@ results/                 results of live experiments, one directory per experime
 
 ### Environment
 
-- Use `./yessir.sh` for everything in the live repo. `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh check` and `./yessir.sh format` run `ruff check` and `ruff format` on them; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
+- Use `./yessir.sh` for everything in the live repo. `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh check` runs `ruff check` and `ty check`; `./yessir.sh format` runs `ruff format`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
 - There is one venv per OS (`.venv-darwin`, `.venv-linux`), because the same checkout is used from a macOS host and a Linux VM. Don't set a global `UV_PROJECT_ENVIRONMENT`, and don't create or delete venvs unless asked.
 - Plain `pytest` collects nothing until the first live tests exist. That's expected.
 - Prototypes keep their own run instructions (see each prototype's README).

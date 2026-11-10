@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./yessir.sh test [pytest args]   # run the live experiments' tests
-#   ./yessir.sh check [ruff args]    # lint live code (ruff check)
+#   ./yessir.sh check                # lint and typecheck live code (ruff check + ty check)
 #   ./yessir.sh format [ruff args]   # format live code (ruff format)
 #   ./yessir.sh uv <uv args>         # any uv command against this repo's environment,
 #                                    #   e.g. ./yessir.sh uv add numpy
@@ -36,7 +36,10 @@ cmd="${1:-}"
 
 case "$cmd" in
     test)   exec uv run pytest "$@" ;;
-    check)  exec uv run ruff check "$@" ;;
+    check)
+        uv run ruff check "$@"
+        exec uv run ty check experiments yessir "$@"
+        ;;
     format) exec uv run ruff format "$@" ;;
     uv)     exec uv "$@" ;;
     ""|-h|--help|help) usage ;;
