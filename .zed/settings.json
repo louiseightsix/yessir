@@ -1,0 +1,20 @@
+{
+  "languages": {
+    "Python": {
+      "language_servers": ["pyrefly", "..."],
+      "formatter": {
+        "external": {
+          "command": "uv",
+          "arguments": ["run", "ruff", "format", "-"]
+        }
+      }
+    }
+  },
+  "lsp": {
+    "pyrefly": {
+      "initialization_options": {
+        "pythonPath": ".venv-darwin/bin/python"
+      }
+    }
+  }
+}
