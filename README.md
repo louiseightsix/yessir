@@ -10,27 +10,30 @@ Each experiment picks one small, exact rule. The rule's parameters are stated in
 - does it keep following the rule on unseen parameters and longer inputs, zero-shot?
 - when it fails, did it misread the rule or mis-execute it?
 
+## Repo rules
+
+| Directory | What lives there | Promise |
+| :--- | :--- | :--- |
+| `experiments/` | Live experiments: code, tests, spec | **Kept live.** It runs and its tests pass. Code is added in small, reviewed pieces. |
+| `results/` | Outputs of live experiments, one directory per experiment | **Stand-by-able.** Every result is one you would stand by, or is marked `FLAWED:` with a reason ([details](results/README.md)). |
+| `yessir/` | Code shared by more than one experiment | Reviewed, and only there once it's clearly shared. |
+| `prototypes/` | Quick explorations, each with its own code, spec, notes and results | **Allowed to rot.** Kept as reference only; not maintained, not tested by default. |
+
 ## Experiments
 
 | Experiment | Rule | Status |
 | :--- | :--- | :--- |
-| [`addition`](experiments/addition/) | Column addition in a numeral system defined in the prompt (an arbitrary ordered alphabet of digit symbols, so any base) | Active: three rounds of runs |
+| [`addition`](experiments/addition/) | Column addition in a numeral system defined in the prompt (an ordered alphabet of arbitrary digit symbols, so any base) | Being rebuilt piece by piece |
 
-## Layout
+## Prototypes
 
-```
-yessir/          shared code, kept to what is clearly experiment-agnostic
-experiments/     one directory per experiment: code, tests, spec, notes
-results/         run outputs, one directory per experiment
-```
-
-Code moves into `yessir/` only once more than one experiment needs it.
+| Prototype | What it was |
+| :--- | :--- |
+| [`transformadder`](prototypes/transformadder/) | The first, quick exploration of the addition idea: 7 prompt representations × 5 execution schemes, ~40 training runs (Sept–Oct 2026). Showed in-domain addition is easy and zero-shot transfer to unseen bases is partial and unstable. |
 
 ## Setup
 
 ```bash
 uv venv && uv pip install -e '.[dev]'    # or: python -m venv .venv && pip install -e '.[dev]'
-pytest                                   # runs every experiment's tests
+pytest                                   # live experiments only; prototypes: pytest prototypes/<name>
 ```
-
-Each experiment's README explains how to run it.
