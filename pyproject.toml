@@ -7,7 +7,7 @@ name = "yessir"
 version = "0.1.0"
 description = "yessir: playground for exploring rule-following behaviour in transformers"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "torch>=2.0.0",
 ]
@@ -19,4 +19,4 @@ dev = ["pytest"]
 include = ["yessir*", "experiments*"]
 
 [tool.pytest.ini_options]
-testpaths = ["experiments"]
+testpaths = ["experiments", "yessir"]
