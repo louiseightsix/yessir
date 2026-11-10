@@ -33,7 +33,11 @@ Each experiment picks one small, exact rule. The rule's parameters are stated in
 
 ## Setup
 
+Needs [uv](https://docs.astral.sh/uv/). Everything goes through `yessir.sh`, which creates and syncs the environment on first use:
+
 ```bash
-uv venv && uv pip install -e '.[dev]'    # or: python -m venv .venv && pip install -e '.[dev]'
-pytest                                   # live experiments only; prototypes: pytest prototypes/<name>
+./yessir.sh test             # live experiments only; prototypes: ./yessir.sh test prototypes/<name>
+./yessir.sh uv add <pkg>     # add a dependency (any uv command works: ./yessir.sh uv <args>)
 ```
+
+The environment is per OS (`.venv-darwin`, `.venv-linux`), so a checkout shared between a macOS host and a Linux VM works from both. Set `UV_PROJECT_ENVIRONMENT` to override. Prototypes keep their own instructions and use plain `uv` (a single `.venv`).

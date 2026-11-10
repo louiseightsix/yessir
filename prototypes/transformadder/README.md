@@ -28,7 +28,7 @@ By the prototype's own criteria ([`spec/01`](spec/01_research_goal.md) §5) thes
 [`results/`](results/) has one directory per run, named by configuration and seed. The [spec README](spec/README.md#3-run-naming-paradigms-and-tiers) decodes the names, e.g. `SM-SeqRev-T5-L6-SwiGLU-Causal-multimodal-seed5329`. Each directory may contain `config.json`, `run.py`, `run.sh`, `submit_vertex.sh` (how it was launched), `metrics.jsonl` (one line per evaluation), `summary.json` (final evaluation) and `instances.jsonl` (per-instance telemetry). No checkpoints were saved.
 
 They are the union of the dated snapshots taken between 2026-09-20 and 2026-10-02: the most recent copy of every file for every run. Earlier snapshots are in git history (before commit `b35c755`). Caveats:
-- launch scripts from before the restructure import the old top-level `transformadder` package; re-run with `run.sh` below and the same flags instead;
+- launch scripts from before the restructure import the old top-level `transformadder` package; re-run with `run.sh` below and the same flags instead (they also look for the old `.venv-<os>` environments);
 - several directories are 1-step smoke tests (`step` = 1 in `metrics.jsonl`);
 - `SM-MH-T1-L6-SwiGLU-Causal-bimodal-seed42` stopped at step 1,000.
 
@@ -37,11 +37,11 @@ They are the union of the dated snapshots taken between 2026-09-20 and 2026-10-0
 From the repo root:
 
 ```bash
-prototypes/transformadder/run.sh                       # interactive wizard: sets up the venv, configures a run
+prototypes/transformadder/run.sh                       # interactive wizard: configures and launches a run
 prototypes/transformadder/run.sh --paradigm sm_seq_rev --tier 4 --seed 1 --dry-run   # 1-step smoke test
-python -m prototypes.transformadder.cli --help         # the underlying CLI (also the Vertex AI entrypoint)
-python prototypes/transformadder/scripts/summarize_results.py   # leaderboard over results/
-pytest prototypes/transformadder                       # tests (not part of the repo's default test run)
+uv run python -m prototypes.transformadder.cli --help  # the underlying CLI (also the Vertex AI entrypoint)
+uv run python prototypes/transformadder/scripts/summarize_results.py   # leaderboard over results/
+uv run pytest prototypes/transformadder                # tests (not part of the repo's default test run)
 ```
 
 New runs are written to `prototypes/transformadder/results/<run-name>/`, with `run.sh` for local re-runs and `submit_vertex.sh` for Google Cloud Vertex AI.
