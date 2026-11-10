@@ -16,7 +16,7 @@ AGENTS.md                this file: instructions for agents
 README.md                project intro for humans
 yessir.sh                runner: ./yessir.sh test | check | fix | format | uv <args>
 pyproject.toml, uv.lock  one uv project; Python 3.12; package name "yessir"
-yessir/                  shared code (currently empty)
+yessir/                  shared code: vocabulary, special tokens, alphabets
 experiments/sir_yes_sir/ minimal smoke-test and reference experiment (see .agents/sir-yes-sir.md)
 experiments/addition/    the live addition experiment (see .agents/addition.md)
 results/                 results of live experiments, one directory per experiment

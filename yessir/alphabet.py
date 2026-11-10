@@ -34,8 +34,19 @@ def create_alphabet(
     - sample_size=k,    rng=None:    ValueError. Random choices need an explicit
       rng, so that every alphabet can be reproduced from a seed.
 
-    `symbols` must be distinct ints in vocab.SYMBOL_RANGE, and the alphabet
-    must end up with at least 2 symbols.
+    Args:
+        symbols: Distinct ints in vocab.SYMBOL_RANGE to build the alphabet from.
+        sample_size: Number of symbols to draw, or None to use all of them.
+        rng: Source of randomness for shuffling or sampling, or None to keep
+            the given order.
+
+    Returns:
+        The alphabet: a tuple of at least 2 distinct symbols.
+
+    Raises:
+        ValueError: If `symbols` holds a non-symbol or a duplicate, if the
+            alphabet would have fewer than 2 symbols or more than `symbols`
+            holds, or if `sample_size` is given without `rng`.
     """
     if sample_size is not None and rng is None:
         raise ValueError(

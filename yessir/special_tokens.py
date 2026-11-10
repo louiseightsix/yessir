@@ -11,7 +11,7 @@ class SpecialToken(IntEnum):
     with ids in vocab.EXPERIMENT_SPECIAL_RANGE.
     """
 
-    SEP = 0xF0  # |            separates the sections of a prompt
+    SEP = 0xF0  # [SEP]        separates the sections of a prompt
     PAD = 0xF1  # [PAD]        fills a batched sequence out to the batch's length
     BOS = 0xF2  # [BOS]        beginning of sequence
     EOS = 0xF3  # [EOS]        end of sequence
