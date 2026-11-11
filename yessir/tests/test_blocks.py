@@ -35,11 +35,19 @@ def test_rmsnorm_unit_rms_zero_preservation_and_gain():
 
 
 def test_rmsnorm_preserves_bfloat16_dtype():
-    norm = RMSNorm(d_model=8).to(torch.bfloat16)
     x = torch.randn(2, 3, 8, dtype=torch.bfloat16)
-    out = norm(x)
-    assert out.dtype == torch.bfloat16
-    assert out.shape == (2, 3, 8)
+
+    # 1. Mixed precision (e.g. autocast): float32 weights with bfloat16 input
+    norm_fp32 = RMSNorm(d_model=8)
+    out_mixed = norm_fp32(x)
+    assert out_mixed.dtype == torch.bfloat16
+    assert out_mixed.shape == (2, 3, 8)
+
+    # 2. Full bfloat16 module cast
+    norm_bf16 = RMSNorm(d_model=8).to(torch.bfloat16)
+    out_bf16 = norm_bf16(x)
+    assert out_bf16.dtype == torch.bfloat16
+    assert out_bf16.shape == (2, 3, 8)
 
 
 @pytest.mark.parametrize("bad_d_model", [0, -4])
@@ -65,7 +73,7 @@ def test_swiglu_shape_bias_free_and_position_independence():
     zeros = torch.zeros(1, 3, 16)
     assert torch.count_nonzero(ffn(zeros)) == 0
 
-    # Changing position 1 does not affect position 0
+    # Changing positions 1..3 does not affect position 0
     x1 = torch.randn(2, 4, 16)
     x2 = x1.clone()
     x2[:, 1:, :] = torch.randn(2, 3, 16)

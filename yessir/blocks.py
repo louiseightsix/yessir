@@ -10,8 +10,8 @@ class RMSNorm(nn.Module):
 
     Computes `x / sqrt(mean(x^2) + eps) * weight`. Unlike `LayerNorm`, `RMSNorm`
     does not subtract the mean, preserving the zero origin of the residual stream.
-    The mean-square and reciprocal square root are computed in `float32` so
-    squaring activations does not overflow or underflow under `bfloat16` autocast.
+    The mean-square and reciprocal square root are computed in `float32` to avoid
+    low-precision rounding in `bfloat16` (and overflow/underflow in `float16`).
     """
 
     def __init__(self, d_model: int, *, eps: float = 1e-6) -> None:
@@ -30,16 +30,15 @@ class RMSNorm(nn.Module):
         normed = x_fp32 * torch.rsqrt(
             x_fp32.pow(2).mean(dim=-1, keepdim=True) + self._eps
         )
-        return normed.to(dtype=x.dtype) * self.weight
+        return (normed * self.weight).to(dtype=x.dtype)
 
 
 class SwiGLUFeedForward(nn.Module):
     """Bias-free SwiGLU feed-forward network: `w_down(silu(w_gate(x)) * w_up(x))`.
 
-    The multiplicative gate `silu(w_gate(x)) * w_up(x)` lets hidden units act as
-    conditional switches (useful for discrete branching such as wrap-around or
-    carry logic), and omitting biases avoids adding constant offsets into the
-    residual stream.
+    The elementwise product `silu(w_gate(x)) * w_up(x)` lets hidden units act as
+    multiplicative gates, and omitting biases avoids adding constant offsets into
+    the residual stream.
     """
 
     def __init__(self, d_model: int, d_ffn: int) -> None:
