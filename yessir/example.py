@@ -6,8 +6,13 @@ carry aligned per-token coordinate side channels (`token_type_ids`, `position_id
 
 from dataclasses import dataclass
 
-from yessir.embedding import MAX_TOKEN_TYPES, TOKEN_TYPE_RANGE, TokenTypeId
-from yessir.vocab import VOCAB_SIZE, Token
+from yessir.vocab import (
+    MAX_TOKEN_TYPES,
+    TOKEN_TYPE_RANGE,
+    VOCAB_SIZE,
+    Token,
+    TokenTypeId,
+)
 
 
 def _is_int(value: object) -> bool:

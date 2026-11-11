@@ -8,8 +8,8 @@ from experiments.sir_yes_sir.inputs import (
     build_ar_example,
     build_sm_example,
 )
-from yessir.embedding import TOKEN_TYPE_RANGE
 from yessir.special_tokens import SpecialToken
+from yessir.vocab import TOKEN_TYPE_RANGE
 
 
 def test_token_types_are_in_valid_range():

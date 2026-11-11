@@ -10,6 +10,13 @@ from typing import Annotated
 type Token = Annotated[int, "Value in 0..255"]
 type TokenSequence = Sequence[Token] | bytes
 
+# A TokenTypeId marks which section of an input a token belongs to (like BERT's
+# segment / token_type_ids). Each experiment defines its own IntEnum of section
+# types with values in TOKEN_TYPE_RANGE (0..15).
+MAX_TOKEN_TYPES = 16
+TOKEN_TYPE_RANGE = range(0, MAX_TOKEN_TYPES)  # noqa: PIE808
+type TokenTypeId = Annotated[int, "Value in 0..15 (TOKEN_TYPE_RANGE)"]
+
 # ---------------------------------------------------------------------------
 # The vocabulary and how it is split
 # ---------------------------------------------------------------------------

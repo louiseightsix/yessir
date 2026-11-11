@@ -31,19 +31,12 @@ Why parameter-free orthogonal slices:
 """
 
 import math
-from typing import Annotated
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from yessir.vocab import VOCAB_SIZE
-
-# Section identifiers (`token_type_ids`) lie in TOKEN_TYPE_RANGE (0 .. MAX_TOKEN_TYPES - 1);
-# validated on CPU when constructing an `Example`.
-MAX_TOKEN_TYPES = 16
-TOKEN_TYPE_RANGE = range(0, MAX_TOKEN_TYPES)  # noqa: PIE808
-type TokenTypeId = Annotated[int, "Value in 0..15 (TOKEN_TYPE_RANGE)"]
+from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
 # Tuned for section-relative positions up to ~250 tokens (rather than Vaswani et
 # al.'s 10,000, which targets sequences of thousands of tokens). With
@@ -118,7 +111,11 @@ class SubspaceEmbedding(nn.Module):
         token_type_ids: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Embed `(B, T)` integer tensors into `(B, T, d_model)` float representations."""
+        """Embed `(B, T)` integer tensors into `(B, T, d_model)` float representations.
+
+        Assumes `input_ids` values lie in `0..VOCAB_SIZE - 1` and `token_type_ids`
+        values lie in `0..MAX_TOKEN_TYPES - 1` (enforced by `Example`).
+        """
         if self._use_token_type and token_type_ids is None:
             raise ValueError("token_type_ids is required when use_token_type=True")
         if not self._use_token_type and token_type_ids is not None:
