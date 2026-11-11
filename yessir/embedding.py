@@ -32,23 +32,21 @@ from torch import nn
 
 from yessir.vocab import SPECIAL_RANGE, VOCAB_SIZE
 
-NUM_TOKEN_TYPES = len(SPECIAL_RANGE)  # 16
-DEFAULT_D_POSITION = 32  # 16 (sin, cos) frequency pairs
-DEFAULT_D_SCRATCH = 208  # 256 + 16 + 32 + 208 = 512
-SINUSOIDAL_BASE = 10_000.0
+_NUM_TOKEN_TYPES = len(SPECIAL_RANGE)  # 16
+_SINUSOIDAL_BASE = 10_000.0
 
 
 class SubspaceEmbedding(nn.Module):
     """Concatenates frozen one-hot symbol, optional one-hot token-type, optional sinusoidal position, and zero scratchpad slices."""
 
-    inv_freq: torch.Tensor
+    _inv_freq: torch.Tensor
 
     def __init__(
         self,
         *,
         use_token_type: bool = True,
-        d_position: int = DEFAULT_D_POSITION,
-        d_scratch: int = DEFAULT_D_SCRATCH,
+        d_position: int = 32,
+        d_scratch: int = 208,
         dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
@@ -59,36 +57,37 @@ class SubspaceEmbedding(nn.Module):
         if d_scratch < 0:
             raise ValueError(f"d_scratch must be >= 0, got {d_scratch}")
 
-        self.use_token_type = use_token_type
-        self.d_token_type = NUM_TOKEN_TYPES if use_token_type else 0
-        self.d_position = d_position
-        self.d_scratch = d_scratch
-        self.d_model = VOCAB_SIZE + self.d_token_type + self.d_position + self.d_scratch
-        self.dtype = dtype
+        self._use_token_type = use_token_type
+        self._d_position = d_position
+        self._d_scratch = d_scratch
+        self._dtype = dtype
+
+        d_token_type = _NUM_TOKEN_TYPES if use_token_type else 0
+        self.d_model = VOCAB_SIZE + d_token_type + d_position + d_scratch
 
         if d_position > 0:
             # Standard Transformer geometric frequencies: omega_i = 10000^(-2i / d_position)
             # for i in 0 .. (d_position / 2) - 1.
             half_pos = d_position // 2
             inv_freq = 1.0 / (
-                SINUSOIDAL_BASE
+                _SINUSOIDAL_BASE
                 ** (torch.arange(0, half_pos, dtype=torch.float32) / half_pos)
             )
-            self.register_buffer("inv_freq", inv_freq, persistent=False)
+            self.register_buffer("_inv_freq", inv_freq, persistent=False)
             # Each (sin, cos) pair has sin^2 + cos^2 = 1, so `half_pos` pairs have
             # L2 norm sqrt(half_pos). Scaling by 1 / sqrt(half_pos) gives exact unit norm.
-            self.position_scale = 1.0 / math.sqrt(half_pos)
+            self._position_scale = 1.0 / math.sqrt(half_pos)
         else:
-            self.register_buffer("inv_freq", torch.empty(0), persistent=False)
-            self.position_scale = 0.0
+            self.register_buffer("_inv_freq", torch.empty(0), persistent=False)
+            self._position_scale = 0.0
 
     def _sinusoidal_positions(self, position_ids: torch.Tensor) -> torch.Tensor:
         """Compute unit-norm sinusoidal encodings of shape `(B, T, d_position)`."""
-        angles = position_ids.unsqueeze(-1).float() * self.inv_freq  # (B, T, half_pos)
+        angles = position_ids.unsqueeze(-1).float() * self._inv_freq  # (B, T, half_pos)
         sin_cos = torch.stack((torch.sin(angles), torch.cos(angles)), dim=-1).flatten(
             -2
         )
-        return (sin_cos * self.position_scale).to(dtype=self.dtype)
+        return (sin_cos * self._position_scale).to(dtype=self._dtype)
 
     def forward(
         self,
@@ -97,38 +96,38 @@ class SubspaceEmbedding(nn.Module):
         position_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Embed `(B, T)` integer tensors into `(B, T, d_model)` float representations."""
-        if self.use_token_type and token_type_ids is None:
+        if self._use_token_type and token_type_ids is None:
             raise ValueError("token_type_ids is required when use_token_type=True")
-        if not self.use_token_type and token_type_ids is not None:
+        if not self._use_token_type and token_type_ids is not None:
             raise ValueError("token_type_ids must be None when use_token_type=False")
 
-        if self.d_position > 0 and position_ids is None:
+        if self._d_position > 0 and position_ids is None:
             raise ValueError("position_ids is required when d_position > 0")
-        if self.d_position == 0 and position_ids is not None:
+        if self._d_position == 0 and position_ids is not None:
             raise ValueError("position_ids must be None when d_position == 0")
 
         slices: list[torch.Tensor] = [
-            F.one_hot(input_ids, num_classes=VOCAB_SIZE).to(dtype=self.dtype)
+            F.one_hot(input_ids, num_classes=VOCAB_SIZE).to(dtype=self._dtype)
         ]
 
-        if self.use_token_type:
+        if self._use_token_type:
             assert token_type_ids is not None
             slices.append(
-                F.one_hot(token_type_ids, num_classes=NUM_TOKEN_TYPES).to(
-                    dtype=self.dtype
+                F.one_hot(token_type_ids, num_classes=_NUM_TOKEN_TYPES).to(
+                    dtype=self._dtype
                 )
             )
 
-        if self.d_position > 0:
+        if self._d_position > 0:
             assert position_ids is not None
             slices.append(self._sinusoidal_positions(position_ids))
 
-        if self.d_scratch > 0:
+        if self._d_scratch > 0:
             slices.append(
                 torch.zeros(
-                    (*input_ids.shape, self.d_scratch),
+                    (*input_ids.shape, self._d_scratch),
                     device=input_ids.device,
-                    dtype=self.dtype,
+                    dtype=self._dtype,
                 )
             )
 
