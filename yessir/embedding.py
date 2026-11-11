@@ -11,15 +11,15 @@ vector by concatenating up to four disjoint slices:
  └───────────────────────┴─────────────────────────┴──────────────────────────┴──────────────────────┘
 
 Why parameter-free orthogonal slices:
-1. All inputs (`256` byte tokens, up to `16` per-experiment section types, and
-   sinusoidal positions) are small enough to represent directly without a
-   learned compression table. The frozen one-hot symbol slice gives every byte
-   equal initial norm (`1.0`), mutually orthogonal directions that never drift,
+1. All inputs (`256` byte tokens, up to `16` section types, and sinusoidal
+   positions) are small enough to represent directly without a learned
+   compression table. The frozen one-hot symbol slice gives every byte equal
+   initial norm (`1.0`), mutually orthogonal directions that never drift,
    direct interpretability across layers, and a fixed basis that a tied output
    head can read back without learned unembedding weights. (Note: a frozen
    one-hot does not by itself stop Layer 0's weights or `RMSNorm` gain from
-   learning per-symbol biases—preventing fixed symbol meanings comes from
-   sampling fresh alphabets across problems in the training data.)
+   learning per-symbol biases—preventing fixed symbol meanings depends on how
+   symbols are sampled in the training data.)
 2. Each active input slice (`symbol`, `token_type`, `position`) has exact L2
    norm `1.0`, so none dominates the first `RMSNorm`.
 3. `d_scratch` reserves dedicated zero-initialised working-memory dimensions so
@@ -39,19 +39,20 @@ from torch import nn
 
 from yessir.vocab import VOCAB_SIZE
 
-# Each experiment defines its own TokenType IntEnum (e.g. SPECIAL, ALPHABET,
-# INPUT, OUT) with values in TOKEN_TYPE_RANGE (0 .. MAX_TOKEN_TYPES - 1).
+# Section identifiers (`token_type_ids`) lie in TOKEN_TYPE_RANGE (0 .. MAX_TOKEN_TYPES - 1);
+# validated on CPU when constructing an `Example`.
 MAX_TOKEN_TYPES = 16
 TOKEN_TYPE_RANGE = range(0, MAX_TOKEN_TYPES)  # noqa: PIE808
 type TokenTypeId = Annotated[int, "Value in 0..15 (TOKEN_TYPE_RANGE)"]
 
-# In our experiments `position_ids` restart at 0 in every section (alphabet of
-# size B <= 240, operands of length L <= 50, or an autoregressive trace of a few
-# hundred tokens). Vaswani et al.'s base of 10,000 was chosen for sequences of
-# thousands of tokens; with d_position = 32 (16 frequency pairs) and positions
-# in 0..31, base 10,000 leaves the slower 9 pairs nearly frozen at (sin≈0, cos≈1).
-# Base 256.0 (slowest half-wavelength pi * 256 ≈ 804 positions, full cycle ≈ 1,608)
-# spreads all 16 frequency pairs across the section lengths we actually use.
+# Tuned for section-relative positions up to ~250 tokens (rather than Vaswani et
+# al.'s 10,000, which targets sequences of thousands of tokens). With
+# d_position = 32 (half_pos = 16 frequency pairs, exponents 0/16 .. 15/16), the
+# slowest frequency is 256^(-15/16) ≈ 0.00552 rad/pos (half-wavelength ≈ 569
+# positions, full cycle ≈ 1,137). Across positions 0..239 all 16 pairs rotate by
+# >= 1 rad (~16% of squared norm constant); across shorter spans of 0..31 or
+# 0..50, the slowest 6 or 4 pairs rotate under 1 rad (~51% or ~43% of squared
+# norm constant, compared to 69% under base 10,000).
 _SINUSOIDAL_BASE = 256.0
 
 
@@ -136,8 +137,6 @@ class SubspaceEmbedding(nn.Module):
 
         if self._use_token_type:
             assert token_type_ids is not None
-            if ((token_type_ids < 0) | (token_type_ids >= MAX_TOKEN_TYPES)).any():
-                raise ValueError(f"token_type_ids must be in 0..{MAX_TOKEN_TYPES - 1}")
             slices.append(
                 F.one_hot(token_type_ids, num_classes=MAX_TOKEN_TYPES).to(
                     dtype=out_dtype

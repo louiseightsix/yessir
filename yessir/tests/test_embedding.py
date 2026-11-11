@@ -95,15 +95,6 @@ def test_rejects_mismatched_forward_arguments():
         embed_nope(ids, position_ids=ids)
 
 
-@pytest.mark.parametrize("bad_type_id", [-1, 16, 20])
-def test_rejects_out_of_range_token_type_ids(bad_type_id):
-    embed = SubspaceEmbedding(use_token_type=True, d_position=0)
-    input_ids = torch.tensor([[0, 1]], dtype=torch.long)
-    bad_types = torch.tensor([[0, bad_type_id]], dtype=torch.long)
-    with pytest.raises(ValueError, match="token_type_ids must be in 0..15"):
-        embed(input_ids, token_type_ids=bad_types)
-
-
 def test_to_bfloat16_updates_output_dtype():
     embed = SubspaceEmbedding().to(torch.bfloat16)
     ids = torch.tensor([[0, 1, 2]], dtype=torch.long)
