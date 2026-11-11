@@ -108,7 +108,7 @@ def test_rejects_empty_x():
 
 
 def test_rejects_output_history_too_long_for_x():
-    with pytest.raises(IndexError, match="step index k=3"):
+    with pytest.raises(ValueError, match="step index k=3"):
         build_sm_example(b"0123", b"130", output_history=b"201")
 
 

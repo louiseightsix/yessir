@@ -35,7 +35,8 @@ class EmbeddingMode(StrEnum):
       from the alphabet, input `x`, and output section collide at the same coordinates.
     - Global 1D `position_ids` (`0 .. T - 1` across the whole sequence) place `x_k`
       at `B + 2 + k`, so changing the alphabet size `B` or input length `L` shifts
-      every downstream position and breaks length/base generalisation compared to `NOPE`.
+      every downstream position and would likely hurt length/base generalisation
+      compared to `NOPE`.
     """
 
     NOPE = "nope"  # input_ids only (token_type_ids=None, position_ids=None)
@@ -120,7 +121,7 @@ def build_sm_example(
     out_tokens = tuple(output_history)
     k = len(out_tokens)
     if k >= len(x_tokens):
-        raise IndexError(
+        raise ValueError(
             f"step index k={k} (from output_history length) out of range "
             f"for input sequence of length {len(x_tokens)}"
         )
@@ -163,6 +164,12 @@ def build_ar_example(
 
     At the start of generation (`trace = ()`), the `Example` ends at the second `[SEP]`.
     """
+    # TODO(ar): When building the AR harness, revisit two design choices:
+    # 1. `position_ids` for `trace`: counting `0, 1, 2, ...` puts step k's tokens at
+    #    `3k .. 3k+2` instead of aligning them at `position_id = k` with `x_k`. Decide
+    #    whether to keep sequential `0, 1, 2, ...` or assign step-aligned `position_id = k`.
+    # 2. `StepOrder` (`OUT_FIRST`: `(o_k, w_k, flag_k)` vs. `WRAP_FIRST`: `(w_k, o_k, flag_k)`):
+    #    make within-step emission order configurable in the AR trace builder/parser.
     alphabet_tokens, x_tokens = _validate_problem(alphabet, x)
     trace_tokens = tuple(trace)
 
