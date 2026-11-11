@@ -2,9 +2,11 @@
 
 from yessir.vocab import (
     EXPERIMENT_SPECIAL_RANGE,
+    MAX_TOKEN_TYPES,
     SHARED_SPECIAL_RANGE,
     SPECIAL_RANGE,
     SYMBOL_RANGE,
+    TOKEN_TYPE_RANGE,
     VOCAB_SIZE,
 )
 
@@ -36,3 +38,7 @@ def test_vocab_partition_and_ranges():
     )
     assert len(all_bytes) == 256
     assert all_bytes == set(range(256))
+
+    # 3. Token type range
+    assert MAX_TOKEN_TYPES == 16
+    assert list(TOKEN_TYPE_RANGE) == list(range(16))
