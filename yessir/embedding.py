@@ -3,17 +3,23 @@
 Maps each token position into a `d_model`-dimensional initial residual-stream
 vector by concatenating up to four disjoint slices:
 
-  0 .. 255                +16 (optional)         +d_position (optional)  +d_scratch (optional)
- ┌───────────────────────┬──────────────────────┬───────────────────────┬──────────────────────┐
- │ Symbol (`input_ids`)  │ Section (`type_ids`) │ Position (`pos_ids`)  │ Scratchpad (`0.0`s)  │
- │ 256-d frozen one-hot  │ 16-d frozen one-hot  │ sinusoidal (norm = 1) │ working memory       │
- └───────────────────────┴──────────────────────┴───────────────────────┴──────────────────────┘
+  0 .. 255                +16 (optional)            +d_position (optional)     +d_scratch (optional)
+ ┌───────────────────────┬─────────────────────────┬──────────────────────────┬──────────────────────┐
+ │ Symbol (`input_ids`)  │ Section                 │ Position                 │ Scratchpad (`0.0`s)  │
+ │ 256-d frozen one-hot  │ (`token_type_ids`)      │ (`position_ids`)         │ working memory       │
+ │ (norm = 1)            │ 16-d one-hot (norm = 1) │ sinusoidal (norm = 1)    │                      │
+ └───────────────────────┴─────────────────────────┴──────────────────────────┴──────────────────────┘
 
 Why parameter-free orthogonal slices:
-1. All inputs (`256` byte tokens, `16` token types, and sinusoidal positions)
-   are small enough to represent directly without a learned compression table,
-   and keeping byte symbols as a frozen one-hot basis prevents symbols from
-   acquiring fixed meanings across problems.
+1. All inputs (`256` byte tokens, up to `16` per-experiment section types, and
+   sinusoidal positions) are small enough to represent directly without a
+   learned compression table. The frozen one-hot symbol slice gives every byte
+   equal initial norm (`1.0`), mutually orthogonal directions that never drift,
+   direct interpretability across layers, and a fixed basis that a tied output
+   head can read back without learned unembedding weights. (Note: a frozen
+   one-hot does not by itself stop Layer 0's weights or `RMSNorm` gain from
+   learning per-symbol biases—preventing fixed symbol meanings comes from
+   sampling fresh alphabets across problems in the training data.)
 2. Each active input slice (`symbol`, `token_type`, `position`) has exact L2
    norm `1.0`, so none dominates the first `RMSNorm`.
 3. `d_scratch` reserves dedicated zero-initialised working-memory dimensions so
@@ -30,16 +36,26 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from yessir.vocab import SPECIAL_RANGE, VOCAB_SIZE
+from yessir.vocab import VOCAB_SIZE
 
-_NUM_TOKEN_TYPES = len(SPECIAL_RANGE)  # 16
-_SINUSOIDAL_BASE = 10_000.0
+# Each experiment defines its own TokenType IntEnum (e.g. SPECIAL, ALPHABET,
+# INPUT, OUT) with values in 0 .. _MAX_TOKEN_TYPES - 1.
+_MAX_TOKEN_TYPES = 16
+
+# In our experiments `position_ids` restart at 0 in every section (alphabet of
+# size B <= 240, operands of length L <= 50, or an autoregressive trace of a few
+# hundred tokens). Vaswani et al.'s base of 10,000 was chosen for sequences of
+# thousands of tokens; with d_position = 32 (16 frequency pairs) and positions
+# in 0..31, base 10,000 leaves the slower 9 pairs nearly frozen at (sin≈0, cos≈1).
+# Base 256.0 (slowest half-wavelength pi * 256 ≈ 804 positions, full cycle ≈ 1,608)
+# spreads all 16 frequency pairs across the section lengths we actually use.
+_SINUSOIDAL_BASE = 256.0
 
 
 class SubspaceEmbedding(nn.Module):
     """Concatenates frozen one-hot symbol, optional one-hot token-type, optional sinusoidal position, and zero scratchpad slices."""
 
-    _inv_freq: torch.Tensor
+    _dtype_tracker: torch.Tensor
 
     def __init__(
         self,
@@ -47,7 +63,6 @@ class SubspaceEmbedding(nn.Module):
         use_token_type: bool = True,
         d_position: int = 32,
         d_scratch: int = 208,
-        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
         if d_position < 0 or d_position % 2 != 0:
@@ -60,34 +75,38 @@ class SubspaceEmbedding(nn.Module):
         self._use_token_type = use_token_type
         self._d_position = d_position
         self._d_scratch = d_scratch
-        self._dtype = dtype
 
-        d_token_type = _NUM_TOKEN_TYPES if use_token_type else 0
+        d_token_type = _MAX_TOKEN_TYPES if use_token_type else 0
         self.d_model = VOCAB_SIZE + d_token_type + d_position + d_scratch
 
-        if d_position > 0:
-            # Standard Transformer geometric frequencies: omega_i = 10000^(-2i / d_position)
-            # for i in 0 .. (d_position / 2) - 1.
-            half_pos = d_position // 2
-            inv_freq = 1.0 / (
-                _SINUSOIDAL_BASE
-                ** (torch.arange(0, half_pos, dtype=torch.float32) / half_pos)
-            )
-            self.register_buffer("_inv_freq", inv_freq, persistent=False)
-            # Each (sin, cos) pair has sin^2 + cos^2 = 1, so `half_pos` pairs have
-            # L2 norm sqrt(half_pos). Scaling by 1 / sqrt(half_pos) gives exact unit norm.
-            self._position_scale = 1.0 / math.sqrt(half_pos)
-        else:
-            self.register_buffer("_inv_freq", torch.empty(0), persistent=False)
-            self._position_scale = 0.0
+        # Tracks module-level `.to(dtype=...)` calls without subjecting sinusoidal
+        # frequencies to low-precision (e.g. bfloat16) rounding.
+        self.register_buffer(
+            "_dtype_tracker", torch.empty(0, dtype=torch.float32), persistent=False
+        )
 
-    def _sinusoidal_positions(self, position_ids: torch.Tensor) -> torch.Tensor:
-        """Compute unit-norm sinusoidal encodings of shape `(B, T, d_position)`."""
-        angles = position_ids.unsqueeze(-1).float() * self._inv_freq  # (B, T, half_pos)
+    def _sinusoidal_positions(
+        self, position_ids: torch.Tensor, out_dtype: torch.dtype
+    ) -> torch.Tensor:
+        """Compute unit-norm sinusoidal encodings of shape `(B, T, d_position)` in float32."""
+        half_pos = self._d_position // 2
+        inv_freq = 1.0 / (
+            _SINUSOIDAL_BASE
+            ** (
+                torch.arange(
+                    0, half_pos, device=position_ids.device, dtype=torch.float32
+                )
+                / half_pos
+            )
+        )
+        angles = position_ids.unsqueeze(-1).float() * inv_freq  # (B, T, half_pos)
         sin_cos = torch.stack((torch.sin(angles), torch.cos(angles)), dim=-1).flatten(
             -2
         )
-        return (sin_cos * self._position_scale).to(dtype=self._dtype)
+        # Each (sin, cos) pair has sin^2 + cos^2 = 1, so `half_pos` pairs have
+        # L2 norm sqrt(half_pos). Scaling by 1 / sqrt(half_pos) gives exact unit norm.
+        scale = 1.0 / math.sqrt(half_pos)
+        return (sin_cos * scale).to(dtype=out_dtype)
 
     def forward(
         self,
@@ -106,28 +125,32 @@ class SubspaceEmbedding(nn.Module):
         if self._d_position == 0 and position_ids is not None:
             raise ValueError("position_ids must be None when d_position == 0")
 
+        out_dtype = self._dtype_tracker.dtype
+
         slices: list[torch.Tensor] = [
-            F.one_hot(input_ids, num_classes=VOCAB_SIZE).to(dtype=self._dtype)
+            F.one_hot(input_ids, num_classes=VOCAB_SIZE).to(dtype=out_dtype)
         ]
 
         if self._use_token_type:
             assert token_type_ids is not None
+            if ((token_type_ids < 0) | (token_type_ids >= _MAX_TOKEN_TYPES)).any():
+                raise ValueError(f"token_type_ids must be in 0..{_MAX_TOKEN_TYPES - 1}")
             slices.append(
-                F.one_hot(token_type_ids, num_classes=_NUM_TOKEN_TYPES).to(
-                    dtype=self._dtype
+                F.one_hot(token_type_ids, num_classes=_MAX_TOKEN_TYPES).to(
+                    dtype=out_dtype
                 )
             )
 
         if self._d_position > 0:
             assert position_ids is not None
-            slices.append(self._sinusoidal_positions(position_ids))
+            slices.append(self._sinusoidal_positions(position_ids, out_dtype))
 
         if self._d_scratch > 0:
             slices.append(
                 torch.zeros(
                     (*input_ids.shape, self._d_scratch),
                     device=input_ids.device,
-                    dtype=self._dtype,
+                    dtype=out_dtype,
                 )
             )
 
