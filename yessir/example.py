@@ -6,6 +6,7 @@ carry aligned per-token coordinate side channels (`token_type_ids`, `position_id
 
 from dataclasses import dataclass
 
+from yessir.embedding import MAX_TOKEN_TYPES, TOKEN_TYPE_RANGE, TokenTypeId
 from yessir.vocab import VOCAB_SIZE, Token
 
 
@@ -21,8 +22,8 @@ class Example:
     Attributes:
         input_ids: Non-empty tuple of byte token ids (each in 0..255).
         token_type_ids: Optional tuple of per-token section / role ids
-            (non-negative ints, like BERT's segment ids). None when section
-            roles are not used.
+            (each in `0..15`, i.e. `TOKEN_TYPE_RANGE`). None when section roles
+            are not used.
         position_ids: Optional tuple of per-token position offsets (non-negative
             ints). Unlike Hugging Face—where `position_ids=None` means
             "auto-generate 0, 1, ..., T-1"—here `None` means NoPE (no positional
@@ -30,7 +31,7 @@ class Example:
     """
 
     input_ids: tuple[Token, ...]
-    token_type_ids: tuple[int, ...] | None = None
+    token_type_ids: tuple[TokenTypeId, ...] | None = None
     position_ids: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
@@ -48,22 +49,35 @@ class Example:
                 )
 
         length = len(self.input_ids)
-        for name, coords in (
-            ("token_type_ids", self.token_type_ids),
-            ("position_ids", self.position_ids),
-        ):
-            if coords is None:
-                continue
-            if not isinstance(coords, tuple):
-                raise TypeError(f"{name} must be a tuple, got {type(coords).__name__}")
-            if len(coords) != length:
-                raise ValueError(
-                    f"{name} length ({len(coords)}) must match input_ids length ({length})"
+
+        if self.token_type_ids is not None:
+            if not isinstance(self.token_type_ids, tuple):
+                raise TypeError(
+                    f"token_type_ids must be a tuple, got {type(self.token_type_ids).__name__}"
                 )
-            for value in coords:
+            if len(self.token_type_ids) != length:
+                raise ValueError(
+                    f"token_type_ids length ({len(self.token_type_ids)}) must match input_ids length ({length})"
+                )
+            for value in self.token_type_ids:
+                if not _is_int(value) or value not in TOKEN_TYPE_RANGE:
+                    raise ValueError(
+                        f"token_type_ids must be ints in 0..{MAX_TOKEN_TYPES - 1}, got {value!r}"
+                    )
+
+        if self.position_ids is not None:
+            if not isinstance(self.position_ids, tuple):
+                raise TypeError(
+                    f"position_ids must be a tuple, got {type(self.position_ids).__name__}"
+                )
+            if len(self.position_ids) != length:
+                raise ValueError(
+                    f"position_ids length ({len(self.position_ids)}) must match input_ids length ({length})"
+                )
+            for value in self.position_ids:
                 if not _is_int(value) or value < 0:
                     raise ValueError(
-                        f"{name} must contain non-negative ints, got {value!r}"
+                        f"position_ids must contain non-negative ints, got {value!r}"
                     )
 
     def __len__(self) -> int:

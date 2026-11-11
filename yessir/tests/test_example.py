@@ -75,12 +75,13 @@ def test_rejects_mismatched_coordinate_lengths():
         Example(input_ids=(0, 1, 2), position_ids=(0, 1, 2, 3))
 
 
-@pytest.mark.parametrize("bad_coord", [-1, 1.5, "0", True, False])
-def test_rejects_invalid_coordinate_values(bad_coord):
-    with pytest.raises(
-        ValueError, match="token_type_ids must contain non-negative ints"
-    ):
-        Example(input_ids=(0, 1), token_type_ids=(0, bad_coord))
+@pytest.mark.parametrize("bad_type_id", [-1, 16, 100, 1.5, "0", True, False])
+def test_rejects_invalid_token_type_ids(bad_type_id):
+    with pytest.raises(ValueError, match=r"token_type_ids must be ints in 0\.\.15"):
+        Example(input_ids=(0, 1), token_type_ids=(0, bad_type_id))
 
+
+@pytest.mark.parametrize("bad_pos", [-1, 1.5, "0", True, False])
+def test_rejects_invalid_position_ids(bad_pos):
     with pytest.raises(ValueError, match="position_ids must contain non-negative ints"):
-        Example(input_ids=(0, 1), position_ids=(bad_coord, 0))
+        Example(input_ids=(0, 1), position_ids=(bad_pos, 0))

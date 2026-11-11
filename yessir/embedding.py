@@ -31,6 +31,7 @@ Why parameter-free orthogonal slices:
 """
 
 import math
+from typing import Annotated
 
 import torch
 import torch.nn.functional as F
@@ -39,8 +40,10 @@ from torch import nn
 from yessir.vocab import VOCAB_SIZE
 
 # Each experiment defines its own TokenType IntEnum (e.g. SPECIAL, ALPHABET,
-# INPUT, OUT) with values in 0 .. _MAX_TOKEN_TYPES - 1.
-_MAX_TOKEN_TYPES = 16
+# INPUT, OUT) with values in TOKEN_TYPE_RANGE (0 .. MAX_TOKEN_TYPES - 1).
+MAX_TOKEN_TYPES = 16
+TOKEN_TYPE_RANGE = range(0, MAX_TOKEN_TYPES)  # noqa: PIE808
+type TokenTypeId = Annotated[int, "Value in 0..15 (TOKEN_TYPE_RANGE)"]
 
 # In our experiments `position_ids` restart at 0 in every section (alphabet of
 # size B <= 240, operands of length L <= 50, or an autoregressive trace of a few
@@ -76,7 +79,7 @@ class SubspaceEmbedding(nn.Module):
         self._d_position = d_position
         self._d_scratch = d_scratch
 
-        d_token_type = _MAX_TOKEN_TYPES if use_token_type else 0
+        d_token_type = MAX_TOKEN_TYPES if use_token_type else 0
         self.d_model = VOCAB_SIZE + d_token_type + d_position + d_scratch
 
         # Tracks module-level `.to(dtype=...)` calls without subjecting sinusoidal
@@ -133,10 +136,10 @@ class SubspaceEmbedding(nn.Module):
 
         if self._use_token_type:
             assert token_type_ids is not None
-            if ((token_type_ids < 0) | (token_type_ids >= _MAX_TOKEN_TYPES)).any():
-                raise ValueError(f"token_type_ids must be in 0..{_MAX_TOKEN_TYPES - 1}")
+            if ((token_type_ids < 0) | (token_type_ids >= MAX_TOKEN_TYPES)).any():
+                raise ValueError(f"token_type_ids must be in 0..{MAX_TOKEN_TYPES - 1}")
             slices.append(
-                F.one_hot(token_type_ids, num_classes=_MAX_TOKEN_TYPES).to(
+                F.one_hot(token_type_ids, num_classes=MAX_TOKEN_TYPES).to(
                     dtype=out_dtype
                 )
             )
