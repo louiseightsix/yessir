@@ -52,17 +52,17 @@ Why this task:
    - `yessir/special_tokens.py`: `SpecialToken(IntEnum)` (`SEP`, `PAD`, `BOS`, `EOS`, `STEP`, `FLAG_CONTINUE`, `FLAG_FINISHED`).
    - `yessir/alphabet.py`: `SymbolSet` (`ALL`, `DECIMAL`, `HEX`) and `create_alphabet(symbols, *, sample_size=None, rng=None)` supporting ordered, shuffled (permuted), and uniformly sampled alphabets.
    - `yessir/example.py`: `Example` container (`input_ids`, optional `token_type_ids`, optional `position_ids`).
-   - `yessir/batch.py`: `Batch` container (`input_ids`, `lengths`, optional `token_type_ids`, optional `position_ids`) and right-padding `collate(examples)` (plus `collate_labelled` with `IGNORE_INDEX = -100` in Stage B).
-   - `yessir/dataset.py` & `yessir/inspect_data.py`: `LabelledExample` (`example`, `labels`), `IterableDataset` protocol, and shared CLI inspection / JSONL dumping helpers.
+   - `yessir/batch.py`: `Batch` container (`input_ids`, `lengths`, optional `token_type_ids`, optional `position_ids`), right-padding `collate(examples)`, and `collate_labelled(items)`.
+   - `yessir/dataset.py` & `yessir/inspect_data.py`: `IGNORE_INDEX = -100`, `LabelledExample` (`example`, `labels`), `IterableDataset` protocol, and shared CLI inspection / JSONL dumping helpers.
 2. **Transformer architecture**:
    - `SubspaceEmbedding` (`yessir/embedding.py`): parameter-free orthogonal slices concatenating `256`-d one-hot `input_ids`, optional `16`-d one-hot `token_type_ids` (`use_token_type`), optional unit-norm sinusoidal `position_ids` (`d_position`), and zero-initialised scratchpad working memory (`d_scratch`), giving `d_model = 256 + d_token_type + d_position + d_scratch`.
    - Pre-LN `TransformerBlock` (`yessir/blocks.py`: `RMSNorm` with/without gain, causal `MultiHeadSelfAttention` via SDPA, `SwiGLU` and `GELU` FFNs) and `Transformer` trunk (`yessir/model.py`: `1 / sqrt(2 * n_layers)` residual projection scaling).
-   - Both output heads (`yessir/heads.py`): `MultiTaskHead` (parallel linear projections reading at `lengths - 1`) and parameter-free `TiedIdentityHead` (reading the `0..255` symbol subspace across all sequence positions).
+   - Both output heads (`yessir/heads.py`: `HeadType`): `MultiTaskHead` (parallel linear projections reading at `lengths - 1`) and parameter-free `TiedIdentityHead` (reading the `0..255` symbol subspace across all sequence positions).
 3. **Training utilities & loop**:
    - `seed_everything`, `build_optimizer` (AdamW with selective weight decay), `build_scheduler` (linear warm-up + cosine decay).
-   - Multitask cross-entropy loss (for `MultiTaskHead`) and masked next-token cross-entropy loss (for `TiedIdentityHead`), gradient accumulation, `bfloat16` autocast, gradient clipping.
+   - Multitask cross-entropy loss (`multitask_cross_entropy`, for `MultiTaskHead`) and masked next-token cross-entropy loss (`next_token_cross_entropy`, for `TiedIdentityHead`), gradient accumulation, `bfloat16` autocast, gradient clipping.
 4. **Execution harnesses & evaluation**:
-   - State-machine drivers (`sm_mh`, read through `MultiTaskHead`; `sm_seq`, read through `TiedIdentityHead`) and autonomous autoregressive (`ar`) rollout driver.
+   - State-machine harnesses (`sm_mh`, read through `MultiTaskHead`; `sm_seq`, read through `TiedIdentityHead`) and autonomous autoregressive (`ar`) rollout harness.
    - Teacher-forced vs. free-running evaluation, exact match, step/token accuracy, halting accuracy, and error taxonomy (prior intrusion, out-of-alphabet, procedural error, syntax malformation).
 5. **Logging & artefacts**:
    - `config.json` (inputs + git provenance), `train.jsonl` (`NaN`-safe per-step training trajectory via `MetricsLogger`), and `eval.json` (final evaluation metrics) written to `results/<experiment>/<run>/`.
@@ -83,19 +83,19 @@ The order is: first build one path end to end, then add a second variant of each
 1. **Spec** in `experiments/sir_yes_sir/spec/README.md` *(done)*: the task, input layout (`input_ids`, `token_type_ids`, `position_ids`), and exact-match scoring rule (covering `o_k`, `w_k`, and `flag_k`).
 2. **Vocabulary, special tokens, and alphabets** *(done)*: `yessir/vocab.py`, `yessir/special_tokens.py`, `yessir/alphabet.py` (`SymbolSet`, `create_alphabet`), and tests in `yessir/tests/`.
 3. **Reference rule** *(done)*: `reference_step(alphabet, x, k) -> (o_k, w_k, flag_k)` in `experiments/sir_yes_sir/reference.py` and tests reproducing Examples 1 and 2 in `experiments/sir_yes_sir/tests/test_reference.py`.
-4. **`Example`, `Batch` / `collate`, and `sir_yes_sir` input builders** *(done)*: `yessir/example.py`, `yessir/batch.py`, and `experiments/sir_yes_sir/inputs.py` (`TokenType`, `EmbeddingMode`, `build_sm_example`, `build_ar_example`) with unit tests.
+4. **`Example`, `Batch` / `collate`, and `sir_yes_sir` input builders** *(done)*: `yessir/example.py`, `yessir/batch.py`, `experiments/sir_yes_sir/inputs.py` (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`), and variant input builders (`variants/sm_mh/inputs.py`: `build_sm_example`, `variants/ar/inputs.py`: `build_ar_example`) with unit tests.
 5. **Minimal model** *(done)*: `SubspaceEmbedding` (`yessir/embedding.py`), pre-LN block (`RMSNorm` with gain, `SwiGLUFeedForward`, causal `MultiHeadSelfAttention`, `TransformerBlock` in `yessir/blocks.py`), `MultiTaskHead` (`yessir/heads.py`), and `Transformer` (`yessir/model.py`) with unit tests.
-6. **Dataset & minimal training** *(done)*: `LabelledExample` and `IterableDataset` (`yessir/dataset.py`, `yessir/inspect_data.py`, `experiments/sir_yes_sir/dataset.py`); `seed_everything`, `build_optimizer` (AdamW), `multitask_cross_entropy`, `train_step`, and `train` (`yessir/training.py`, fp32 on CPU, no scheduler).
-7. **`sm_mh` harness and teacher-forced evaluation** *(done)*: `run_sm_mh` (`experiments/sir_yes_sir/harness.py`) and `EvalMetrics` / `evaluate_sm_mh` (`experiments/sir_yes_sir/evaluation.py`: exact match, step accuracy, halting accuracy).
+6. **Dataset & minimal training** *(done)*: `LabelledExample` and `IterableDataset` (`yessir/dataset.py`, `yessir/inspect_data.py`, `experiments/sir_yes_sir/variants/sm_mh/dataset.py`: `SirYesSirSmMhDataset`); `seed_everything`, `build_optimizer` (AdamW), `multitask_cross_entropy`, `train_step`, and `train` (`yessir/training.py`, fp32 on CPU, no scheduler).
+7. **`sm_mh` harness and teacher-forced evaluation** *(done)*: `rollout_sm_mh` (`experiments/sir_yes_sir/variants/sm_mh/harness.py`), `EvalMetrics` (`experiments/sir_yes_sir/evaluation.py`), and `evaluate_sm_mh` (`experiments/sir_yes_sir/variants/sm_mh/evaluation.py`: exact match, step accuracy, halting accuracy).
 8. **Convergence test** *(done)*: `experiments/sir_yes_sir/tests/test_convergence.py` trains a tiny model for a few hundred steps on CPU and asserts in-distribution exact match above 99%. This is the smoke test that stays live.
-9. **Artefacts & CLI runner** *(done)*: `MetricsLogger` (`train.jsonl`, in `yessir/metrics.py`), `config.json` & `eval.json` + `<YYYY-MM-DD>-<short_sha>-<adj>-<noun>` run naming (`yessir/artefacts.py`), config & experiment contract (`yessir/experiment.py`, `yessir/tui.py`), and `experiments/sir_yes_sir/config.py` / `run.py`.
+9. **Artefacts, `ExperimentVariant`, & CLI runner** *(done)*: `MetricsLogger` (`train.jsonl`, in `yessir/metrics.py`), `config.json` & `eval.json` + `<YYYY-MM-DD>-<short_sha>-<adj>-<noun>` run naming (`yessir/artefacts.py`), config, variant & experiment contract (`yessir/experiment.py`, `yessir/tui.py`), and `experiments/sir_yes_sir/config.py`, `experiments/sir_yes_sir/train_and_evaluate.py`, `variants/sm_mh/run.py`, and `run.py`.
 
 ### Stage B: second variants (each one forces an interface to become generic)
 
 10. Exercise the remaining `EmbeddingMode`s (`NOPE` and `TOKEN_TYPE_NOPE`, already supported by `SubspaceEmbedding` and `inputs.py`) in training and evaluation.
-11. `GELU` FFN, and `RMSNorm` without gain.
-12. `TiedIdentityHead`, `collate_labelled`, masked next-token cross-entropy, and `sm_seq` harness.
-13. `ar` free-running generation driver: `build_ar_example` is already in `experiments/sir_yes_sir/inputs.py` (passive `TokenType.OUTPUT` section with sequential `position_ids = 0, 1, ...`). The `ar` harness will define `StepOrder` (`OUT_FIRST`: `(o_k, w_k, flag_k)` vs. `WRAP_FIRST`: `(w_k, o_k, flag_k)`), `build_ar_trace` (serialising `reference_step` across `k = 0 .. L - 1` into a flat target trace for training), and trace parsing/rollout until `FLAG_FINISHED`.
+11. `GELU` FFN, and `RMSNorm` without gain (`gain=False` in `RMSNorm` is *(done)*).
+12. `TiedIdentityHead`, `collate_labelled`, and masked next-token cross-entropy (`next_token_cross_entropy`) *(done)*; `sm_seq` variant (`variants/sm_seq/`).
+13. `ar` variant (`variants/ar/`) *(done)*: `StepOrder` (`OUT_FIRST`: `(o_k, w_k, flag_k)` vs. `WRAP_FIRST`: `(w_k, o_k, flag_k)`), `build_ar_trace`, `build_ar_example`, and `build_ar_labelled_example` (`variants/ar/inputs.py`), `SirYesSirArDataset` (`variants/ar/dataset.py`), `parse_ar_trace` and `rollout_ar` (`variants/ar/harness.py`), `evaluate_ar` (`variants/ar/evaluation.py`), and `SirYesSirArConfig` / `AR_VARIANT` (`variants/ar/config.py`, `variants/ar/run.py`).
 14. Training extras: warm-up + cosine scheduler, selective weight decay, gradient accumulation, `bfloat16` autocast, clipping.
 15. Evaluation extras: free-running evaluation, plus an error taxonomy defined for this task (or dropped where a category doesn't apply).
 16. Out-of-distribution splits: unseen `B`, longer `L`, permuted canonical alphabets (`create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)`). These are measurements, not part of the convergence test.

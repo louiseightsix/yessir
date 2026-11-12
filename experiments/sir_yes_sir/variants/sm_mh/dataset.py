@@ -1,18 +1,23 @@
-"""Data generator for the `sir_yes_sir` experiment (`SirYesSirDataset`)."""
+"""Data generator (`SirYesSirSmMhDataset`) for the `sm_mh` variant of `sir_yes_sir`."""
 
 import argparse
-import random
 from collections.abc import Iterator, Sequence
 
-from experiments.sir_yes_sir.inputs import EmbeddingMode, build_sm_example
+from experiments.sir_yes_sir.inputs import (
+    EmbeddingMode,
+    add_common_dataset_args,
+    iter_problems,
+    resolve_symbol_pool,
+)
 from experiments.sir_yes_sir.reference import reference_step
-from yessir.alphabet import SymbolSet, create_alphabet
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
+from yessir.alphabet import SymbolSet
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import Token, TokenSequence
 
 
-class SirYesSirDataset:
+class SirYesSirSmMhDataset:
     """Infinite deterministic stream of state-machine `LabelledExample`s for `sir_yes_sir`.
 
     Each problem samples a fresh alphabet of size `alphabet_size` from `symbols`
@@ -30,29 +35,20 @@ class SirYesSirDataset:
         embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
-        symbol_pool = create_alphabet(symbols)
-        if not (2 <= alphabet_size <= len(symbol_pool)):
-            raise ValueError(
-                f"alphabet_size must be in 2..{len(symbol_pool)}, got {alphabet_size}"
-            )
-        if x_length < 1:
-            raise ValueError(f"x_length must be >= 1, got {x_length}")
-
+        self._symbol_pool = resolve_symbol_pool(alphabet_size, x_length, symbols)
         self._alphabet_size = alphabet_size
         self._x_length = x_length
-        self._symbol_pool = symbol_pool
         self._embedding_mode = embedding_mode
         self._seed = seed
 
     def __iter__(self) -> Iterator[LabelledExample]:
         """Yield `LabelledExample`s deterministically from `self._seed`."""
-        rng = random.Random(self._seed)
-        while True:
-            alphabet = create_alphabet(
-                self._symbol_pool, sample_size=self._alphabet_size, rng=rng
-            )
-            x = tuple(rng.choice(alphabet) for _ in range(self._x_length))
-
+        for alphabet, x in iter_problems(
+            alphabet_size=self._alphabet_size,
+            x_length=self._x_length,
+            symbol_pool=self._symbol_pool,
+            seed=self._seed,
+        ):
             output_history: list[Token] = []
             for k in range(self._x_length):
                 o_k, w_k, flag_k = reference_step(alphabet, x, k)
@@ -69,38 +65,8 @@ class SirYesSirDataset:
                 output_history.append(o_k)
 
 
-def _add_cli_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "-B",
-        "--alphabet-size",
-        type=int,
-        default=4,
-        help="Alphabet size B (default: 4)",
-    )
-    parser.add_argument(
-        "-L",
-        "--x-length",
-        type=int,
-        default=3,
-        help="Length L of input sequence x (default: 3)",
-    )
-    parser.add_argument(
-        "--embedding-mode",
-        type=EmbeddingMode,
-        choices=tuple(EmbeddingMode),
-        default=EmbeddingMode.TOKEN_TYPE_PE,
-        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed (default: 42)",
-    )
-
-
-def _build_from_args(args: argparse.Namespace) -> SirYesSirDataset:
-    return SirYesSirDataset(
+def _build_from_args(args: argparse.Namespace) -> SirYesSirSmMhDataset:
+    return SirYesSirSmMhDataset(
         alphabet_size=args.alphabet_size,
         x_length=args.x_length,
         embedding_mode=args.embedding_mode,
@@ -109,10 +75,10 @@ def _build_from_args(args: argparse.Namespace) -> SirYesSirDataset:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Generate, print, or dump `sir_yes_sir` training examples."""
+    """Generate, print, or dump `sir_yes_sir` (`sm_mh`) training examples."""
     run_inspect_cli(
-        description="Generate, print, or dump sir_yes_sir training examples.",
-        add_dataset_args=_add_cli_args,
+        description="Generate, print, or dump sir_yes_sir (sm_mh) training examples.",
+        add_dataset_args=add_common_dataset_args,
         build_dataset=_build_from_args,
         argv=argv,
     )

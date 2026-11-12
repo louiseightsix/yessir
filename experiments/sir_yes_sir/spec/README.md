@@ -15,7 +15,7 @@ At each step `k` in `0 .. L - 1`, where the input symbol is `x_k = s_i`, the gro
 - **Wrap output (`w_k`)**: `s_1` if `i == B - 1` (wrapped around), else `s_0`.
 - **Halting flag (`flag_k`)**: `FLAG_FINISHED` if `k == L - 1`, else `FLAG_CONTINUE`.
 
-### Examples (`sm_mh`, the state-machine driver read through `MultiTaskHead`, turn by turn)
+### Examples (`sm_mh`, the state-machine harness read through `MultiTaskHead`, turn by turn)
 
 **Example 1 (`alphabet = ['0', '1', '2', '3']`, `x = ['1', '3', '0']`):**
 ```
@@ -51,9 +51,9 @@ Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rn
 - **Canonical order**: `create_alphabet(SymbolSet.DECIMAL[:B])` or `create_alphabet(SymbolSet.HEX[:B])` — conventional ASCII characters in order (`'0'`–`'9'` or `'0'`–`'9'`, `'A'`–`'F'`).
 - **Canonical permuted**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` — the same canonical glyphs shuffled into a random order.
 
-## 2. Input Layouts (`experiments/sir_yes_sir/inputs.py`)
+## 2. Input Layouts (`experiments/sir_yes_sir/inputs.py` & `experiments/sir_yes_sir/variants/`)
 
-### 2.1 State-machine input (`build_sm_example`)
+### 2.1 State-machine input (`variants/sm_mh/inputs.py`: `build_sm_example`)
 
 At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]` and ending with the step query trigger `[STEP]`:
 
@@ -75,13 +75,21 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 
 In `sm_mh`, `MultiTaskHead.heads[0..2]` read the hidden state at the final unpadded position (`[STEP]`) to predict `(o_k, w_k, flag_k)` in order.
 
-### 2.2 Autoregressive input (`build_ar_example`)
+### 2.2 Autoregressive input and trace (`variants/ar/inputs.py`)
 
 In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and any `trace` tokens generated so far follow in a single `TokenType.OUTPUT` section with sequential `position_ids = 0, 1, ..., len(trace) - 1`:
 
 ```
 [BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  trace_0 ... trace_{m-1}
 ```
+
+- **Within-step token order (`StepOrder`)**: Because tokens within step `k` are emitted sequentially and condition on earlier tokens in the step, `StepOrder` selects the 3-token order per step `k` in `build_ar_trace`:
+  - `StepOrder.OUT_FIRST` (`"out_first"`): `(o_k, w_k, flag_k)`
+  - `StepOrder.WRAP_FIRST` (`"wrap_first"`): `(w_k, o_k, flag_k)`
+- **Teacher-forced sequence labels (`build_ar_labelled_example`)**: For a prompt prefix of length `P` (`[BOS] alphabet [SEP] x [SEP]`) and a ground-truth trace of length `3L` ending with `FLAG_FINISHED`:
+  - `example.input_ids` is `prefix + trace[:-1]` (length `P + 3L - 1`).
+  - `labels` is pre-shifted (`(IGNORE_INDEX,) * (P - 1) + trace`, length `P + 3L - 1`), so `TiedIdentityHead` + `next_token_cross_entropy` supervise predictions from index `P - 1` (the second `[SEP]`, predicting `trace[0]`) through `trace[-2]` (predicting `trace[-1] == FLAG_FINISHED`), while masking earlier prompt positions and right-padding with `IGNORE_INDEX = -100`.
+- **Rollout (`rollout_ar` and `parse_ar_trace`)**: Free-running greedy generation starts with `trace = ()` after the second `[SEP]`, appends `argmax` tokens from `TiedIdentityHead` one by one (up to `3L` tokens), stops early if a 3-token step ends with `FLAG_FINISHED`, and parses complete 3-token chunks back into canonical `(o_k, w_k, flag_k)` tuples.
 
 ### 2.3 Embedding modes (`EmbeddingMode`)
 
@@ -91,8 +99,8 @@ In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and
 
 ## 3. Scoring
 
-Evaluation over a set of problems reports three metrics in `0.0..1.0`:
+Evaluation over a set of problems (`evaluate_sm_mh` and `evaluate_ar`, computed under teacher forcing) reports three metrics in `0.0..1.0`:
 
-- **`exact_match`**: fraction of problems where every step `k` in `0 .. L - 1` emits the ground-truth `(o_k, w_k, flag_k)` (`FLAG_CONTINUE` for all `k < L - 1` and `FLAG_FINISHED` at `k == L - 1`).
+- **`exact_match`**: fraction of problems where every step `k` in `0 .. L - 1` emits the ground-truth `(o_k, w_k, flag_k)` (`FLAG_CONTINUE` for all `k < L - 1` and `FLAG_FINISHED` at `k == L - 1`). Because teacher-forced inputs and free-running greedy rollout (`rollout_sm_mh` / `rollout_ar`) feed the exact same prefix into the model up to the first error on a problem, teacher-forced `exact_match` equals free-running greedy `exact_match`.
 - **`step_accuracy`**: fraction of individual steps across all evaluated problems where all three outputs `(o_k, w_k, flag_k)` match the ground truth.
 - **`halt_accuracy`**: fraction of individual steps across all evaluated problems where the halting output matches `flag_k` (`FLAG_CONTINUE` vs. `FLAG_FINISHED`).

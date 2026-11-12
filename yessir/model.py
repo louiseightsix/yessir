@@ -8,7 +8,7 @@ from torch import nn
 
 from yessir.blocks import RMSNorm, TransformerBlock
 from yessir.embedding import SubspaceEmbedding
-from yessir.heads import MultiTaskHead
+from yessir.heads import HeadType, MultiTaskHead, TiedIdentityHead
 
 _INIT_STD = 0.02
 
@@ -21,7 +21,15 @@ _DEFAULT_D_FF = 1376
 
 
 class Transformer(nn.Module):
-    """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and `MultiTaskHead`.
+    """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and an output head.
+
+    Output head selection (`head_type`):
+    - `HeadType.MULTITASK`: requires `num_classes` (e.g. `(256, 256, 256)`) and
+      builds a `MultiTaskHead` that projects the final unpadded position `lengths - 1`
+      into per-head logits.
+    - `HeadType.TIED_IDENTITY`: requires `num_classes=None` and builds a parameter-free
+      `TiedIdentityHead` that reads the `0..255` symbol subspace across all sequence
+      positions `(B, T, 256)`.
 
     Weight initialisation (`reset_parameters`):
     - Every `nn.Linear` weight is drawn from `N(0, 0.02^2)` (GPT-2 / LLaMA convention).
@@ -35,7 +43,8 @@ class Transformer(nn.Module):
     def __init__(
         self,
         *,
-        num_classes: Sequence[int],
+        head_type: HeadType,
+        num_classes: Sequence[int] | None = None,
         n_layers: int = 6,
         n_heads: int = 8,
         d_ff: int = _DEFAULT_D_FF,
@@ -44,8 +53,15 @@ class Transformer(nn.Module):
         d_scratch: int = 208,
     ) -> None:
         super().__init__()
+        head_type = HeadType(head_type)
         if n_layers <= 0:
             raise ValueError(f"n_layers must be > 0, got {n_layers}")
+        if head_type == HeadType.MULTITASK and num_classes is None:
+            raise ValueError("num_classes is required when head_type is 'multitask'")
+        if head_type == HeadType.TIED_IDENTITY and num_classes is not None:
+            raise ValueError(
+                "num_classes must be None when head_type is 'tied_identity'"
+            )
 
         self.embedding = SubspaceEmbedding(
             use_token_type=use_token_type,
@@ -64,7 +80,12 @@ class Transformer(nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        self.head = MultiTaskHead(d_model=self.d_model, num_classes=num_classes)
+        self.head: MultiTaskHead | TiedIdentityHead
+        if head_type == HeadType.MULTITASK:
+            assert num_classes is not None
+            self.head = MultiTaskHead(d_model=self.d_model, num_classes=num_classes)
+        else:
+            self.head = TiedIdentityHead(d_model=self.d_model)
 
         self.reset_parameters()
 
@@ -74,7 +95,7 @@ class Transformer(nn.Module):
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.normal_(module.weight, mean=0.0, std=_INIT_STD)
-            elif isinstance(module, RMSNorm):
+            elif isinstance(module, RMSNorm) and module.weight is not None:
                 nn.init.ones_(module.weight)
 
         residual_scale = 1.0 / math.sqrt(2 * len(self.layers))
@@ -86,11 +107,11 @@ class Transformer(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        lengths: torch.Tensor,
+        lengths: torch.Tensor | None = None,
         token_type_ids: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, ...]:
-        """Run embedding, transformer blocks, and multi-task head on a padded batch."""
+    ) -> torch.Tensor | tuple[torch.Tensor, ...]:
+        """Run embedding, transformer blocks, and output head on a padded batch."""
         x = self.embedding(
             input_ids,
             token_type_ids=token_type_ids,
@@ -98,4 +119,8 @@ class Transformer(nn.Module):
         )
         for layer in self.layers:
             x = layer(x)
+        if isinstance(self.head, TiedIdentityHead):
+            return self.head(x)
+        if lengths is None:
+            raise ValueError("lengths is required when using MultiTaskHead")
         return self.head(x, lengths)

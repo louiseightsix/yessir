@@ -1,4 +1,4 @@
-"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
+"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `next_token_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
 
 import itertools
 import os
@@ -9,9 +9,10 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from yessir.batch import collate
-from yessir.dataset import LabelledExample
+from yessir.batch import collate, collate_labelled
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.defaults import DEFAULT_LR
+from yessir.heads import TiedIdentityHead
 from yessir.model import Transformer
 
 
@@ -91,6 +92,41 @@ def multitask_cross_entropy(
     return total_loss
 
 
+def next_token_cross_entropy(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+) -> torch.Tensor:
+    """Compute masked next-token cross-entropy loss across sequence positions.
+
+    Unlike Hugging Face causal LMs (which shift `labels` internally), `labels` here
+    are already pre-shifted so `labels[b, t]` is the target token predicted by
+    `logits[b, t]`. Positions where `labels == IGNORE_INDEX` (`-100`, e.g. prompt
+    prefix tokens and right-padding positions) are excluded from the mean.
+
+    Args:
+        logits: FloatTensor of shape `(batch_size, seq_len, vocab_size)`.
+        labels: Pre-shifted LongTensor of shape `(batch_size, seq_len)` with class
+            indices in `0..vocab_size - 1` or `IGNORE_INDEX`.
+
+    Returns:
+        Scalar loss tensor averaged over all non-ignored positions in the batch.
+    """
+    if logits.ndim != 3:
+        raise ValueError(
+            f"logits must have 3 dimensions (batch_size, seq_len, vocab_size), got shape {tuple(logits.shape)}"
+        )
+    batch_size, seq_len, vocab_size = logits.shape
+    if labels.shape != (batch_size, seq_len):
+        raise ValueError(
+            f"labels shape {tuple(labels.shape)} must match (batch_size, seq_len) = ({batch_size}, {seq_len})"
+        )
+    return F.cross_entropy(
+        logits.reshape(-1, vocab_size),
+        labels.reshape(-1),
+        ignore_index=IGNORE_INDEX,
+    )
+
+
 def pack_multitask_labels(items: Sequence[LabelledExample]) -> torch.Tensor:
     """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_heads)` LongTensor."""
     if not items:
@@ -112,6 +148,12 @@ def train_step(
 ) -> float:
     """Run one fp32 CPU forward/backward/optimiser step on a batch of `LabelledExample`s.
 
+    Dispatches on `model.head`:
+    - `TiedIdentityHead`: collates sequence-level labels with `collate_labelled`
+      and computes `next_token_cross_entropy`.
+    - `MultiTaskHead`: collates examples with `collate`, packs per-head labels with
+      `pack_multitask_labels`, and computes `multitask_cross_entropy`.
+
     Returns:
         The scalar loss value (`float`) for this step before the parameter update.
     """
@@ -119,17 +161,30 @@ def train_step(
         raise ValueError("items must not be empty")
 
     model.train()
-    batch = collate([item.example for item in items])
-    labels = pack_multitask_labels(items)
-
     optimizer.zero_grad()
-    logits = model(
-        batch.input_ids,
-        batch.lengths,
-        token_type_ids=batch.token_type_ids,
-        position_ids=batch.position_ids,
-    )
-    loss = multitask_cross_entropy(logits, labels)
+
+    if isinstance(model.head, TiedIdentityHead):
+        batch, labels = collate_labelled(items)
+        logits = model(
+            batch.input_ids,
+            batch.lengths,
+            token_type_ids=batch.token_type_ids,
+            position_ids=batch.position_ids,
+        )
+        assert isinstance(logits, torch.Tensor)
+        loss = next_token_cross_entropy(logits, labels)
+    else:
+        batch = collate([item.example for item in items])
+        labels = pack_multitask_labels(items)
+        logits = model(
+            batch.input_ids,
+            batch.lengths,
+            token_type_ids=batch.token_type_ids,
+            position_ids=batch.position_ids,
+        )
+        assert isinstance(logits, tuple)
+        loss = multitask_cross_entropy(logits, labels)
+
     loss.backward()
     optimizer.step()
     return loss.item()

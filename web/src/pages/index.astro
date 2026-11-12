@@ -22,6 +22,7 @@ const schemas: Record<string, ExperimentSchema> = JSON.parse(
 
 interface ConfigFile {
   experiment?: string;
+  variant?: string;
   git_commit_sha?: string;
   git_short_sha?: string;
   git_commit_date?: string;
@@ -131,7 +132,11 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
       .filter((run): run is RunData & { meta: { config: Record<string, unknown> } } =>
         Boolean(run.meta?.config),
       )
-      .map((run) => ({ name: run.name, config: run.meta.config })),
+      .map((run) => ({
+        name: run.name,
+        variant: run.meta.variant,
+        config: run.meta.config,
+      })),
   ]),
 );
 ---
@@ -254,7 +259,7 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
     <h2>Results</h2>
     {experiments.length === 0 && <p>No results yet.</p>}
     {experiments.map((exp) => {
-      const defaultConfig = schemas[exp.name]?.default_config ?? {};
+      const expVariants = schemas[exp.name]?.variants ?? [];
       return (
         <section>
           <h3>{exp.name} ({exp.runs.length} {exp.runs.length === 1 ? "run" : "runs"})</h3>
@@ -266,12 +271,25 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
               (acc, p) => (p.loss < acc ? p.loss : acc),
               Infinity,
             );
+            const runVariant = run.meta?.variant;
+            const defaultConfig =
+              expVariants.find((v) => v.name === runVariant)?.default_config ??
+              expVariants[0]?.default_config ??
+              {};
             const runConfig = run.meta?.config ?? {};
             const totalSteps = typeof runConfig.steps === "number" ? runConfig.steps : null;
             return (
               <article class={`run-card${run.flawedReason !== null ? " flawed" : ""}`}>
                 <h4>{run.name}</h4>
                 <div class="meta">
+                  {runVariant && (
+                    <>
+                      <span>
+                        variant <code>{runVariant}</code>
+                      </span>
+                      {" · "}
+                    </>
+                  )}
                   {run.meta?.git_short_sha && (
                     <span>
                       commit <code>{run.meta.git_short_sha}</code> ({run.meta.git_commit_date})

@@ -1,16 +1,12 @@
-"""Model input construction for the `sir_yes_sir` experiment.
+"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`, `resolve_symbol_pool`, `iter_problems`, `add_common_dataset_args`) for `sir_yes_sir`."""
 
-Turns a task state into an `Example`:
-1. Concatenates the sections (`[BOS]`, `alphabet`, `[SEP]`, `x`, `[SEP]`, and the
-   output section) end-to-end into a single token sequence (`input_ids`).
-2. Attaches `token_type_ids` and/or `position_ids` as requested by `embedding_mode`.
-"""
-
+import argparse
+import random
+from collections.abc import Iterator
 from enum import IntEnum, StrEnum, unique
 
-from yessir.alphabet import create_alphabet
+from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.example import Example
-from yessir.special_tokens import SpecialToken
 from yessir.vocab import TokenSequence
 
 
@@ -65,7 +61,7 @@ def validate_problem(
     return alphabet_tokens, x_tokens
 
 
-def _sections_to_example(
+def sections_to_example(
     sections: list[tuple[tuple[int, ...], TokenType]],
     embedding_mode: EmbeddingMode,
 ) -> Example:
@@ -94,90 +90,63 @@ def _sections_to_example(
     raise ValueError(f"unknown embedding_mode: {embedding_mode!r}")
 
 
-def build_sm_example(
-    alphabet: TokenSequence,
-    x: TokenSequence,
-    output_history: TokenSequence = (),
-    *,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
-) -> Example:
-    """Build the state-machine input `Example` for step `k = len(output_history)`.
-
-    The three pieces of task state (`alphabet`, `x`, `output_history`) are glued
-    together end-to-end with `[BOS]`, `[SEP]`, and `[STEP]` into a single sequence.
-    For example, with `alphabet = "0123"`, `x = "130"`, `output_history = "2"` (`k = 1`):
-
-        input_ids:       [BOS]  '0' '1' '2' '3'  [SEP]  '1' '3' '0'  [SEP]  '2'  [STEP]
-        token_type_ids:    0     1   1   1   1     0     2   2   2     0     3     3
-        position_ids:      0     0   1   2   3     0     0   1   2     0     0     1
-
-    Notice that in the `OUTPUT` section (`token_type_ids == 3`), `[STEP]` sits at
-    `position_id = k = 1`, aligning it with `x_1 = '3'` in the `INPUT` section.
-    """
-    alphabet_tokens, x_tokens = validate_problem(alphabet, x)
-    alphabet_set = set(alphabet_tokens)
-
-    out_tokens = tuple(output_history)
-    k = len(out_tokens)
-    if k >= len(x_tokens):
+def resolve_symbol_pool(
+    alphabet_size: int,
+    x_length: int,
+    symbols: TokenSequence = SymbolSet.ALL,
+) -> tuple[int, ...]:
+    """Validate `(alphabet_size, x_length, symbols)` and return the symbol pool tuple."""
+    symbol_pool = create_alphabet(symbols)
+    if not (2 <= alphabet_size <= len(symbol_pool)):
         raise ValueError(
-            f"step index k={k} (from output_history length) out of range "
-            f"for input sequence of length {len(x_tokens)}"
+            f"alphabet_size must be in 2..{len(symbol_pool)}, got {alphabet_size}"
         )
-
-    for idx, sym in enumerate(out_tokens):
-        if sym not in alphabet_set:
-            raise ValueError(
-                f"output symbol {sym!r} at position {idx} not found in alphabet"
-            )
-
-    sections: list[tuple[tuple[int, ...], TokenType]] = [
-        ((SpecialToken.BOS,), TokenType.SPECIAL),
-        (alphabet_tokens, TokenType.ALPHABET),
-        ((SpecialToken.SEP,), TokenType.SPECIAL),
-        (x_tokens, TokenType.INPUT),
-        ((SpecialToken.SEP,), TokenType.SPECIAL),
-        ((*out_tokens, SpecialToken.STEP), TokenType.OUTPUT),
-    ]
-    return _sections_to_example(sections, embedding_mode)
+    if x_length < 1:
+        raise ValueError(f"x_length must be >= 1, got {x_length}")
+    return symbol_pool
 
 
-def build_ar_example(
-    alphabet: TokenSequence,
-    x: TokenSequence,
-    trace: TokenSequence = (),
+def iter_problems(
     *,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
-) -> Example:
-    """Build the autoregressive (`ar`) input `Example` for `(alphabet, x)` and `trace`.
+    alphabet_size: int,
+    x_length: int,
+    symbol_pool: tuple[int, ...],
+    seed: int,
+) -> Iterator[tuple[tuple[int, ...], tuple[int, ...]]]:
+    """Yield an infinite deterministic stream of `(alphabet, x)` problem instances from `seed`."""
+    rng = random.Random(seed)
+    while True:
+        alphabet = create_alphabet(symbol_pool, sample_size=alphabet_size, rng=rng)
+        x = tuple(rng.choice(alphabet) for _ in range(x_length))
+        yield alphabet, x
 
-    The harness is passive: the problem prefix ends at the second `[SEP]`, and any
-    `trace` tokens emitted so far follow in a single `TokenType.OUTPUT` section with
-    sequential `position_ids = 0, 1, ..., len(trace) - 1`.
 
-    For `alphabet = "0123"`, `x = "130"`, and a complete `OUT_FIRST` trace:
-
-        input_ids:       [BOS] '0' '1' '2' '3' [SEP] '1' '3' '0' [SEP] '2' '0' [FLAG_CONTINUE] '0' '1' [FLAG_CONTINUE] '1' '0' [FLAG_FINISHED]
-        token_type_ids:    0    1   1   1   1    0    2   2   2    0    3   3         3         3   3         3         3   3         3
-        position_ids:      0    0   1   2   3    0    0   1   2    0    0   1         2         3   4         5         6   7         8
-
-    At the start of generation (`trace = ()`), the `Example` ends at the second `[SEP]`.
-    """
-    # TODO(ar): When building the AR harness, revisit two design choices:
-    # 1. `position_ids` for `trace`: counting `0, 1, 2, ...` puts step k's tokens at
-    #    `3k .. 3k+2` instead of aligning them at `position_id = k` with `x_k`. Decide
-    #    whether to keep sequential `0, 1, 2, ...` or assign step-aligned `position_id = k`.
-    # 2. `StepOrder` (`OUT_FIRST`: `(o_k, w_k, flag_k)` vs. `WRAP_FIRST`: `(w_k, o_k, flag_k)`):
-    #    make within-step emission order configurable in the AR trace builder/parser.
-    alphabet_tokens, x_tokens = validate_problem(alphabet, x)
-    trace_tokens = tuple(trace)
-
-    sections: list[tuple[tuple[int, ...], TokenType]] = [
-        ((SpecialToken.BOS,), TokenType.SPECIAL),
-        (alphabet_tokens, TokenType.ALPHABET),
-        ((SpecialToken.SEP,), TokenType.SPECIAL),
-        (x_tokens, TokenType.INPUT),
-        ((SpecialToken.SEP,), TokenType.SPECIAL),
-        (trace_tokens, TokenType.OUTPUT),
-    ]
-    return _sections_to_example(sections, embedding_mode)
+def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
+    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--embedding-mode`, and `--seed` flags."""
+    parser.add_argument(
+        "-B",
+        "--alphabet-size",
+        type=int,
+        default=4,
+        help="Alphabet size B (default: 4)",
+    )
+    parser.add_argument(
+        "-L",
+        "--x-length",
+        type=int,
+        default=3,
+        help="Length L of input sequence x (default: 3)",
+    )
+    parser.add_argument(
+        "--embedding-mode",
+        type=EmbeddingMode,
+        choices=tuple(EmbeddingMode),
+        default=EmbeddingMode.TOKEN_TYPE_PE,
+        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed (default: 42)",
+    )

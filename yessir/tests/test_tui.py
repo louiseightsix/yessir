@@ -5,7 +5,7 @@ from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.inputs import EmbeddingMode
-from yessir.experiment import ExperimentConfig
+from yessir.experiment import ExperimentConfig, ExperimentVariant
 from yessir.tui import ConfigEditorState, EditorOutcome
 
 
@@ -215,3 +215,79 @@ def test_duplicate_run_alert_and_confirmation():
     assert state.matching_runs() == ["2026-11-12-953e4d9-amber-falcon"]
     assert state.handle_key("r") == EditorOutcome.CONTINUE
     assert state.handle_key("r") == EditorOutcome.RUN
+
+
+@dataclass(frozen=True, kw_only=True)
+class _VariantBConfig(_SmallConfig):
+    step_order: str = "out_first"
+
+
+def test_variant_switching_preserves_shared_values_and_swaps_schema():
+    v_a = ExperimentVariant(
+        name="sm_mh",
+        description="State-machine multi-head.",
+        config_cls=_SmallConfig,
+        run=lambda cfg, out: {},
+    )
+    v_b = ExperimentVariant(
+        name="ar",
+        description="Autoregressive trace.",
+        config_cls=_VariantBConfig,
+        run=lambda cfg, out: {},
+    )
+
+    state = ConfigEditorState(
+        _SmallConfig,
+        title="sir_yes_sir",
+        variants=(v_a, v_b),
+        initial_variant="sm_mh",
+        existing_runs_by_variant={
+            "sm_mh": [("2026-11-12-953e4d9-amber-falcon", _SmallConfig().to_dict())],
+            "ar": [],
+        },
+    )
+
+    # Row 0 is the `variant` selector.
+    assert state.specs[0].name == "variant"
+    assert state.active_variant is v_a
+    assert [s.name for s in state.specs] == [
+        "variant",
+        "choice",
+        "count",
+        "rate",
+        "opt_limit",
+        "flag",
+    ]
+    assert state.matching_runs() == ["2026-11-12-953e4d9-amber-falcon"]
+
+    # Edit `count` (row 2) to 10 on `sm_mh`.
+    state.cursor = 2
+    state.handle_key("RIGHT")
+    state.handle_key("RIGHT")
+    state.handle_key("RIGHT")
+    assert state.values["count"] == 10
+
+    # Move back to row 0 (`variant`) and step RIGHT to switch to `ar`.
+    state.cursor = 0
+    state.handle_key("RIGHT")
+    assert state.values["variant"] == "ar"
+    assert state.active_variant is v_b
+    assert [s.name for s in state.specs] == [
+        "variant",
+        "choice",
+        "count",
+        "rate",
+        "opt_limit",
+        "flag",
+        "step_order",
+    ]
+    # Shared field `count` keeps its edited value 10, and `step_order` gets its default.
+    assert state.values["count"] == 10
+    assert state.values["step_order"] == "out_first"
+    assert state.matching_runs() == []
+
+    cfg, err = state.validate()
+    assert err is None
+    assert isinstance(cfg, _VariantBConfig)
+    assert cfg.count == 10
+    assert cfg.step_order == "out_first"

@@ -8,13 +8,17 @@ import torch
 from yessir.batch import collate
 from yessir.blocks import TransformerBlock
 from yessir.example import Example
+from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.vocab import VOCAB_SIZE
 
 
 def test_transformer_default_dimensions_and_forward_shapes():
     torch.manual_seed(0)
-    model = Transformer(num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE))
+    model = Transformer(
+        head_type=HeadType.MULTITASK,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+    )
     assert model.d_model == 512
     assert len(model.layers) == 6
 
@@ -44,6 +48,7 @@ def test_transformer_default_dimensions_and_forward_shapes():
 def test_transformer_end_to_end_right_padding_invariance():
     torch.manual_seed(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(16, 2),
         n_layers=2,
         n_heads=4,
@@ -87,6 +92,7 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     torch.manual_seed(0)
     n_layers = 8
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE,),
         n_layers=n_layers,
     )
@@ -107,6 +113,8 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
 
     # Perturb RMSNorm weights and verify reset_parameters restores them to 1.0
     # and re-initialises residual projections rather than scaling them a second time.
+    assert layer0.attn_norm.weight is not None
+    assert model.head.norm.weight is not None
     with torch.no_grad():
         layer0.attn_norm.weight.fill_(3.5)
         model.head.norm.weight.fill_(0.25)
@@ -118,9 +126,51 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     )
 
 
+def test_transformer_with_tied_identity_head_shapes_and_causal_invariance():
+    torch.manual_seed(0)
+    model = Transformer(
+        head_type=HeadType.TIED_IDENTITY,
+        n_layers=2,
+        n_heads=4,
+        d_ff=64,
+        d_position=8,
+        d_scratch=16,
+    )
+    assert model.head.norm.weight is None
+
+    short_ex = Example(
+        input_ids=(10, 20, 30),
+        token_type_ids=(0, 1, 3),
+        position_ids=(0, 0, 0),
+    )
+    long_ex = Example(
+        input_ids=(10, 20, 30, 40, 50),
+        token_type_ids=(0, 1, 3, 3, 3),
+        position_ids=(0, 0, 0, 1, 2),
+    )
+    solo_batch = collate([short_ex])
+    padded_batch = collate([short_ex, long_ex])
+
+    solo_logits = model(
+        solo_batch.input_ids,
+        token_type_ids=solo_batch.token_type_ids,
+        position_ids=solo_batch.position_ids,
+    )
+    padded_logits = model(
+        padded_batch.input_ids,
+        padded_batch.lengths,
+        token_type_ids=padded_batch.token_type_ids,
+        position_ids=padded_batch.position_ids,
+    )
+    assert solo_logits.shape == (1, 3, VOCAB_SIZE)
+    assert padded_logits.shape == (2, 5, VOCAB_SIZE)
+    assert torch.allclose(solo_logits[0], padded_logits[0, :3], atol=1e-5)
+
+
 def test_transformer_gradient_flow_to_all_parameters():
     torch.manual_seed(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(8, 2),
         n_layers=2,
         n_heads=4,
@@ -153,4 +203,18 @@ def test_transformer_gradient_flow_to_all_parameters():
 @pytest.mark.parametrize("bad_n_layers", [0, -2])
 def test_transformer_rejects_non_positive_n_layers(bad_n_layers):
     with pytest.raises(ValueError, match="n_layers must be > 0"):
-        Transformer(num_classes=(4,), n_layers=bad_n_layers)
+        Transformer(
+            head_type=HeadType.MULTITASK, num_classes=(4,), n_layers=bad_n_layers
+        )
+
+
+def test_transformer_validates_head_type_and_num_classes():
+    with pytest.raises(
+        ValueError, match="num_classes is required when head_type is 'multitask'"
+    ):
+        Transformer(head_type=HeadType.MULTITASK, num_classes=None)
+
+    with pytest.raises(
+        ValueError, match="num_classes must be None when head_type is 'tied_identity'"
+    ):
+        Transformer(head_type=HeadType.TIED_IDENTITY, num_classes=(4,))

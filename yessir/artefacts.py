@@ -106,14 +106,16 @@ def write_config_json(
     out_dir: Path,
     *,
     experiment_name: str,
+    variant_name: str,
     config: ExperimentConfig,
     git_info: GitInfo | None = None,
 ) -> Path:
-    """Write experiment name, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
+    """Write experiment/variant names, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     info = git_info if git_info is not None else get_git_info()
     payload: dict[str, Any] = {
         "experiment": experiment_name,
+        "variant": variant_name,
         "git_commit_sha": info.commit_sha,
         "git_short_sha": info.short_sha,
         "git_commit_date": info.commit_date,
@@ -128,13 +130,18 @@ def write_config_json(
     return path
 
 
+def _unwrap_config_dict(raw: dict[str, Any]) -> dict[str, Any]:
+    """Extract the nested `'config'` dict if present, otherwise return `raw`."""
+    nested = raw.get("config")
+    return nested if isinstance(nested, dict) else raw
+
+
 def read_config_dict(path: Path) -> dict[str, Any]:
     """Read a config dictionary from `path` (either a full `config.json` with a `'config'` key or a flat JSON object)."""
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise TypeError(f"expected a JSON object in {path}, got {type(raw).__name__}")
-    nested = raw.get("config")
-    return nested if isinstance(nested, dict) else raw
+    return _unwrap_config_dict(raw)
 
 
 def write_eval_json(
@@ -154,9 +161,14 @@ def write_eval_json(
 def load_existing_run_configs(
     experiment_name: str,
     *,
+    variant_name: str | None = None,
     results_root: Path | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Load `(run_name, config_dict)` for all recorded runs under `results/<experiment_name>/`."""
+    """Load `(run_name, config_dict)` for recorded runs under `results/<experiment_name>/`.
+
+    When `variant_name` is given, only runs whose `config.json` records
+    `"variant": variant_name` are returned.
+    """
     root = results_root if results_root is not None else (_REPO_ROOT / "results")
     exp_results_dir = root / experiment_name
     if not exp_results_dir.is_dir():
@@ -165,8 +177,13 @@ def load_existing_run_configs(
     runs: list[tuple[str, dict[str, Any]]] = []
     for config_path in sorted(exp_results_dir.glob("*/config.json")):
         try:
-            config_dict = read_config_dict(config_path)
-        except (OSError, json.JSONDecodeError, TypeError):
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                continue
+            if variant_name is not None and raw.get("variant") != variant_name:
+                continue
+            config_dict = _unwrap_config_dict(raw)
+        except (OSError, json.JSONDecodeError):
             continue
         runs.append((config_path.parent.name, config_dict))
     return runs

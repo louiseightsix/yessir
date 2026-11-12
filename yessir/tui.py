@@ -16,6 +16,7 @@ from typing import Any, get_type_hints
 from yessir.experiment import (
     Experiment,
     ExperimentConfig,
+    ExperimentVariant,
     format_config_value,
     unwrap_optional,
 )
@@ -156,6 +157,13 @@ def _parse_inline_value(spec: FieldSpec, text: str) -> Any:
         allowed = ", ".join(str(m.value) for m in spec.inner_type)
         raise ValueError(f"expected one of {{{allowed}}}, got {cleaned!r}")
 
+    if spec.choices is not None:
+        for choice in spec.choices:
+            if cleaned.lower() == str(choice).lower():
+                return choice
+        allowed = ", ".join(str(c) for c in spec.choices)
+        raise ValueError(f"expected one of {{{allowed}}}, got {cleaned!r}")
+
     if spec.inner_type is int:
         return int(cleaned)
     if spec.inner_type is float:
@@ -174,17 +182,61 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         description: str = "",
         initial: ConfigT | None = None,
         existing_runs: Sequence[tuple[str, Mapping[str, Any]]] = (),
+        variants: Sequence[ExperimentVariant[Any]] = (),
+        initial_variant: str | None = None,
+        existing_runs_by_variant: Mapping[str, Sequence[tuple[str, Mapping[str, Any]]]]
+        | None = None,
     ) -> None:
-        self.config_cls = config_cls
         self.title = title or config_cls.__name__
         self.description = description
-        self.specs = build_field_specs(config_cls)
         self._existing_runs: tuple[tuple[str, dict[str, Any]], ...] = tuple(
             (name, dict(cfg_dict)) for name, cfg_dict in existing_runs
         )
+        self._existing_runs_by_variant: dict[
+            str, tuple[tuple[str, dict[str, Any]], ...]
+        ] = {
+            v_name: tuple((name, dict(cfg_dict)) for name, cfg_dict in runs)
+            for v_name, runs in (existing_runs_by_variant or {}).items()
+        }
 
-        base = initial if initial is not None else config_cls()
-        self.values: dict[str, Any] = base.to_dict()
+        self._variants: dict[str, ExperimentVariant[Any]] = {
+            v.name: v for v in variants
+        }
+        self._variant_spec: FieldSpec | None = None
+        self.values: dict[str, Any] = {}
+
+        if variants:
+            default_variant = variants[0].name
+            chosen_name = (
+                initial_variant if initial_variant is not None else default_variant
+            )
+            if chosen_name not in self._variants:
+                raise ValueError(f"unknown initial_variant: {chosen_name!r}")
+            variant_names = tuple(v.name for v in variants)
+            self._variant_spec = FieldSpec(
+                name="variant",
+                inner_type=str,
+                is_optional=False,
+                default=default_variant,
+                domain="{" + ", ".join(variant_names) + "}",
+                step=1,
+                choices=variant_names,
+            )
+            self.values["variant"] = chosen_name
+            active_cls = self._variants[chosen_name].config_cls
+        else:
+            active_cls = config_cls
+
+        self.config_cls: type[Any] = active_cls
+        self._config_specs: tuple[FieldSpec, ...] = build_field_specs(self.config_cls)
+        self.specs: tuple[FieldSpec, ...] = (
+            (self._variant_spec, *self._config_specs)
+            if self._variant_spec is not None
+            else self._config_specs
+        )
+
+        base = initial if initial is not None else self.config_cls()
+        self.values.update(base.to_dict())
         # Rows 0 .. len(specs) - 1 are settings; row len(specs) is "[ Run experiment ]".
         self.cursor: int = 0
         self.edit_buffer: str | None = None
@@ -192,24 +244,53 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         self.confirm_duplicate: bool = False
 
     @property
+    def active_variant(self) -> ExperimentVariant[Any] | None:
+        """Currently selected `ExperimentVariant`, or `None` in single-config mode."""
+        if not self._variants:
+            return None
+        return self._variants[self.values["variant"]]
+
+    def _sync_active_variant(self) -> None:
+        """Update `config_cls` and `specs` when `self.values['variant']` changes."""
+        if self._variant_spec is None:
+            return
+        variant = self._variants[self.values["variant"]]
+        if variant.config_cls is self.config_cls:
+            return
+        self.config_cls = variant.config_cls
+        self._config_specs = build_field_specs(self.config_cls)
+        self.specs = (self._variant_spec, *self._config_specs)
+        defaults = self.config_cls().to_dict()
+        for key, default_val in defaults.items():
+            self.values.setdefault(key, default_val)
+        self.cursor = min(self.cursor, self.run_row_index)
+
+    @property
     def run_row_index(self) -> int:
         """Row index of the `[ Run experiment ]` action button."""
         return len(self.specs)
 
-    def validate(self) -> tuple[ConfigT | None, str | None]:
-        """Validate current `self.values` against `self.config_cls`."""
+    def validate(self) -> tuple[Any | None, str | None]:
+        """Validate current config field values against `self.config_cls`."""
         try:
-            return self.config_cls.from_dict(self.values), None
+            cfg_values = {
+                spec.name: self.values[spec.name] for spec in self._config_specs
+            }
+            return self.config_cls.from_dict(cfg_values), None
         except (ValueError, TypeError) as exc:
             return None, str(exc)
 
     def matching_runs(self) -> list[str]:
-        """Return names of any previous runs with an identical configuration."""
+        """Return names of any previous runs of the same variant with an identical configuration."""
         cfg, _ = self.validate()
         if cfg is None:
             return []
         target = cfg.to_dict()
-        return [name for name, cfg_dict in self._existing_runs if cfg_dict == target]
+        if self._variants:
+            runs = self._existing_runs_by_variant.get(self.values["variant"], ())
+        else:
+            runs = self._existing_runs
+        return [name for name, cfg_dict in runs if cfg_dict == target]
 
     def _try_run(self) -> EditorOutcome:
         """Validate and check for duplicate runs before returning `EditorOutcome.RUN`."""
@@ -240,6 +321,8 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             self.message = f"Invalid {spec.name}: {exc}"
             return False
         self.values[spec.name] = parsed
+        if spec.name == "variant":
+            self._sync_active_variant()
         self.edit_buffer = None
         self.message = None
         self.confirm_duplicate = False
@@ -299,6 +382,8 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         if key in ("LEFT", "RIGHT"):
             delta = -1 if key == "LEFT" else 1
             self.values[spec.name] = _step_value(spec, self.values[spec.name], delta)
+            if spec.name == "variant":
+                self._sync_active_variant()
             self.message = None
             self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
@@ -329,6 +414,10 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         lines: list[str] = [f"=== {self.title} ==="]
         if self.description:
             lines.append(self.description)
+        if self.active_variant is not None and self.active_variant.description:
+            lines.append(
+                f"Variant [{self.active_variant.name}]: {self.active_variant.description}"
+            )
         lines.append(
             "Controls: [Up/Down] select row  [Left/Right] adjust value  "
             "[Type/Enter] edit inline  [r] run  [q/Esc] quit"
@@ -406,22 +495,32 @@ def _read_key(fd: int) -> str:
     return ch.decode("utf-8", errors="ignore")
 
 
-def interactive_edit_config[ConfigT: ExperimentConfig](
-    experiment: Experiment[ConfigT],
-    initial: ConfigT | None = None,
-) -> ConfigT | None:
-    """Run the interactive terminal editor for `experiment` and return the chosen config (or `None` if cancelled)."""
+def interactive_edit_config(
+    experiment: Experiment,
+    *,
+    variant: ExperimentVariant[Any] | None = None,
+    initial: ExperimentConfig | None = None,
+) -> tuple[ExperimentVariant[Any], Any] | None:
+    """Run the interactive terminal editor for `experiment` and return `(variant, config)` (or `None` if cancelled)."""
     import termios
     import tty
 
     from yessir.artefacts import load_existing_run_configs
 
+    start_variant = variant if variant is not None else experiment.variants[0]
+    existing_by_variant = {
+        v.name: load_existing_run_configs(experiment.name, variant_name=v.name)
+        for v in experiment.variants
+    }
+
     state = ConfigEditorState(
-        experiment.config_cls,
+        start_variant.config_cls,
         title=experiment.name,
         description=experiment.description,
         initial=initial,
-        existing_runs=load_existing_run_configs(experiment.name),
+        variants=experiment.variants,
+        initial_variant=start_variant.name,
+        existing_runs_by_variant=existing_by_variant,
     )
 
     fd = sys.stdin.fileno()
@@ -442,8 +541,9 @@ def interactive_edit_config[ConfigT: ExperimentConfig](
             outcome = state.handle_key(key)
             if outcome == EditorOutcome.RUN:
                 cfg, _ = state.validate()
-                assert cfg is not None
-                return cfg
+                chosen_variant = state.active_variant
+                assert cfg is not None and chosen_variant is not None
+                return chosen_variant, cfg
             if outcome == EditorOutcome.CANCEL:
                 return None
     finally:

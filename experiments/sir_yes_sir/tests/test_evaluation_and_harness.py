@@ -1,4 +1,4 @@
-"""Tests for `experiments/sir_yes_sir/harness.py` and `experiments/sir_yes_sir/evaluation.py`."""
+"""Tests for `experiments/sir_yes_sir/variants/*/harness.py` and `experiments/sir_yes_sir/variants/*/evaluation.py`."""
 
 import itertools
 from collections.abc import Sequence
@@ -6,13 +6,19 @@ from collections.abc import Sequence
 import pytest
 import torch
 
-from experiments.sir_yes_sir.dataset import SirYesSirDataset
-from experiments.sir_yes_sir.evaluation import EvalMetrics, evaluate_sm_mh
-from experiments.sir_yes_sir.harness import run_sm_mh
-from experiments.sir_yes_sir.inputs import build_sm_example
+from experiments.sir_yes_sir.evaluation import EvalMetrics
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
+from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
+from experiments.sir_yes_sir.variants.ar.harness import parse_ar_trace, rollout_ar
+from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_example
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset
+from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.harness import rollout_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
 from yessir.dataset import LabelledExample
 from yessir.example import Example
+from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 from yessir.training import seed_everything
@@ -123,7 +129,7 @@ class _WrapBlindModel:
         return logits_o, logits_w, logits_f
 
 
-def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
+def test_rollout_sm_mh_feeds_back_models_own_emitted_outputs():
     alphabet = b"0123"
     x = b"130"
     # Ground-truth o_0 is '2' and o_1 is '0'; script wrong in-alphabet symbols '3' then '1'
@@ -135,7 +141,7 @@ def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert model.training is False
     assert emitted == scripted
     assert model.seen_examples == [
@@ -145,7 +151,7 @@ def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
     ]
 
 
-def test_run_sm_mh_stops_early_on_premature_flag_finished():
+def test_rollout_sm_mh_stops_early_on_premature_flag_finished():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -154,12 +160,12 @@ def test_run_sm_mh_stops_early_on_premature_flag_finished():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_run_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
+def test_rollout_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -168,12 +174,12 @@ def test_run_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_run_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
+def test_rollout_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
     alphabet = b"0123"
     x = b"13"
     scripted = [
@@ -182,13 +188,13 @@ def test_run_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert len(emitted) == 2
     assert emitted == scripted
 
 
 def test_evaluate_sm_mh_computes_exact_match_step_and_halt_accuracy():
-    dataset = SirYesSirDataset(alphabet_size=4, x_length=2, seed=7)
+    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=2, seed=7)
     # 2 problems of length 2 = 4 steps total
     items = list(itertools.islice(dataset, 4))
 
@@ -228,7 +234,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     x_length = 3
     seed = 123
 
-    dataset = SirYesSirDataset(
+    dataset = SirYesSirSmMhDataset(
         alphabet_size=alphabet_size, x_length=x_length, seed=seed
     )
     model = _WrapBlindModel()
@@ -248,7 +254,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert metrics_b1 == metrics_b7
     assert 0.0 < metrics_b1.exact_match < 1.0
 
-    # Run free-running `run_sm_mh` on the exact same `num_problems` problems extracted from `dataset`
+    # Run free-running `rollout_sm_mh` on the exact same `num_problems` problems extracted from `dataset`
     all_items = list(itertools.islice(dataset, num_problems * x_length))
     free_running_em_count = 0
     for prob_idx in range(num_problems):
@@ -256,7 +262,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
         alphabet, x, out_history = _parse_sm_input_ids(prob_items[0].example.input_ids)
         assert out_history == ()
         expected_steps = [item.labels for item in prob_items]
-        emitted_steps = run_sm_mh(
+        emitted_steps = rollout_sm_mh(
             model,  # ty: ignore[invalid-argument-type]
             alphabet,
             x,
@@ -270,6 +276,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
 def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -277,7 +284,7 @@ def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
         d_position=8,
         d_scratch=0,
     )
-    dataset = SirYesSirDataset(alphabet_size=4, x_length=3, seed=99)
+    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=3, seed=99)
     metrics = evaluate_sm_mh(model, dataset, num_problems=3, batch_size=4)
     assert 0.0 <= metrics.exact_match <= 1.0
     assert 0.0 <= metrics.step_accuracy <= 1.0
@@ -287,6 +294,7 @@ def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
 def test_evaluate_sm_mh_validation_errors():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -294,7 +302,7 @@ def test_evaluate_sm_mh_validation_errors():
         d_position=8,
         d_scratch=0,
     )
-    dataset = SirYesSirDataset(alphabet_size=4, x_length=2, seed=0)
+    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=2, seed=0)
 
     with pytest.raises(ValueError, match="num_problems must be >= 1"):
         evaluate_sm_mh(model, dataset, num_problems=0)
@@ -347,3 +355,118 @@ def test_evaluate_sm_mh_validation_errors():
             ],
             num_problems=1,
         )
+
+
+class _ScriptedArModel:
+    """Fake sequence-level model returning scripted next-token argmax predictions."""
+
+    def __init__(self, scripted_tokens: Sequence[Token]) -> None:
+        self._tokens = list(scripted_tokens)
+        self._cursor = 0
+        self.training = True
+        self.seen_examples: list[Example] = []
+
+    def eval(self) -> "_ScriptedArModel":
+        self.training = False
+        return self
+
+    def __call__(
+        self,
+        input_ids: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+        token_type_ids: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        batch_size, seq_len = input_ids.shape
+        logits = torch.zeros(batch_size, seq_len, VOCAB_SIZE)
+        for b in range(batch_size):
+            n = int(lengths[b].item()) if lengths is not None else seq_len
+            self.seen_examples.append(
+                Example(
+                    input_ids=tuple(input_ids[b, :n].tolist()),
+                    token_type_ids=(
+                        tuple(token_type_ids[b, :n].tolist())
+                        if token_type_ids is not None
+                        else None
+                    ),
+                    position_ids=(
+                        tuple(position_ids[b, :n].tolist())
+                        if position_ids is not None
+                        else None
+                    ),
+                )
+            )
+            tok = self._tokens[self._cursor]
+            self._cursor += 1
+            logits[b, n - 1, tok] = 10.0
+        return logits
+
+
+def test_parse_ar_trace_and_rollout_ar():
+    alphabet = b"0123"
+    x = b"13"
+
+    # Script 2 steps in WRAP_FIRST order: (w_0='0', o_0='2', CONTINUE), (w_1='1', o_1='0', FINISHED)
+    scripted = [
+        ord("0"),
+        ord("2"),
+        int(SpecialToken.FLAG_CONTINUE),
+        ord("1"),
+        ord("0"),
+        int(SpecialToken.FLAG_FINISHED),
+    ]
+    model = _ScriptedArModel(scripted)
+    steps = rollout_ar(
+        model,  # ty: ignore[invalid-argument-type]
+        alphabet,
+        x,
+        step_order=StepOrder.WRAP_FIRST,
+    )
+    assert model.training is False
+    # Returned tuples are canonical (o_k, w_k, flag_k)
+    assert steps == [
+        (ord("2"), ord("0"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("0"), ord("1"), int(SpecialToken.FLAG_FINISHED)),
+    ]
+    assert model.seen_examples[0] == build_ar_example(alphabet, x, ())
+    assert model.seen_examples[1] == build_ar_example(alphabet, x, (ord("0"),))
+
+    # Premature FLAG_FINISHED at the end of step 0 stops generation after 3 tokens
+    early_model = _ScriptedArModel(
+        [ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED), ord("0")]
+    )
+    early_steps = rollout_ar(
+        early_model,  # ty: ignore[invalid-argument-type]
+        alphabet,
+        x,
+        step_order=StepOrder.OUT_FIRST,
+    )
+    assert early_steps == [(ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED))]
+    assert len(early_model.seen_examples) == 3
+
+    # Trailing incomplete step tokens are ignored by parse_ar_trace
+    assert parse_ar_trace([ord("2"), ord("0")]) == []
+
+
+def test_evaluate_ar_end_to_end_and_validation():
+    seed_everything(0)
+    model = Transformer(
+        head_type=HeadType.TIED_IDENTITY,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    dataset = SirYesSirArDataset(alphabet_size=4, x_length=2, seed=99)
+    metrics = evaluate_ar(model, dataset, num_problems=3, batch_size=2)
+    assert 0.0 <= metrics.exact_match <= 1.0
+    assert 0.0 <= metrics.step_accuracy <= 1.0
+    assert 0.0 <= metrics.halt_accuracy <= 1.0
+
+    with pytest.raises(ValueError, match="num_problems must be >= 1"):
+        evaluate_ar(model, dataset, num_problems=0)
+    with pytest.raises(ValueError, match="batch_size must be >= 1"):
+        evaluate_ar(model, dataset, num_problems=1, batch_size=0)
+    with pytest.raises(ValueError, match="dataset exhausted early"):
+        evaluate_ar(model, [], num_problems=1)

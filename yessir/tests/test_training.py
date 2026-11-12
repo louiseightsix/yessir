@@ -9,12 +9,14 @@ import torch
 import torch.nn.functional as F
 
 from yessir.batch import collate
-from yessir.dataset import LabelledExample
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
+from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.training import (
     build_optimizer,
     multitask_cross_entropy,
+    next_token_cross_entropy,
     pack_multitask_labels,
     seed_everything,
     train,
@@ -132,6 +134,7 @@ def test_pack_multitask_labels_shapes_and_validation():
 def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -152,6 +155,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
+        assert isinstance(pre_logits, tuple)
         expected_pre_loss = multitask_cross_entropy(pre_logits, labels).item()
     params_before = [p.detach().clone() for p in model.parameters()]
 
@@ -168,6 +172,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
 def test_train_step_validation():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -192,6 +197,7 @@ def test_train_step_validation():
 def test_train_validation_and_early_exhaustion():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -224,6 +230,7 @@ def test_train_validation_and_early_exhaustion():
 def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     seed_everything(42)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
         n_heads=4,
@@ -258,3 +265,58 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     first_param = next(model.parameters())
     assert int(opt.state[first_param]["step"].item()) == 10
     assert dataset.yielded == 80
+
+
+def test_next_token_cross_entropy_and_tied_head_train_step():
+    seed_everything(0)
+    logits = torch.randn(2, 4, 16, requires_grad=True)
+    labels = torch.tensor(
+        [
+            [IGNORE_INDEX, 3, 5, IGNORE_INDEX],
+            [IGNORE_INDEX, 1, 2, 7],
+        ],
+        dtype=torch.long,
+    )
+    loss = next_token_cross_entropy(logits, labels)
+    valid_logits = torch.stack(
+        [logits[0, 1], logits[0, 2], logits[1, 1], logits[1, 2], logits[1, 3]]
+    )
+    valid_targets = torch.tensor([3, 5, 1, 2, 7], dtype=torch.long)
+    assert torch.allclose(loss, F.cross_entropy(valid_logits, valid_targets))
+
+    with pytest.raises(ValueError, match="logits must have 3 dimensions"):
+        next_token_cross_entropy(torch.randn(2, 16), torch.zeros(2, dtype=torch.long))
+    with pytest.raises(ValueError, match="labels shape"):
+        next_token_cross_entropy(logits, torch.zeros(2, 3, dtype=torch.long))
+
+    # Verify train_step dispatches to next_token_cross_entropy for TiedIdentityHead
+    model = Transformer(
+        head_type=HeadType.TIED_IDENTITY,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    opt = build_optimizer(model, lr=1e-2)
+    items = [
+        LabelledExample(
+            example=Example(
+                input_ids=(1, 10, 11),
+                token_type_ids=(0, 2, 3),
+                position_ids=(0, 0, 0),
+            ),
+            labels=(IGNORE_INDEX, 11, 12),
+        ),
+        LabelledExample(
+            example=Example(
+                input_ids=(1, 10, 11, 12),
+                token_type_ids=(0, 2, 3, 3),
+                position_ids=(0, 0, 0, 1),
+            ),
+            labels=(IGNORE_INDEX, 11, 12, 13),
+        ),
+    ]
+    loss1 = train_step(model, opt, items)
+    loss2 = train_step(model, opt, items)
+    assert loss2 < loss1

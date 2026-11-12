@@ -1,5 +1,6 @@
 {
   "experiment": "sir_yes_sir",
+  "variant": "sm_mh",
   "git_commit_sha": "a13cc88228ab6771d610760309eb8db5dd97050f",
   "git_short_sha": "a13cc88",
   "git_commit_date": "2026-11-12",

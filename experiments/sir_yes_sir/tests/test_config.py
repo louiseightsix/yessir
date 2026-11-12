@@ -8,6 +8,8 @@ import pytest
 
 from experiments.sir_yes_sir.config import SirYesSirConfig, SymbolSetName
 from experiments.sir_yes_sir.inputs import EmbeddingMode
+from experiments.sir_yes_sir.variants.ar.config import SirYesSirArConfig
+from experiments.sir_yes_sir.variants.ar.inputs import StepOrder
 from yessir.alphabet import SymbolSet
 
 
@@ -147,6 +149,15 @@ def test_config_import_does_not_load_torch():
     code = (
         "import sys\n"
         "import experiments.sir_yes_sir.config\n"
+        "import experiments.sir_yes_sir.variants.ar.config\n"
         "assert 'torch' not in sys.modules, 'importing the config loaded torch'\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_ar_config_step_order_round_trip():
+    ar_cfg = SirYesSirArConfig(step_order=StepOrder.WRAP_FIRST)
+    assert ar_cfg.step_order == StepOrder.WRAP_FIRST
+    restored = SirYesSirArConfig.from_dict(ar_cfg.to_dict())
+    assert restored == ar_cfg
+    assert isinstance(restored.step_order, StepOrder)

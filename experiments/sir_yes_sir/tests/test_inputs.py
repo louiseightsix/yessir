@@ -5,9 +5,15 @@ import pytest
 from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
     TokenType,
-    build_ar_example,
-    build_sm_example,
 )
+from experiments.sir_yes_sir.variants.ar.inputs import (
+    StepOrder,
+    build_ar_example,
+    build_ar_labelled_example,
+    build_ar_trace,
+)
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
+from yessir.dataset import IGNORE_INDEX
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import TOKEN_TYPE_RANGE
 
@@ -173,3 +179,43 @@ def test_ar_example_empty_and_with_trace():
         TokenType.OUTPUT,
     )
     assert ex_trace.position_ids == ex_start.position_ids + (0, 1, 2)
+
+
+def test_build_ar_trace_and_labelled_example_out_first_and_wrap_first():
+    alphabet = b"0123"
+    x = b"130"
+
+    trace_out = build_ar_trace(alphabet, x, step_order=StepOrder.OUT_FIRST)
+    assert trace_out == (
+        ord("2"),
+        ord("0"),
+        int(SpecialToken.FLAG_CONTINUE),
+        ord("0"),
+        ord("1"),
+        int(SpecialToken.FLAG_CONTINUE),
+        ord("1"),
+        ord("0"),
+        int(SpecialToken.FLAG_FINISHED),
+    )
+
+    trace_wrap = build_ar_trace(alphabet, x, step_order=StepOrder.WRAP_FIRST)
+    assert trace_wrap == (
+        ord("0"),
+        ord("2"),
+        int(SpecialToken.FLAG_CONTINUE),
+        ord("1"),
+        ord("0"),
+        int(SpecialToken.FLAG_CONTINUE),
+        ord("0"),
+        ord("1"),
+        int(SpecialToken.FLAG_FINISHED),
+    )
+
+    labelled = build_ar_labelled_example(alphabet, x, step_order=StepOrder.OUT_FIRST)
+    prefix_len = 1 + len(alphabet) + 1 + len(x) + 1  # [BOS] 0123 [SEP] 130 [SEP] = 10
+    assert len(labelled.example) == prefix_len + len(trace_out) - 1
+    assert len(labelled.labels) == len(labelled.example)
+    # Prefix before the second [SEP] is masked with IGNORE_INDEX; from second [SEP] onward predicts trace_out
+    assert labelled.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
+    assert labelled.labels[prefix_len - 1 :] == trace_out
+    assert labelled.example.input_ids[prefix_len:] == trace_out[:-1]
