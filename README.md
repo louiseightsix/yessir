@@ -15,14 +15,16 @@
 | :--- | :--- |
 | `experiments/` | The experiments: code, tests and spec for each. |
 | `results/` | Results from the experiments, one directory per experiment. A run whose `README.md` starts with `FLAWED:` is known to be wrong, for the reason given. |
+| `web/` | Static web UI (Astro) for browsing `results/` and experiment configs. |
 | `yessir/` | Code shared between experiments. |
 
 ## Let's Play
 
-Needs [uv](https://docs.astral.sh/uv/). Everything goes through `yessir.sh`, which creates and syncs the environment on first use:
+Needs [uv](https://docs.astral.sh/uv/) (and [pnpm](https://pnpm.io/) for `./yessir.sh browser`). Everything goes through `yessir.sh`, which creates and syncs the environment on first use:
 
 ```bash
 ./yessir.sh run              # run an experiment (interactive TUI or CLI flags)
+./yessir.sh browser          # open the results browser (astro dev server)
 ./yessir.sh test             # run the tests
 ./yessir.sh check            # lint and typecheck (ruff check + ty check)
 ./yessir.sh fix              # typecheck, autofix lint issues, and format
