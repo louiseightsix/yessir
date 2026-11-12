@@ -255,14 +255,26 @@ def _configure_experiment_parser(
         add_config_args(v_sub, variant.config_cls)
 
 
-def _execute_experiment(
+@dataclass(frozen=True, kw_only=True)
+class ResolvedExperimentRun:
+    """Resolved `(experiment, variant, config, out_dir)` from CLI arguments or the interactive TUI."""
+
+    experiment: Experiment
+    variant: ExperimentVariant[Any]
+    config: ExperimentConfig
+    out_dir: Path | None
+
+
+def _resolve_experiment(
     experiment: Experiment,
     exp_parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     *,
     argv: Sequence[str] | None,
     interactive: bool | None,
-) -> dict[str, Any] | None:
+    results_root: Path | None = None,
+    git_info: Any = None,
+) -> ResolvedExperimentRun | None:
     variant_name: str | None = getattr(args, "variant", None)
     if variant_name is None:
         should_edit = (
@@ -313,9 +325,18 @@ def _execute_experiment(
     else:
         from yessir.artefacts import default_run_dir
 
-        out_dir = default_run_dir(experiment.name)
+        out_dir = default_run_dir(
+            experiment.name,
+            results_root=results_root,
+            git_info=git_info,
+        )
 
-    return chosen_variant.run(chosen_config, out_dir)
+    return ResolvedExperimentRun(
+        experiment=experiment,
+        variant=chosen_variant,
+        config=chosen_config,
+        out_dir=out_dir,
+    )
 
 
 def run_experiment_cli(
@@ -336,28 +357,28 @@ def run_experiment_cli(
     )
     _configure_experiment_parser(parser, experiment)
     args = parser.parse_args(argv)
-    return _execute_experiment(
+    resolved = _resolve_experiment(
         experiment,
         parser,
         args,
         argv=argv,
         interactive=interactive,
     )
+    if resolved is None:
+        return None
+    return resolved.variant.run(resolved.config, resolved.out_dir)
 
 
-def run_experiments_cli(
+def resolve_experiments_cli(
     experiments: Sequence[Experiment],
     argv: Sequence[str] | None = None,
     *,
     interactive: bool | None = None,
-) -> dict[str, Any] | None:
-    """Top-level CLI dispatcher over a sequence of registered `Experiment`s.
-
-    If invoked with no experiment name, prints available experiments and returns `None`.
-    If invoked with an experiment name (and optionally a variant name) and no config
-    flags in a terminal (or with `-i`), opens the interactive config editor before
-    starting the run.
-    """
+    prog: str = "./yessir.sh run",
+    results_root: Path | None = None,
+    git_info: Any = None,
+) -> ResolvedExperimentRun | None:
+    """Resolve `(experiment, variant, config, out_dir)` across registered `Experiment`s."""
     if not experiments:
         raise ValueError("experiments must contain at least one Experiment")
 
@@ -369,7 +390,7 @@ def run_experiments_cli(
         by_name[exp.name] = exp
 
     parser = argparse.ArgumentParser(
-        prog="./yessir.sh run",
+        prog=prog,
         description="Run a yessir experiment.",
     )
     subparsers = parser.add_subparsers(
@@ -392,10 +413,36 @@ def run_experiments_cli(
         return None
 
     selected = by_name[args.experiment]
-    return _execute_experiment(
+    return _resolve_experiment(
         selected,
         exp_parsers[selected.name],
         args,
         argv=argv,
         interactive=interactive,
+        results_root=results_root,
+        git_info=git_info,
     )
+
+
+def run_experiments_cli(
+    experiments: Sequence[Experiment],
+    argv: Sequence[str] | None = None,
+    *,
+    interactive: bool | None = None,
+) -> dict[str, Any] | None:
+    """Top-level CLI dispatcher over a sequence of registered `Experiment`s.
+
+    If invoked with no experiment name, prints available experiments and returns `None`.
+    If invoked with an experiment name (and optionally a variant name) and no config
+    flags in a terminal (or with `-i`), opens the interactive config editor before
+    starting the run.
+    """
+    resolved = resolve_experiments_cli(
+        experiments,
+        argv,
+        interactive=interactive,
+        prog="./yessir.sh run",
+    )
+    if resolved is None:
+        return None
+    return resolved.variant.run(resolved.config, resolved.out_dir)
