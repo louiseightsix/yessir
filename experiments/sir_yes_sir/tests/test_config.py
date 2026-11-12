@@ -1,6 +1,8 @@
 """Tests for `experiments.sir_yes_sir.config` (`SirYesSirConfig`)."""
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -137,3 +139,14 @@ def test_json_round_trip():
     assert restored == original
     assert isinstance(restored.symbol_set, SymbolSetName)
     assert isinstance(restored.embedding_mode, EmbeddingMode)
+
+
+def test_config_import_does_not_load_torch():
+    # Runs in a fresh interpreter: in this pytest process other tests have
+    # already imported torch, so checking `sys.modules` here would prove nothing.
+    code = (
+        "import sys\n"
+        "import experiments.sir_yes_sir.config\n"
+        "assert 'torch' not in sys.modules, 'importing the config loaded torch'\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
