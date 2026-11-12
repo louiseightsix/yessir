@@ -25,14 +25,19 @@ from yessir.vocab import VOCAB_SIZE
 class _SyntheticDataset:
     """Deterministic toy dataset mapping a single input token `t` to `(t + 1, t + 2, 0)`."""
 
+    def __init__(self) -> None:
+        self.yielded = 0
+
     def __iter__(self) -> Iterator[LabelledExample]:
+        self.yielded = 0
         for step in itertools.count():
             t = step % 4
+            self.yielded += 1
             yield LabelledExample(
                 example=Example(
                     input_ids=(1, 10 + t, 2),
                     token_type_ids=(0, 1, 3),
-                    position_ids=(0, step, 0),
+                    position_ids=(0, 0, 0),
                 ),
                 labels=(10 + ((t + 1) % 4), 10 + ((t + 2) % 4), 0),
             )
@@ -203,7 +208,8 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
         d_position=8,
         d_scratch=16,
     )
-    stream = iter(_SyntheticDataset())
+    dataset = _SyntheticDataset()
+    stream = iter(dataset)
     opt = build_optimizer(model, lr=1e-3)
 
     losses_part1 = train(model, stream, steps=5, batch_size=8, optimizer=opt)
@@ -217,5 +223,4 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
 
     first_param = next(model.parameters())
     assert int(opt.state[first_param]["step"].item()) == 10
-    next_item = next(stream)
-    assert next_item.example.position_ids == (0, 80, 0)
+    assert dataset.yielded == 80
