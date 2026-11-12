@@ -1,18 +1,19 @@
-"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multi_head_cross_entropy`, `train_step`, `train`)."""
+"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `train_step`, `train`)."""
 
 import itertools
 import os
 import random
-import warnings
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from yessir.batch import collate
-from yessir.dataset import IterableDataset, LabelledExample
+from yessir.dataset import LabelledExample
 from yessir.model import Transformer
+
+_DEFAULT_LR = 3e-4
 
 
 def seed_everything(seed: int) -> None:
@@ -25,28 +26,21 @@ def seed_everything(seed: int) -> None:
       `Transformer.reset_parameters` and any stochastic tensor ops).
     - `CUBLAS_WORKSPACE_CONFIG=":4096:8"` is required by cuBLAS for deterministic
       GEMMs on CUDA when `torch.use_deterministic_algorithms(True)` is active.
-    - `warn_only=True` avoids crashing on the handful of backward kernels on
-      MPS/CUDA that lack a deterministic implementation.
+    - `warn_only=True` warns rather than crashing on the handful of backward
+      kernels on MPS/CUDA that lack a deterministic implementation.
     """
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     random.seed(seed)
     torch.manual_seed(seed)
-    warnings.filterwarnings(
-        "ignore", message=".*does not have a deterministic implementation.*"
-    )
     torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def build_optimizer(
     model: nn.Module,
     *,
-    lr: float = 3e-4,
+    lr: float = _DEFAULT_LR,
 ) -> torch.optim.AdamW:
-    """Create an AdamW optimiser with standard Transformer hyperparameters.
-
-    Uses `betas=(0.9, 0.95)` and `eps=1e-8` (GPT-3 / LLaMA convention) and
-    `weight_decay=0.0` (selective weight decay is added in Stage B).
-    """
+    """Create an AdamW optimiser with `betas=(0.9, 0.95)`, `eps=1e-8` (GPT-3), and `weight_decay=0.0`."""
     if lr <= 0:
         raise ValueError(f"lr must be > 0, got {lr}")
     return torch.optim.AdamW(
@@ -58,11 +52,11 @@ def build_optimizer(
     )
 
 
-def multi_head_cross_entropy(
+def multitask_cross_entropy(
     logits: Sequence[torch.Tensor],
     targets: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute the sum of cross-entropy losses across parallel output heads.
+    """Compute the sum of cross-entropy losses across `MultiTaskHead` outputs.
 
     When a `MultiTaskHead` predicts `H` conditionally independent targets
     `(y_0, ..., y_{H-1})` from the final hidden state `h_last`, the joint
@@ -98,13 +92,13 @@ def multi_head_cross_entropy(
     return total_loss
 
 
-def _pack_multi_head_targets(items: Sequence[LabelledExample]) -> torch.Tensor:
+def _pack_multitask_targets(items: Sequence[LabelledExample]) -> torch.Tensor:
     """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_heads)` LongTensor."""
     num_heads = len(items[0].labels)
     for idx, item in enumerate(items):
         if len(item.labels) != num_heads:
             raise ValueError(
-                f"all LabelledExamples in a multi-head batch must have {num_heads} labels; "
+                f"all LabelledExamples in a multitask batch must have {num_heads} labels; "
                 f"item {idx} has {len(item.labels)}"
             )
     return torch.tensor([item.labels for item in items], dtype=torch.long)
@@ -123,8 +117,9 @@ def train_step(
     if not items:
         raise ValueError("items must not be empty")
 
+    model.train()
     batch = collate([item.example for item in items])
-    targets = _pack_multi_head_targets(items)
+    targets = _pack_multitask_targets(items)
 
     optimizer.zero_grad()
     logits = model(
@@ -133,21 +128,26 @@ def train_step(
         token_type_ids=batch.token_type_ids,
         position_ids=batch.position_ids,
     )
-    loss = multi_head_cross_entropy(logits, targets)
+    loss = multitask_cross_entropy(logits, targets)
     loss.backward()
     optimizer.step()
-    return float(loss.item())
+    return loss.item()
 
 
 def train(
     model: Transformer,
-    dataset: IterableDataset,
+    dataset: Iterable[LabelledExample],
     *,
     steps: int,
     batch_size: int,
-    lr: float = 3e-4,
+    lr: float = _DEFAULT_LR,
+    optimizer: torch.optim.Optimizer | None = None,
 ) -> list[float]:
     """Train `model` on batches drawn from `dataset` for `steps` optimisation steps on CPU.
+
+    Pass a persistent iterator `stream = iter(dataset)` and an existing `optimizer`
+    to resume training across multiple `train(...)` calls (e.g. between evaluations)
+    without restarting the data stream or resetting Adam state.
 
     Returns:
         List of per-step scalar training losses of length `steps`.
@@ -157,8 +157,8 @@ def train(
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
 
-    model.train()
-    optimizer = build_optimizer(model, lr=lr)
+    if optimizer is None:
+        optimizer = build_optimizer(model, lr=lr)
     stream = iter(dataset)
 
     losses: list[float] = []
