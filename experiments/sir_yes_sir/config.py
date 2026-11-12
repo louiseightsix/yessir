@@ -9,6 +9,10 @@ from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
+SIR_YES_SIR_DESCRIPTION = (
+    "In-context successor (next symbol mod B, no carry) smoke-test experiment."
+)
+
 
 @unique
 class SymbolSetName(StrEnum):

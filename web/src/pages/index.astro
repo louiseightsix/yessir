@@ -1,8 +1,12 @@
 ---
 // Runs at build time only (and on each request under `astro dev`).
 import { execFileSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import ConfigBuilder, {
+  type ExistingRunConfig,
+  type ExperimentSchema,
+} from "../components/ConfigBuilder";
 
 // Astro runs with web/ as the working directory; the repo root is one up.
 const repoRoot = resolve(process.cwd(), "..");
@@ -11,46 +15,376 @@ const repoRoot = resolve(process.cwd(), "..");
 // so the build doesn't have to install torch. YESSIR_PYTHON overrides it.
 const python = process.env.YESSIR_PYTHON ?? "python3";
 const pythonVersion = execFileSync(python, ["--version"], { encoding: "utf8" }).trim();
-const configs = JSON.parse(
+
+const schemas: Record<string, ExperimentSchema> = JSON.parse(
   execFileSync(python, ["-m", "experiments.web_export"], { cwd: repoRoot, encoding: "utf8" }),
 );
+
+interface ConfigFile {
+  experiment?: string;
+  git_commit_sha?: string;
+  git_short_sha?: string;
+  git_commit_date?: string;
+  git_dirty?: boolean;
+  config?: Record<string, unknown>;
+}
+
+interface TrainPoint {
+  step: number;
+  elapsed_sec: number;
+  loss: number;
+}
+
+interface RunData {
+  name: string;
+  meta: ConfigFile | null;
+  evalMetrics: Record<string, number> | null;
+  trainPoints: TrainPoint[];
+  readmeBody: string | null;
+  flawedReason: string | null;
+}
+
+function readJsonIfExists<T>(path: string): T | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readTrainJsonl(path: string): TrainPoint[] {
+  if (!existsSync(path)) return [];
+  const points: TrainPoint[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      points.push(JSON.parse(trimmed) as TrainPoint);
+    } catch {
+      // Ignore a trailing half-written line while a run is in progress.
+    }
+  }
+  return points;
+}
+
+function loadRun(runDir: string, name: string): RunData {
+  const meta = readJsonIfExists<ConfigFile>(resolve(runDir, "config.json"));
+  const evalMetrics = readJsonIfExists<Record<string, number>>(resolve(runDir, "eval.json"));
+  const trainPoints = readTrainJsonl(resolve(runDir, "train.jsonl"));
+  const readmePath = resolve(runDir, "README.md");
+  const rawReadme = existsSync(readmePath) ? readFileSync(readmePath, "utf8").trim() : null;
+  const lines = rawReadme ? rawReadme.split("\n") : [];
+  const firstLine = lines[0] ?? "";
+  const isFlawed = firstLine.startsWith("FLAWED:");
+  const flawedReason = isFlawed ? firstLine.slice("FLAWED:".length).trim() : null;
+  const remaining = (isFlawed ? lines.slice(1) : lines).join("\n").trim();
+  const readmeBody = remaining.length > 0 ? remaining : null;
+  return { name, meta, evalMetrics, trainPoints, readmeBody, flawedReason };
+}
+
+function lossSvgPoints(points: TrainPoint[], width: number, height: number): string {
+  if (points.length === 0) return "";
+  const pad = 4;
+  const innerW = width - 2 * pad;
+  const innerH = height - 2 * pad;
+  if (points.length === 1) {
+    const midY = (height / 2).toFixed(1);
+    return `${pad.toFixed(1)},${midY} ${(width - pad).toFixed(1)},${midY}`;
+  }
+  const minStep = points[0].step;
+  const maxStep = points[points.length - 1].step;
+  let minLoss = Infinity;
+  let maxLoss = -Infinity;
+  for (const p of points) {
+    if (p.loss < minLoss) minLoss = p.loss;
+    if (p.loss > maxLoss) maxLoss = p.loss;
+  }
+  const stepSpan = Math.max(1, maxStep - minStep);
+  const lossSpan = maxLoss > minLoss ? maxLoss - minLoss : 1;
+  return points
+    .map((p) => {
+      const x = pad + ((p.step - minStep) / stepSpan) * innerW;
+      const y = height - pad - ((p.loss - minLoss) / lossSpan) * innerH;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
 
 const resultsDir = resolve(repoRoot, "results");
 const experiments = readdirSync(resultsDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
-  .map((entry) => ({
-    name: entry.name,
-    runs: readdirSync(resolve(resultsDir, entry.name), { withFileTypes: true })
+  .sort((a, b) => a.name.localeCompare(b.name))
+  .map((entry) => {
+    const expDir = resolve(resultsDir, entry.name);
+    const runs = readdirSync(expDir, { withFileTypes: true })
       .filter((run) => run.isDirectory())
-      .map((run) => run.name),
-  }));
+      .map((run) => loadRun(resolve(expDir, run.name), run.name))
+      .sort((a, b) => b.name.localeCompare(a.name));
+    return { name: entry.name, runs };
+  });
+
+const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
+  experiments.map((exp) => [
+    exp.name,
+    exp.runs
+      .filter((run): run is RunData & { meta: { config: Record<string, unknown> } } =>
+        Boolean(run.meta?.config),
+      )
+      .map((run) => ({ name: run.name, config: run.meta.config })),
+  ]),
+);
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>yessir</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 64rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.45;
+      }
+      .run-card {
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1.25rem;
+      }
+      .run-card.flawed {
+        border-color: #c00;
+        background: #fff8f8;
+      }
+      .flawed-banner {
+        color: #900;
+        font-weight: 600;
+        margin: 0.5rem 0;
+      }
+      .meta {
+        color: #555;
+        font-size: 0.9rem;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+        gap: 1rem;
+        margin-top: 0.75rem;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+      }
+      th, td {
+        text-align: left;
+        padding: 0.2rem 0.4rem;
+        border-bottom: 1px solid #eee;
+      }
+      tr.non-default td {
+        font-weight: 600;
+      }
+      svg.loss-curve {
+        display: block;
+        border: 1px solid #ddd;
+        background: #fafafa;
+        margin-top: 0.4rem;
+      }
+      .config-builder {
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 2rem;
+      }
+      .builder-toolbar, .cli-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .numeric-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .duplicate-warning {
+        color: #92400e;
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        margin: 0.75rem 0;
+      }
+      .status-valid {
+        color: #166534;
+        background: #f0fdf4;
+        border: 1px solid #86efac;
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        margin: 0.75rem 0;
+      }
+      .status-invalid {
+        color: #991b1b;
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        margin: 0.75rem 0;
+      }
+      .cli-output {
+        margin-top: 1rem;
+      }
+      .cli-output pre {
+        background: #f5f5f5;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 0.6rem 0.8rem;
+        overflow-x: auto;
+      }
+    </style>
   </head>
   <body>
     <h1>yessir</h1>
-    <p>Built with {pythonVersion}.</p>
+    <p>Results browser and config builder for the yessir experiments (built with {pythonVersion}).</p>
+
+    <h2>Config builder</h2>
+    <ConfigBuilder client:load schemas={schemas} existingRuns={existingRuns} />
 
     <h2>Results</h2>
     {experiments.length === 0 && <p>No results yet.</p>}
-    <ul>
-      {experiments.map((exp) => (
-        <li>
-          {exp.name}: {exp.runs.length === 0 ? "no runs" : exp.runs.join(", ")}
-        </li>
-      ))}
-    </ul>
+    {experiments.map((exp) => {
+      const defaultConfig = schemas[exp.name]?.default_config ?? {};
+      return (
+        <section>
+          <h3>{exp.name} ({exp.runs.length} {exp.runs.length === 1 ? "run" : "runs"})</h3>
+          {exp.runs.length === 0 && <p>No runs recorded.</p>}
+          {exp.runs.map((run) => {
+            const first = run.trainPoints[0];
+            const last = run.trainPoints[run.trainPoints.length - 1];
+            const minLoss = run.trainPoints.reduce(
+              (acc, p) => (p.loss < acc ? p.loss : acc),
+              Infinity,
+            );
+            const runConfig = run.meta?.config ?? {};
+            const totalSteps = typeof runConfig.steps === "number" ? runConfig.steps : null;
+            return (
+              <article class={`run-card${run.flawedReason !== null ? " flawed" : ""}`}>
+                <h4>{run.name}</h4>
+                <div class="meta">
+                  {run.meta?.git_short_sha && (
+                    <span>
+                      commit <code>{run.meta.git_short_sha}</code> ({run.meta.git_commit_date})
+                      {run.meta.git_dirty ? " [dirty]" : ""}
+                    </span>
+                  )}
+                  {" · "}
+                  <span>{run.evalMetrics ? "evaluated" : "in progress / no eval.json"}</span>
+                </div>
 
-    <h2>Default configs</h2>
-    {Object.entries(configs).map(([name, config]) => (
-      <>
-        <h3>{name}</h3>
-        <pre>{JSON.stringify(config, null, 2)}</pre>
-      </>
-    ))}
+                {run.flawedReason !== null && (
+                  <p class="flawed-banner">FLAWED: {run.flawedReason}</p>
+                )}
+                {run.readmeBody && <pre>{run.readmeBody}</pre>}
+
+                <div class="grid">
+                  <div>
+                    <h5>Evaluation (<code>eval.json</code>)</h5>
+                    {run.evalMetrics ? (
+                      <table>
+                        <tbody>
+                          {Object.entries(run.evalMetrics).map(([k, v]) => (
+                            <tr>
+                              <th>{k}</th>
+                              <td>{typeof v === "number" ? v.toFixed(4) : String(v)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p>Not evaluated yet.</p>
+                    )}
+
+                    <h5>Training (<code>train.jsonl</code>)</h5>
+                    {last ? (
+                      <>
+                        <table>
+                          <tbody>
+                            <tr>
+                              <th>Step</th>
+                              <td>
+                                {last.step}
+                                {totalSteps !== null ? ` / ${totalSteps}` : ""}
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Loss (first → last)</th>
+                              <td>
+                                {first.loss.toFixed(4)} → {last.loss.toFixed(4)} (min{" "}
+                                {minLoss.toFixed(4)})
+                              </td>
+                            </tr>
+                            <tr>
+                              <th>Elapsed</th>
+                              <td>{last.elapsed_sec.toFixed(1)}s</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <svg
+                          class="loss-curve"
+                          width="280"
+                          height="80"
+                          viewBox="0 0 280 80"
+                          aria-label="Training loss curve"
+                        >
+                          <polyline
+                            fill="none"
+                            stroke="#2563eb"
+                            stroke-width="1.5"
+                            points={lossSvgPoints(run.trainPoints, 280, 80)}
+                          />
+                        </svg>
+                      </>
+                    ) : (
+                      <p>No training steps recorded.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <h5>Config (<code>config.json</code>)</h5>
+                    {Object.keys(runConfig).length > 0 ? (
+                      <table>
+                        <tbody>
+                          {Object.entries(runConfig).map(([k, v]) => {
+                            const isNonDefault =
+                              k in defaultConfig && defaultConfig[k] !== v;
+                            return (
+                              <tr class={isNonDefault ? "non-default" : undefined}>
+                                <th>{k}</th>
+                                <td>
+                                  <code>{JSON.stringify(v)}</code>
+                                  {isNonDefault && (
+                                    <span class="meta">
+                                      {" "}
+                                      (default: <code>{JSON.stringify(defaultConfig[k])}</code>)
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p>No config recorded.</p>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      );
+    })}
   </body>
 </html>

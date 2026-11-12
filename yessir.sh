@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./yessir.sh run [experiment] [args]  # run a live experiment (or list experiments)
+#   ./yessir.sh browser [astro args]     # open the results browser & config builder (astro dev)
 #   ./yessir.sh test [pytest args]       # run the live experiments' tests
 #   ./yessir.sh check                    # lint and typecheck live code (ruff check + ty check)
 #   ./yessir.sh fix                      # typecheck, autofix lint issues, and format
@@ -30,15 +31,25 @@ export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-.venv-$OS}"
 [ "$OS" = linux ] && export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
 usage() {
-    sed -n '4,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '4,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 
 case "$cmd" in
-    run)    exec uv run python -m experiments "$@" ;;
-    test)   exec uv run pytest "$@" ;;
+    run)     exec uv run python -m experiments "$@" ;;
+    browser)
+        # In AI-agent shells Astro 7 auto-backgrounds `astro dev` and exits immediately;
+        # manage it with `./yessir.sh browser stop | status | logs`, or pass `--ignore-lock`
+        # to keep it in the foreground.
+        if ! command -v pnpm >/dev/null 2>&1; then
+            echo "pnpm not found: install it from https://pnpm.io/installation" >&2
+            exit 1
+        fi
+        exec pnpm --dir web dev "$@"
+        ;;
+    test)    exec uv run pytest "$@" ;;
     check)
         uv run ruff check "$@"
         exec uv run ty check experiments yessir "$@"
