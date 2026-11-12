@@ -6,8 +6,8 @@ from collections.abc import Iterable
 import torch
 
 from experiments.sir_yes_sir.evaluation import EvalMetrics
-from yessir.batch import IGNORE_INDEX, collate_labelled
-from yessir.dataset import LabelledExample
+from yessir.batch import collate_labelled
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 
@@ -50,10 +50,19 @@ def evaluate_ar(
 
     Why teacher-forced next-token evaluation gives exact match (`exact_match`) for `ar`:
     Under causal masking and right-padding invariance, free-running greedy rollout
-    (`run_ar`) feeds the exact same prefix into `model` as teacher forcing up to the
-    first token mismatch. Therefore `run_ar` emits the ground-truth `(o_k, w_k, flag_k)`
+    (`rollout_ar`) feeds the exact same prefix into `model` as teacher forcing up to the
+    first token mismatch. Therefore `rollout_ar` emits the ground-truth `(o_k, w_k, flag_k)`
     across all `k = 0 .. L - 1` if and only if every non-ignored position's greedy
     argmax matches `labels`.
+
+    Args:
+        model: `Transformer` configured with `TiedIdentityHead`.
+        dataset: Stream of sequence-labelled `LabelledExample`s (one per problem).
+        num_problems: Number of problems to evaluate (`>= 1`).
+        batch_size: Maximum number of problems per forward pass (`>= 1`).
+
+    Returns:
+        `EvalMetrics` with `exact_match`, `step_accuracy`, and `halt_accuracy`.
     """
     if num_problems < 1:
         raise ValueError(f"num_problems must be >= 1, got {num_problems}")
@@ -83,6 +92,7 @@ def evaluate_ar(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
+        assert isinstance(logits, torch.Tensor)
         preds = logits.argmax(dim=-1)
 
         for b in range(len(chunk)):

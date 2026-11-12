@@ -1,4 +1,4 @@
-"""Shared training, evaluation, and artefact-recording loop (`run_sir_yes_sir_variant`) for `sir_yes_sir` variants."""
+"""Shared training, evaluation, and artefact-recording loop (`train_and_evaluate`) for `sir_yes_sir` variants."""
 
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
@@ -8,17 +8,19 @@ from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.evaluation import EvalMetrics
 from yessir.artefacts import write_config_json, write_eval_json
 from yessir.dataset import LabelledExample
+from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
 from yessir.training import seed_everything, train
 
 
-def run_sir_yes_sir_variant(
+def train_and_evaluate(
     *,
     variant_name: str,
     config: SirYesSirConfig,
     out_dir: Path | None,
-    num_classes: Sequence[int] | None,
+    head_type: HeadType,
+    num_classes: Sequence[int] | None = None,
     train_dataset: Iterable[LabelledExample],
     eval_dataset: Iterable[LabelledExample],
     evaluate_fn: Callable[..., EvalMetrics],
@@ -47,6 +49,7 @@ def run_sir_yes_sir_variant(
     seed_everything(config.seed)
 
     model = Transformer(
+        head_type=head_type,
         num_classes=num_classes,
         n_layers=config.n_layers,
         n_heads=config.n_heads,

@@ -8,6 +8,7 @@ import torch
 from yessir.batch import collate
 from yessir.blocks import TransformerBlock
 from yessir.example import Example
+from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.vocab import VOCAB_SIZE
 
@@ -123,7 +124,7 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
 def test_transformer_with_tied_identity_head_shapes_and_causal_invariance():
     torch.manual_seed(0)
     model = Transformer(
-        num_classes=None,
+        head_type=HeadType.TIED_IDENTITY,
         n_layers=2,
         n_heads=4,
         d_ff=64,
@@ -197,3 +198,15 @@ def test_transformer_gradient_flow_to_all_parameters():
 def test_transformer_rejects_non_positive_n_layers(bad_n_layers):
     with pytest.raises(ValueError, match="n_layers must be > 0"):
         Transformer(num_classes=(4,), n_layers=bad_n_layers)
+
+
+def test_transformer_validates_head_type_and_num_classes():
+    with pytest.raises(
+        ValueError, match="num_classes is required when head_type is 'multitask'"
+    ):
+        Transformer(head_type=HeadType.MULTITASK, num_classes=None)
+
+    with pytest.raises(
+        ValueError, match="num_classes must be None when head_type is 'tied_identity'"
+    ):
+        Transformer(head_type=HeadType.TIED_IDENTITY, num_classes=(4,))

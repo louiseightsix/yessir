@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from yessir.batch import IGNORE_INDEX, Batch, collate, collate_labelled
-from yessir.dataset import LabelledExample
+from yessir.batch import Batch, collate, collate_labelled
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 

@@ -7,7 +7,7 @@ from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
     add_common_dataset_args,
     iter_problems,
-    validate_stream_params,
+    resolve_symbol_pool,
 )
 from experiments.sir_yes_sir.variants.ar.inputs import (
     StepOrder,
@@ -37,7 +37,7 @@ class SirYesSirArDataset:
         embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
-        self._symbol_pool = validate_stream_params(alphabet_size, x_length, symbols)
+        self._symbol_pool = resolve_symbol_pool(alphabet_size, x_length, symbols)
         self._alphabet_size = alphabet_size
         self._x_length = x_length
         self._step_order = StepOrder(step_order)

@@ -1,4 +1,4 @@
-"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `sequence_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
+"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `next_token_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
 
 import itertools
 import os
@@ -9,8 +9,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from yessir.batch import IGNORE_INDEX, collate, collate_labelled
-from yessir.dataset import LabelledExample
+from yessir.batch import collate, collate_labelled
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.defaults import DEFAULT_LR
 from yessir.heads import TiedIdentityHead
 from yessir.model import Transformer
@@ -92,19 +92,21 @@ def multitask_cross_entropy(
     return total_loss
 
 
-def sequence_cross_entropy(
+def next_token_cross_entropy(
     logits: torch.Tensor,
     labels: torch.Tensor,
 ) -> torch.Tensor:
     """Compute masked next-token cross-entropy loss across sequence positions.
 
-    Positions where `labels == IGNORE_INDEX` (`-100`, e.g. prompt prefix tokens
-    and right-padding positions) are excluded from the mean.
+    Unlike Hugging Face causal LMs (which shift `labels` internally), `labels` here
+    are already pre-shifted so `labels[b, t]` is the target token predicted by
+    `logits[b, t]`. Positions where `labels == IGNORE_INDEX` (`-100`, e.g. prompt
+    prefix tokens and right-padding positions) are excluded from the mean.
 
     Args:
         logits: FloatTensor of shape `(batch_size, seq_len, vocab_size)`.
-        labels: LongTensor of shape `(batch_size, seq_len)` with class indices
-            in `0..vocab_size - 1` or `IGNORE_INDEX`.
+        labels: Pre-shifted LongTensor of shape `(batch_size, seq_len)` with class
+            indices in `0..vocab_size - 1` or `IGNORE_INDEX`.
 
     Returns:
         Scalar loss tensor averaged over all non-ignored positions in the batch.
@@ -148,7 +150,7 @@ def train_step(
 
     Dispatches on `model.head`:
     - `TiedIdentityHead`: collates sequence-level labels with `collate_labelled`
-      and computes `sequence_cross_entropy`.
+      and computes `next_token_cross_entropy`.
     - `MultiTaskHead`: collates examples with `collate`, packs per-head labels with
       `pack_multitask_labels`, and computes `multitask_cross_entropy`.
 
@@ -169,7 +171,8 @@ def train_step(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
-        loss = sequence_cross_entropy(logits, labels)
+        assert isinstance(logits, torch.Tensor)
+        loss = next_token_cross_entropy(logits, labels)
     else:
         batch = collate([item.example for item in items])
         labels = pack_multitask_labels(items)
@@ -179,6 +182,7 @@ def train_step(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
+        assert isinstance(logits, tuple)
         loss = multitask_cross_entropy(logits, labels)
 
     loss.backward()

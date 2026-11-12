@@ -1,4 +1,4 @@
-"""Autoregressive execution harness (`parse_ar_trace`, `run_ar`) for the `ar` variant of `sir_yes_sir`."""
+"""Autoregressive execution harness (`parse_ar_trace`, `rollout_ar`) for the `ar` variant of `sir_yes_sir`."""
 
 import torch
 
@@ -26,6 +26,13 @@ def parse_ar_trace(
     Only complete 3-token step chunks are returned; if `step_order == StepOrder.WRAP_FIRST`,
     each `(w_k, o_k, flag_k)` triplet is reordered to `(o_k, w_k, flag_k)` so the returned
     tuples always match `reference_step`.
+
+    Args:
+        trace: Flat sequence of generated output tokens.
+        step_order: Within-step emission order (`OUT_FIRST` or `WRAP_FIRST`).
+
+    Returns:
+        List of canonical `(o_k, w_k, flag_k)` tuples for all complete 3-token steps.
     """
     step_order = StepOrder(step_order)
     tokens = tuple(int(t) for t in trace)
@@ -40,7 +47,7 @@ def parse_ar_trace(
 
 
 @torch.no_grad()
-def run_ar(
+def rollout_ar(
     model: Transformer,
     alphabet: TokenSequence,
     x: TokenSequence,
@@ -48,11 +55,21 @@ def run_ar(
     step_order: StepOrder = StepOrder.OUT_FIRST,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> list[tuple[Token, Token, Token]]:
-    """Run free-running greedy autoregressive generation on `(alphabet, x)`.
+    """Run free-running greedy autoregressive rollout on `(alphabet, x)`.
 
     Starts from an empty trace after the second `[SEP]` and greedily appends one
     token per forward pass from `model` (up to `3 * len(x)` tokens), stopping as
     soon as a 3-token step ends with `SpecialToken.FLAG_FINISHED`.
+
+    Args:
+        model: `Transformer` configured with `TiedIdentityHead`.
+        alphabet: Ordered problem alphabet of `B >= 2` distinct byte symbols.
+        x: Input sequence of `L >= 1` symbols drawn from `alphabet`.
+        step_order: Within-step emission order (`OUT_FIRST` or `WRAP_FIRST`).
+        embedding_mode: Which of `token_type_ids` and `position_ids` to attach.
+
+    Returns:
+        List of canonical `(o_k, w_k, flag_k)` step tuples parsed from the trace.
     """
     step_order = StepOrder(step_order)
     alphabet_tokens, x_tokens = validate_problem(alphabet, x)
@@ -75,6 +92,7 @@ def run_ar(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
+        assert isinstance(logits, torch.Tensor)
         next_token = int(logits[0, -1].argmax(dim=-1).item())
         trace.append(next_token)
 

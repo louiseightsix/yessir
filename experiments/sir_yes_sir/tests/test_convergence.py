@@ -3,11 +3,12 @@
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
-from experiments.sir_yes_sir.variants.ar.harness import run_ar
-from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset
+from experiments.sir_yes_sir.variants.ar.harness import rollout_ar
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset
 from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
-from experiments.sir_yes_sir.variants.sm_mh.harness import run_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.harness import rollout_sm_mh
 from yessir.alphabet import SymbolSet
+from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.training import seed_everything, train
 from yessir.vocab import VOCAB_SIZE
@@ -42,13 +43,13 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
         d_scratch=16,
     )
 
-    train_dataset = SirYesSirDataset(
+    train_dataset = SirYesSirSmMhDataset(
         alphabet_size=alphabet_size,
         x_length=x_length,
         symbols=symbols,
         seed=42,
     )
-    eval_dataset = SirYesSirDataset(
+    eval_dataset = SirYesSirSmMhDataset(
         alphabet_size=alphabet_size,
         x_length=x_length,
         symbols=symbols,
@@ -62,7 +63,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
     assert metrics.step_accuracy > 0.99
     assert metrics.halt_accuracy > 0.99
 
-    # Also verify free-running `run_sm_mh` on two reversed 3-symbol permutations
+    # Also verify free-running `rollout_sm_mh` on two reversed 3-symbol permutations
     # (`b"012"` and `b"210"`), where every symbol's `o_k` and `w_k` both differ.
     for alphabet in (b"012", b"210"):
         for x in (b"01", b"12"):
@@ -70,7 +71,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
                 tuple(int(t) for t in reference_step(alphabet, x, k))
                 for k in range(len(x))
             ]
-            assert run_sm_mh(model, alphabet, x) == expected
+            assert rollout_sm_mh(model, alphabet, x) == expected
 
 
 def test_sir_yes_sir_ar_cpu_convergence():
@@ -82,7 +83,7 @@ def test_sir_yes_sir_ar_cpu_convergence():
     x_length = 2
 
     model = Transformer(
-        num_classes=None,
+        head_type=HeadType.TIED_IDENTITY,
         n_layers=2,
         n_heads=8,
         d_ff=64,
@@ -116,4 +117,4 @@ def test_sir_yes_sir_ar_cpu_convergence():
                 tuple(int(t) for t in reference_step(alphabet, x, k))
                 for k in range(len(x))
             ]
-            assert run_ar(model, alphabet, x) == expected
+            assert rollout_ar(model, alphabet, x) == expected

@@ -1,4 +1,4 @@
-"""Batched model inputs (`Batch`) and right-padding collation (`collate`, `collate_labelled`, `IGNORE_INDEX`)."""
+"""Batched model inputs (`Batch`) and right-padding collation (`collate`, `collate_labelled`)."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -86,9 +86,18 @@ def collate(examples: Sequence[Example]) -> Batch:
 def collate_labelled(items: Sequence[LabelledExample]) -> tuple[Batch, torch.Tensor]:
     """Right-pad sequence-labelled `LabelledExample`s into `(Batch, labels)`.
 
-    Each `item` must have one label per sequence position (`len(item.labels) == len(item.example)`).
-    Positions at `>= length` are right-padded with `IGNORE_INDEX = -100` so they are
-    ignored by `sequence_cross_entropy`.
+    Each `item` must have one pre-shifted label per sequence position
+    (`len(item.labels) == len(item.example)`). Positions at `>= length` are
+    right-padded with `IGNORE_INDEX = -100` so they are ignored by
+    `next_token_cross_entropy`.
+
+    Args:
+        items: Non-empty sequence of sequence-labelled `LabelledExample`s.
+
+    Returns:
+        Tuple `(batch, labels)` where `batch` is a right-padded `Batch` and
+        `labels` is a LongTensor of shape `(batch_size, max_seq_len)` right-padded
+        with `IGNORE_INDEX`.
     """
     if not items:
         raise ValueError("cannot collate an empty sequence of LabelledExample")

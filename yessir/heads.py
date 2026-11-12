@@ -1,12 +1,21 @@
-"""Output heads (`MultiTaskHead`, `TiedIdentityHead`) for mapping final Transformer hidden states to task logits."""
+"""Output heads (`HeadType`, `MultiTaskHead`, `TiedIdentityHead`) for mapping final Transformer hidden states to task logits."""
 
 from collections.abc import Sequence
+from enum import StrEnum, unique
 
 import torch
 from torch import nn
 
 from yessir.blocks import RMSNorm
 from yessir.vocab import VOCAB_SIZE
+
+
+@unique
+class HeadType(StrEnum):
+    """Output head architecture for `Transformer`."""
+
+    MULTITASK = "multitask"
+    TIED_IDENTITY = "tied_identity"
 
 
 class TiedIdentityHead(nn.Module):

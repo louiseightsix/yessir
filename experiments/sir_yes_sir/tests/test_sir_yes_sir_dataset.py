@@ -1,4 +1,4 @@
-"""Tests for `experiments/sir_yes_sir/dataset.py`."""
+"""Tests for `experiments/sir_yes_sir/variants/sm_mh/dataset.py` and `experiments/sir_yes_sir/variants/ar/dataset.py`."""
 
 import itertools
 
@@ -13,19 +13,19 @@ from experiments.sir_yes_sir.variants.ar.dataset import (
     main as ar_main,
 )
 from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_trace
-from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset, main
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset, main
 from yessir.alphabet import SymbolSet
 from yessir.dataset import IGNORE_INDEX
 from yessir.special_tokens import SpecialToken
 
 
 def test_dataset_reproducibility_and_seed_variation():
-    ds = SirYesSirDataset(alphabet_size=4, x_length=3, seed=123)
+    ds = SirYesSirSmMhDataset(alphabet_size=4, x_length=3, seed=123)
     run1 = list(itertools.islice(ds, 6))
     run2 = list(itertools.islice(ds, 6))
     assert run1 == run2
 
-    ds_other = SirYesSirDataset(alphabet_size=4, x_length=3, seed=456)
+    ds_other = SirYesSirSmMhDataset(alphabet_size=4, x_length=3, seed=456)
     run_other = list(itertools.islice(ds_other, 6))
     assert run1 != run_other
 
@@ -33,7 +33,7 @@ def test_dataset_reproducibility_and_seed_variation():
 def test_dataset_matches_reference_step_and_accumulates_output_history():
     alphabet_size = 5
     x_length = 4
-    ds = SirYesSirDataset(
+    ds = SirYesSirSmMhDataset(
         alphabet_size=alphabet_size,
         x_length=x_length,
         seed=7,
@@ -75,7 +75,7 @@ def test_dataset_matches_reference_step_and_accumulates_output_history():
     ],
 )
 def test_dataset_respects_embedding_mode(mode: EmbeddingMode):
-    ds = SirYesSirDataset(
+    ds = SirYesSirSmMhDataset(
         alphabet_size=3,
         x_length=2,
         embedding_mode=mode,
@@ -98,7 +98,7 @@ def test_dataset_respects_embedding_mode(mode: EmbeddingMode):
 
 def test_dataset_samples_only_from_given_symbols_pool():
     pool = SymbolSet.DECIMAL[:3]
-    ds = SirYesSirDataset(alphabet_size=3, x_length=2, symbols=pool, seed=42)
+    ds = SirYesSirSmMhDataset(alphabet_size=3, x_length=2, symbols=pool, seed=42)
     items = list(itertools.islice(ds, 12))
     for item in items[::2]:
         alphabet = item.example.input_ids[1:4]
@@ -117,7 +117,7 @@ def test_dataset_samples_only_from_given_symbols_pool():
 )
 def test_dataset_rejects_invalid_init_args(alphabet_size, x_length, symbols, match):
     with pytest.raises(ValueError, match=match):
-        SirYesSirDataset(
+        SirYesSirSmMhDataset(
             alphabet_size=alphabet_size, x_length=x_length, symbols=symbols
         )
 

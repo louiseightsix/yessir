@@ -20,7 +20,7 @@ class RMSNorm(nn.Module):
         d_model: int,
         *,
         eps: float = 1e-6,
-        gain: bool = True,
+        gain: bool = True,  # Equivalent to `elementwise_affine` in `torch.nn.RMSNorm`
     ) -> None:
         super().__init__()
         if d_model <= 0:

@@ -1,4 +1,4 @@
-"""Tests for `experiments/sir_yes_sir/harness.py` and `experiments/sir_yes_sir/evaluation.py`."""
+"""Tests for `experiments/sir_yes_sir/variants/*/harness.py` and `experiments/sir_yes_sir/variants/*/evaluation.py`."""
 
 import itertools
 from collections.abc import Sequence
@@ -10,14 +10,15 @@ from experiments.sir_yes_sir.evaluation import EvalMetrics
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
-from experiments.sir_yes_sir.variants.ar.harness import parse_ar_trace, run_ar
+from experiments.sir_yes_sir.variants.ar.harness import parse_ar_trace, rollout_ar
 from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_example
-from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset
 from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
-from experiments.sir_yes_sir.variants.sm_mh.harness import run_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.harness import rollout_sm_mh
 from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
 from yessir.dataset import LabelledExample
 from yessir.example import Example
+from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 from yessir.training import seed_everything
@@ -128,7 +129,7 @@ class _WrapBlindModel:
         return logits_o, logits_w, logits_f
 
 
-def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
+def test_rollout_sm_mh_feeds_back_models_own_emitted_outputs():
     alphabet = b"0123"
     x = b"130"
     # Ground-truth o_0 is '2' and o_1 is '0'; script wrong in-alphabet symbols '3' then '1'
@@ -140,7 +141,7 @@ def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert model.training is False
     assert emitted == scripted
     assert model.seen_examples == [
@@ -150,7 +151,7 @@ def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
     ]
 
 
-def test_run_sm_mh_stops_early_on_premature_flag_finished():
+def test_rollout_sm_mh_stops_early_on_premature_flag_finished():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -159,12 +160,12 @@ def test_run_sm_mh_stops_early_on_premature_flag_finished():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_run_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
+def test_rollout_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -173,12 +174,12 @@ def test_run_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_run_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
+def test_rollout_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
     alphabet = b"0123"
     x = b"13"
     scripted = [
@@ -187,13 +188,13 @@ def test_run_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert len(emitted) == 2
     assert emitted == scripted
 
 
 def test_evaluate_sm_mh_computes_exact_match_step_and_halt_accuracy():
-    dataset = SirYesSirDataset(alphabet_size=4, x_length=2, seed=7)
+    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=2, seed=7)
     # 2 problems of length 2 = 4 steps total
     items = list(itertools.islice(dataset, 4))
 
@@ -233,7 +234,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     x_length = 3
     seed = 123
 
-    dataset = SirYesSirDataset(
+    dataset = SirYesSirSmMhDataset(
         alphabet_size=alphabet_size, x_length=x_length, seed=seed
     )
     model = _WrapBlindModel()
@@ -253,7 +254,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert metrics_b1 == metrics_b7
     assert 0.0 < metrics_b1.exact_match < 1.0
 
-    # Run free-running `run_sm_mh` on the exact same `num_problems` problems extracted from `dataset`
+    # Run free-running `rollout_sm_mh` on the exact same `num_problems` problems extracted from `dataset`
     all_items = list(itertools.islice(dataset, num_problems * x_length))
     free_running_em_count = 0
     for prob_idx in range(num_problems):
@@ -261,7 +262,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
         alphabet, x, out_history = _parse_sm_input_ids(prob_items[0].example.input_ids)
         assert out_history == ()
         expected_steps = [item.labels for item in prob_items]
-        emitted_steps = run_sm_mh(
+        emitted_steps = rollout_sm_mh(
             model,  # ty: ignore[invalid-argument-type]
             alphabet,
             x,
@@ -282,7 +283,7 @@ def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
         d_position=8,
         d_scratch=0,
     )
-    dataset = SirYesSirDataset(alphabet_size=4, x_length=3, seed=99)
+    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=3, seed=99)
     metrics = evaluate_sm_mh(model, dataset, num_problems=3, batch_size=4)
     assert 0.0 <= metrics.exact_match <= 1.0
     assert 0.0 <= metrics.step_accuracy <= 1.0
@@ -299,7 +300,7 @@ def test_evaluate_sm_mh_validation_errors():
         d_position=8,
         d_scratch=0,
     )
-    dataset = SirYesSirDataset(alphabet_size=4, x_length=2, seed=0)
+    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=2, seed=0)
 
     with pytest.raises(ValueError, match="num_problems must be >= 1"):
         evaluate_sm_mh(model, dataset, num_problems=0)
@@ -399,7 +400,7 @@ class _ScriptedArModel:
         return logits
 
 
-def test_parse_ar_trace_and_run_ar():
+def test_parse_ar_trace_and_rollout_ar():
     alphabet = b"0123"
     x = b"13"
 
@@ -413,7 +414,7 @@ def test_parse_ar_trace_and_run_ar():
         int(SpecialToken.FLAG_FINISHED),
     ]
     model = _ScriptedArModel(scripted)
-    steps = run_ar(
+    steps = rollout_ar(
         model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
@@ -432,7 +433,7 @@ def test_parse_ar_trace_and_run_ar():
     early_model = _ScriptedArModel(
         [ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED), ord("0")]
     )
-    early_steps = run_ar(
+    early_steps = rollout_ar(
         early_model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
@@ -448,7 +449,7 @@ def test_parse_ar_trace_and_run_ar():
 def test_evaluate_ar_end_to_end_and_validation():
     seed_everything(0)
     model = Transformer(
-        num_classes=None,
+        head_type=HeadType.TIED_IDENTITY,
         n_layers=1,
         n_heads=4,
         d_ff=32,

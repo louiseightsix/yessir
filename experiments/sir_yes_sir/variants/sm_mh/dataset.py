@@ -1,4 +1,4 @@
-"""Data generator (`SirYesSirDataset`) for the `sm_mh` variant of `sir_yes_sir`."""
+"""Data generator (`SirYesSirSmMhDataset`) for the `sm_mh` variant of `sir_yes_sir`."""
 
 import argparse
 from collections.abc import Iterator, Sequence
@@ -7,7 +7,7 @@ from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
     add_common_dataset_args,
     iter_problems,
-    validate_stream_params,
+    resolve_symbol_pool,
 )
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
@@ -17,7 +17,7 @@ from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import Token, TokenSequence
 
 
-class SirYesSirDataset:
+class SirYesSirSmMhDataset:
     """Infinite deterministic stream of state-machine `LabelledExample`s for `sir_yes_sir`.
 
     Each problem samples a fresh alphabet of size `alphabet_size` from `symbols`
@@ -35,7 +35,7 @@ class SirYesSirDataset:
         embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
-        self._symbol_pool = validate_stream_params(alphabet_size, x_length, symbols)
+        self._symbol_pool = resolve_symbol_pool(alphabet_size, x_length, symbols)
         self._alphabet_size = alphabet_size
         self._x_length = x_length
         self._embedding_mode = embedding_mode
@@ -65,8 +65,8 @@ class SirYesSirDataset:
                 output_history.append(o_k)
 
 
-def _build_from_args(args: argparse.Namespace) -> SirYesSirDataset:
-    return SirYesSirDataset(
+def _build_from_args(args: argparse.Namespace) -> SirYesSirSmMhDataset:
+    return SirYesSirSmMhDataset(
         alphabet_size=args.alphabet_size,
         x_length=args.x_length,
         embedding_mode=args.embedding_mode,

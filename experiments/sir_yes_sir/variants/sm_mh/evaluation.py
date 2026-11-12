@@ -67,17 +67,26 @@ def evaluate_sm_mh(
 ) -> EvalMetrics:
     """Evaluate `model` with teacher forcing on `num_problems` problems from `dataset`.
 
-    `dataset` must start at a problem boundary (`k = 0`, e.g. a fresh `SirYesSirDataset`
+    `dataset` must start at a problem boundary (`k = 0`, e.g. a fresh `SirYesSirSmMhDataset`
     with an evaluation seed disjoint from training); starting mid-problem raises a
     `ValueError`.
 
     Why teacher-forced step evaluation also gives exact match (`exact_match`) for `sir_yes_sir`:
     Per `experiments/sir_yes_sir/spec/README.md` §3, an instance is an exact match if
     and only if the model emits the ground-truth `(o_k, w_k, flag_k)` at every step
-    `k = 0 .. L - 1`. Until the first error on a problem, `run_sm_mh`'s `output_history`
+    `k = 0 .. L - 1`. Until the first error on a problem, `rollout_sm_mh`'s `output_history`
     is identical to the teacher-forced `output_history` in `dataset`, and right-padding
     invariance produces the same logits up to floating-point rounding as step-by-step
     execution.
+
+    Args:
+        model: `Transformer` configured with `MultiTaskHead`.
+        dataset: Stream of step-level `LabelledExample`s starting at step `k = 0`.
+        num_problems: Number of complete problems to evaluate (`>= 1`).
+        batch_size: Maximum number of step examples per forward pass (`>= 1`).
+
+    Returns:
+        `EvalMetrics` with `exact_match`, `step_accuracy`, and `halt_accuracy`.
     """
     if num_problems < 1:
         raise ValueError(f"num_problems must be >= 1, got {num_problems}")

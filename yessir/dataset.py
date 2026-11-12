@@ -22,8 +22,10 @@ class LabelledExample:
             - For multitask steps (`MultiTaskHead`), holds one target token per
               head (e.g. `(o_k, w_k, flag_k)`).
             - For sequence-level next-token prediction (`TiedIdentityHead`), holds
-              one target per sequence position (`len(labels) == len(example)`),
-              with `IGNORE_INDEX` at positions excluded from the loss.
+              one pre-shifted target per sequence position (`len(labels) == len(example)`),
+              where `labels[t]` is already the target token predicted at position `t`
+              (unlike Hugging Face causal LMs, which shift `labels` internally), with
+              `IGNORE_INDEX` at positions excluded from the loss.
     """
 
     example: Example

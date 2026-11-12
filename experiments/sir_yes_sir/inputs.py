@@ -1,4 +1,4 @@
-"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`, `iter_problems`, `add_common_dataset_args`) for `sir_yes_sir`."""
+"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`, `resolve_symbol_pool`, `iter_problems`, `add_common_dataset_args`) for `sir_yes_sir`."""
 
 import argparse
 import random
@@ -90,7 +90,7 @@ def sections_to_example(
     raise ValueError(f"unknown embedding_mode: {embedding_mode!r}")
 
 
-def validate_stream_params(
+def resolve_symbol_pool(
     alphabet_size: int,
     x_length: int,
     symbols: TokenSequence = SymbolSet.ALL,

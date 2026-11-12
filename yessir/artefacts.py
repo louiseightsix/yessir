@@ -130,13 +130,18 @@ def write_config_json(
     return path
 
 
+def _unwrap_config_dict(raw: dict[str, Any]) -> dict[str, Any]:
+    """Extract the nested `'config'` dict if present, otherwise return `raw`."""
+    nested = raw.get("config")
+    return nested if isinstance(nested, dict) else raw
+
+
 def read_config_dict(path: Path) -> dict[str, Any]:
     """Read a config dictionary from `path` (either a full `config.json` with a `'config'` key or a flat JSON object)."""
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise TypeError(f"expected a JSON object in {path}, got {type(raw).__name__}")
-    nested = raw.get("config")
-    return nested if isinstance(nested, dict) else raw
+    return _unwrap_config_dict(raw)
 
 
 def write_eval_json(
@@ -177,8 +182,7 @@ def load_existing_run_configs(
                 continue
             if variant_name is not None and raw.get("variant") != variant_name:
                 continue
-            nested = raw.get("config")
-            config_dict = nested if isinstance(nested, dict) else raw
+            config_dict = _unwrap_config_dict(raw)
         except (OSError, json.JSONDecodeError):
             continue
         runs.append((config_path.parent.name, config_dict))
