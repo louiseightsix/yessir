@@ -3,6 +3,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import ConfigBuilder, {
+  type ExistingRunConfig,
+  type ExperimentSchema,
+} from "../components/ConfigBuilder";
 
 // Astro runs with web/ as the working directory; the repo root is one up.
 const repoRoot = resolve(process.cwd(), "..");
@@ -11,22 +15,6 @@ const repoRoot = resolve(process.cwd(), "..");
 // so the build doesn't have to install torch. YESSIR_PYTHON overrides it.
 const python = process.env.YESSIR_PYTHON ?? "python3";
 const pythonVersion = execFileSync(python, ["--version"], { encoding: "utf8" }).trim();
-
-interface FieldSchema {
-  name: string;
-  type: "int" | "float" | "bool" | "enum" | "str";
-  is_optional: boolean;
-  default: unknown;
-  domain: string;
-  step: number;
-  choices: unknown[] | null;
-}
-
-interface ExperimentSchema {
-  description: string;
-  default_config: Record<string, unknown>;
-  fields: FieldSchema[];
-}
 
 const schemas: Record<string, ExperimentSchema> = JSON.parse(
   execFileSync(python, ["-m", "experiments.web_export"], { cwd: repoRoot, encoding: "utf8" }),
@@ -126,6 +114,17 @@ const experiments = readdirSync(resultsDir, { withFileTypes: true })
       .sort((a, b) => b.name.localeCompare(a.name));
     return { name: entry.name, runs };
   });
+
+const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
+  experiments.map((exp) => [
+    exp.name,
+    exp.runs
+      .filter((run): run is RunData & { meta: { config: Record<string, unknown> } } =>
+        Boolean(run.meta?.config),
+      )
+      .map((run) => ({ name: run.name, config: run.meta.config })),
+  ]),
+);
 ---
 
 <html lang="en">
@@ -184,11 +183,48 @@ const experiments = readdirSync(resultsDir, { withFileTypes: true })
         background: #fafafa;
         margin-top: 0.4rem;
       }
+      .config-builder {
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 2rem;
+      }
+      .builder-toolbar, .cli-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .numeric-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .duplicate-warning {
+        color: #92400e;
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        margin: 0.75rem 0;
+      }
+      .cli-output {
+        margin-top: 1rem;
+      }
+      .cli-output pre {
+        background: #f5f5f5;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 0.6rem 0.8rem;
+        overflow-x: auto;
+      }
     </style>
   </head>
   <body>
     <h1>yessir</h1>
-    <p>Results and default configs for the yessir experiments (built with {pythonVersion}).</p>
+    <p>Results browser and config builder for the yessir experiments (built with {pythonVersion}).</p>
+
+    <h2>Config builder</h2>
+    <ConfigBuilder client:load schemas={schemas} existingRuns={existingRuns} />
 
     <h2>Results</h2>
     {experiments.length === 0 && <p>No results yet.</p>}
@@ -325,35 +361,5 @@ const experiments = readdirSync(resultsDir, { withFileTypes: true })
         </section>
       );
     })}
-
-    <h2>Experiment schemas</h2>
-    {Object.entries(schemas).map(([name, schema]) => (
-      <section>
-        <h3>{name}</h3>
-        <p>{schema.description}</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Setting</th>
-              <th>Type</th>
-              <th>Default</th>
-              <th>Step</th>
-              <th>Allowed / Range</th>
-            </tr>
-          </thead>
-          <tbody>
-            {schema.fields.map((f) => (
-              <tr>
-                <th><code>{f.name}</code></th>
-                <td><code>{f.type}{f.is_optional ? " | None" : ""}</code></td>
-                <td><code>{JSON.stringify(f.default)}</code></td>
-                <td><code>{f.step}</code></td>
-                <td><code>{f.domain}</code></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    ))}
   </body>
 </html>
