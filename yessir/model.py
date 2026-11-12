@@ -12,10 +12,11 @@ from yessir.heads import MultiTaskHead
 
 _INIT_STD = 0.02
 
-# A standard 2-matrix FFN at d_model = 512 uses d_ffn = 4 * d_model = 2048.
-# SwiGLU uses 3 matrices (w_gate, w_up, w_down), so matching the parameter count
+# A standard 2-matrix FFN at the default d_model = 512 uses d_ffn = 4 * d_model = 2048.
+# SwiGLU uses 3 matrices (w_gate, w_up, w_down), so matching that parameter count
 # takes (2 / 3) * 4 * 512 ≈ 1365.3 hidden units; rounding up to a multiple of 32
-# gives 43 * 32 = 1376.
+# gives 43 * 32 = 1376. Callers that change d_model (via d_scratch / d_position /
+# use_token_type) should pass d_ffn explicitly if they want d_ffn to scale with it.
 _DEFAULT_D_FFN = 1376
 
 
