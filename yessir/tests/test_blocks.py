@@ -37,7 +37,7 @@ def test_rmsnorm_unit_rms_zero_preservation_and_gain():
 def test_rmsnorm_preserves_bfloat16_dtype():
     x = torch.randn(2, 3, 8, dtype=torch.bfloat16)
 
-    # 1. Mixed precision (e.g. autocast): float32 weights with bfloat16 input
+    # 1. float32 weights with bfloat16 input
     norm_fp32 = RMSNorm(d_model=8)
     out_mixed = norm_fp32(x)
     assert out_mixed.dtype == torch.bfloat16
