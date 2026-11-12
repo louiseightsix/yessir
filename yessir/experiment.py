@@ -180,7 +180,7 @@ def _configure_experiment_parser(
     parser: argparse.ArgumentParser,
     experiment: Experiment[Any],
 ) -> None:
-    """Attach `--interactive`, `--out-dir`, and all config flags for `experiment` onto `parser`."""
+    """Attach `--interactive`, `--out-dir`, `--no-save`, and all config flags for `experiment`."""
     parser.add_argument(
         "-i",
         "--interactive",
@@ -192,7 +192,13 @@ def _configure_experiment_parser(
         "--out-dir",
         type=Path,
         default=None,
-        help="Optional directory to write run artefacts into",
+        help="Directory to write run artefacts into (default: results/<experiment>/<date>-<sha>-<words>)",
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        default=False,
+        help="Do not write run artefacts (config.json, metrics.jsonl, summary.json) to disk",
     )
     add_config_args(parser, experiment.config_cls)
 
@@ -212,7 +218,17 @@ def _execute_experiment[ConfigT: ExperimentConfig](
             print("Run cancelled.")
             return None
         config = edited
-    return experiment.run(config, args.out_dir)
+
+    if args.no_save:
+        out_dir: Path | None = None
+    elif args.out_dir is not None:
+        out_dir = args.out_dir
+    else:
+        from yessir.artefacts import default_run_dir
+
+        out_dir = default_run_dir(experiment.name)
+
+    return experiment.run(config, out_dir)
 
 
 def run_experiment_cli[ConfigT: ExperimentConfig](

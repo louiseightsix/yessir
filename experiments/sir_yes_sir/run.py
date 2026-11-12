@@ -7,7 +7,9 @@ from typing import Any
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.dataset import SirYesSirDataset
 from experiments.sir_yes_sir.evaluation import evaluate_sm_mh
+from yessir.artefacts import write_config_json, write_summary_json
 from yessir.experiment import Experiment, run_experiment_cli
+from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
 from yessir.training import seed_everything, train
 from yessir.vocab import VOCAB_SIZE
@@ -18,7 +20,11 @@ def run_sir_yes_sir(
     out_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate a `sir_yes_sir` model according to `config`."""
-    _ = out_dir  # Used once Stage A step 9 artefact recording lands.
+    logger: MetricsLogger | None = None
+    if out_dir is not None:
+        write_config_json(out_dir, config)
+        logger = MetricsLogger(out_dir / "metrics.jsonl")
+
     seed_everything(config.seed)
 
     model = Transformer(
@@ -66,6 +72,25 @@ def run_sir_yes_sir(
         "step_accuracy": metrics.step_accuracy,
         "halt_accuracy": metrics.halt_accuracy,
     }
+    if logger is not None and out_dir is not None:
+        for step_idx, step_loss in enumerate(losses[:-1], start=1):
+            logger.log(step_idx, {"loss": step_loss})
+        logger.log(
+            config.steps,
+            {
+                "loss": losses[-1],
+                "exact_match": metrics.exact_match,
+                "step_accuracy": metrics.step_accuracy,
+                "halt_accuracy": metrics.halt_accuracy,
+            },
+        )
+        write_summary_json(
+            out_dir,
+            experiment_name="sir_yes_sir",
+            config=config,
+            metrics=summary,
+        )
+
     print(
         f"[sir_yes_sir] step={config.steps} "
         f"loss={summary['final_loss']:.4f} "
@@ -73,6 +98,8 @@ def run_sir_yes_sir(
         f"step_acc={metrics.step_accuracy:.2%} "
         f"halt_acc={metrics.halt_accuracy:.2%}"
     )
+    if out_dir is not None:
+        print(f"[sir_yes_sir] artefacts written to {out_dir}")
     return summary
 
 

@@ -163,9 +163,17 @@ def test_run_experiment_cli_and_run_experiments_cli(
         run=_dummy_run,
     )
 
-    # Single-experiment CLI runner.
+    # Single-experiment CLI runner with explicit --out-dir and --no-save.
     single_res = run_experiment_cli(exp, ["--steps", "12", "--out-dir", str(tmp_path)])
     assert single_res == {"steps": 12, "mode": "fast", "out_dir": tmp_path}
+
+    nosave_res = run_experiment_cli(exp, ["--steps", "12", "--no-save"])
+    assert nosave_res == {"steps": 12, "mode": "fast", "out_dir": None}
+
+    # Default out_dir uses results/<experiment>/<date>-<sha>-<adj>-<noun>.
+    default_res = run_experiment_cli(exp, ["--steps", "12"])
+    assert default_res is not None
+    assert default_res["out_dir"].parent.name == "dummy"
 
     # Multi-experiment CLI dispatcher with no args prints help and returns None.
     assert run_experiments_cli([exp], []) is None
