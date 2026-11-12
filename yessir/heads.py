@@ -39,6 +39,9 @@ class MultiTaskHead(nn.Module):
     ) -> tuple[torch.Tensor, ...]:
         """Project the last unpadded hidden state of each sequence into per-head logits.
 
+        Assumes `lengths` values lie in `1..T` (enforced by `Example` and `collate`;
+        `0` is not checked on device and would wrap around to `-1`).
+
         Args:
             h: Hidden states of shape `(B, T, d_model)`.
             lengths: Unpadded sequence lengths of shape `(B,)` with values in `1..T`.

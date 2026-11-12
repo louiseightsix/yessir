@@ -17,10 +17,10 @@ def test_multitask_head_shapes_and_bias_free():
     h = torch.randn(4, 7, 16)
     lengths = torch.tensor([3, 7, 1, 5], dtype=torch.long)
 
-    logits_out, logits_wrap, logits_flag = head(h, lengths)
-    assert logits_out.shape == (4, VOCAB_SIZE)
-    assert logits_wrap.shape == (4, VOCAB_SIZE)
-    assert logits_flag.shape == (4, 2)
+    logits_a, logits_b, logits_c = head(h, lengths)
+    assert logits_a.shape == (4, VOCAB_SIZE)
+    assert logits_b.shape == (4, VOCAB_SIZE)
+    assert logits_c.shape == (4, 2)
 
 
 def test_multitask_head_reads_at_lengths_minus_one_and_ignores_padding():
