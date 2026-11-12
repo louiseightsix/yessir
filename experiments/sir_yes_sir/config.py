@@ -5,8 +5,8 @@ from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.alphabet import SymbolSet
+from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
-from yessir.training import DEFAULT_LR
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
 
