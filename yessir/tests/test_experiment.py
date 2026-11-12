@@ -13,6 +13,8 @@ from yessir.experiment import (
     ExperimentConfig,
     add_config_args,
     parse_config_cli,
+    run_experiment_cli,
+    run_experiments_cli,
 )
 
 
@@ -146,3 +148,39 @@ def test_experiment_descriptor_binding(tmp_path: Path):
     cfg = exp.config_cls(steps=10)
     result = exp.run(cfg, tmp_path)
     assert result == {"steps": 10, "out_dir": str(tmp_path)}
+
+
+def test_run_experiment_cli_and_run_experiments_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    def _dummy_run(cfg: _DummyConfig, out_dir: Path | None) -> dict[str, Any]:
+        return {"steps": cfg.steps, "mode": cfg.mode.value, "out_dir": out_dir}
+
+    exp = Experiment(
+        name="dummy",
+        description="Dummy experiment for testing.",
+        config_cls=_DummyConfig,
+        run=_dummy_run,
+    )
+
+    # Single-experiment CLI runner.
+    single_res = run_experiment_cli(exp, ["--steps", "12", "--out-dir", str(tmp_path)])
+    assert single_res == {"steps": 12, "mode": "fast", "out_dir": tmp_path}
+
+    # Multi-experiment CLI dispatcher with no args prints help and returns None.
+    assert run_experiments_cli([exp], []) is None
+    help_out = capsys.readouterr().out
+    assert "dummy" in help_out
+
+    # Multi-experiment CLI dispatcher routes to the named experiment.
+    dispatched_res = run_experiments_cli(
+        [exp],
+        ["dummy", "--steps", "25", "--mode", "accurate", "--out-dir", str(tmp_path)],
+    )
+    assert dispatched_res == {"steps": 25, "mode": "accurate", "out_dir": tmp_path}
+
+    # Empty or duplicate experiment lists are rejected.
+    with pytest.raises(ValueError, match="at least one Experiment"):
+        run_experiments_cli([], [])
+    with pytest.raises(ValueError, match="duplicate experiment name"):
+        run_experiments_cli([exp, exp], [])

@@ -158,3 +158,76 @@ def parse_config_cli[ConfigT: ExperimentConfig](
     add_config_args(parser, config_cls)
     args = parser.parse_args(argv)
     return build_config_from_args(config_cls, args)
+
+
+def _configure_experiment_parser(
+    parser: argparse.ArgumentParser,
+    experiment: Experiment[Any],
+) -> None:
+    """Attach `--out-dir` and all config flags for `experiment` onto `parser`."""
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Optional directory to write run artefacts into",
+    )
+    add_config_args(parser, experiment.config_cls)
+
+
+def run_experiment_cli[ConfigT: ExperimentConfig](
+    experiment: Experiment[ConfigT],
+    argv: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Parse CLI flags for a single `experiment` and invoke `experiment.run`."""
+    parser = argparse.ArgumentParser(
+        prog=experiment.name,
+        description=experiment.description,
+    )
+    _configure_experiment_parser(parser, experiment)
+    args = parser.parse_args(argv)
+    config = build_config_from_args(experiment.config_cls, args)
+    return experiment.run(config, args.out_dir)
+
+
+def run_experiments_cli(
+    experiments: Sequence[Experiment[Any]],
+    argv: Sequence[str] | None = None,
+) -> dict[str, Any] | None:
+    """Top-level CLI dispatcher over a sequence of registered `Experiment`s.
+
+    If invoked with no experiment name, prints available experiments and returns `None`.
+    """
+    if not experiments:
+        raise ValueError("experiments must contain at least one Experiment")
+
+    by_name: dict[str, Experiment[Any]] = {}
+    for exp in experiments:
+        if exp.name in by_name:
+            raise ValueError(f"duplicate experiment name: {exp.name!r}")
+        by_name[exp.name] = exp
+
+    parser = argparse.ArgumentParser(
+        prog="./yessir.sh run",
+        description="Run a yessir experiment.",
+    )
+    subparsers = parser.add_subparsers(
+        dest="experiment",
+        metavar="<experiment>",
+        help="Registered experiment to run",
+    )
+    for exp in experiments:
+        sub = subparsers.add_parser(
+            exp.name,
+            help=exp.description,
+            description=exp.description,
+        )
+        _configure_experiment_parser(sub, exp)
+
+    args = parser.parse_args(argv)
+    if args.experiment is None:
+        parser.print_help()
+        return None
+
+    selected = by_name[args.experiment]
+    config = build_config_from_args(selected.config_cls, args)
+    return selected.run(config, args.out_dir)

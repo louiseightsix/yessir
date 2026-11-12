@@ -2,12 +2,13 @@
 # yessir runner.
 #
 # Usage:
-#   ./yessir.sh test [pytest args]   # run the live experiments' tests
-#   ./yessir.sh check                # lint and typecheck live code (ruff check + ty check)
-#   ./yessir.sh fix                  # typecheck, autofix lint issues, and format
-#   ./yessir.sh format [ruff args]   # format live code (ruff format)
-#   ./yessir.sh uv <uv args>         # any uv command against this repo's environment,
-#                                    #   e.g. ./yessir.sh uv add numpy
+#   ./yessir.sh run [experiment] [args]  # run a live experiment (or list experiments)
+#   ./yessir.sh test [pytest args]       # run the live experiments' tests
+#   ./yessir.sh check                    # lint and typecheck live code (ruff check + ty check)
+#   ./yessir.sh fix                      # typecheck, autofix lint issues, and format
+#   ./yessir.sh format [ruff args]       # format live code (ruff format)
+#   ./yessir.sh uv <uv args>             # any uv command against this repo's environment,
+#                                        #   e.g. ./yessir.sh uv add numpy
 #
 # Environment: one venv per OS (.venv-darwin, .venv-linux), so a checkout shared
 # between a macOS host and a Linux VM keeps a working venv on each side. Set
@@ -29,13 +30,14 @@ export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-.venv-$OS}"
 [ "$OS" = linux ] && export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
 usage() {
-    sed -n '4,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '4,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 
 case "$cmd" in
+    run)    exec uv run python -m experiments "$@" ;;
     test)   exec uv run pytest "$@" ;;
     check)
         uv run ruff check "$@"
