@@ -1,4 +1,4 @@
-"""Generic experiment configuration (`ExperimentConfig`), contract (`Experiment`), and CLI parser."""
+"""Generic experiment configuration (`ExperimentConfig`), variant/experiment contracts (`ExperimentVariant`, `Experiment`), and CLI parser."""
 
 import argparse
 import dataclasses
@@ -38,13 +38,45 @@ class ExperimentConfig:
 
 
 @dataclass(frozen=True, kw_only=True)
-class Experiment[ConfigT: ExperimentConfig]:
-    """Descriptor binding an experiment's name, config schema, and execution entry point."""
+class ExperimentVariant[ConfigT: ExperimentConfig]:
+    """One execution/harness variant of an `Experiment` (e.g. `'sm_mh'`, `'sm_seq'`, `'ar'`)."""
 
     name: str
     description: str
     config_cls: type[ConfigT]
     run: Callable[[ConfigT, Path | None], dict[str, Any]]
+
+
+@dataclass(frozen=True, kw_only=True)
+class Experiment:
+    """Descriptor grouping all `ExperimentVariant`s that share a task and reference rule."""
+
+    name: str
+    description: str
+    variants: tuple[ExperimentVariant[Any], ...]
+
+    def __post_init__(self) -> None:
+        if not self.variants:
+            raise ValueError(
+                f"Experiment {self.name!r} must contain at least one ExperimentVariant"
+            )
+        seen: set[str] = set()
+        for variant in self.variants:
+            if variant.name in seen:
+                raise ValueError(
+                    f"duplicate variant name {variant.name!r} in Experiment {self.name!r}"
+                )
+            seen.add(variant.name)
+
+    def get_variant(self, name: str) -> ExperimentVariant[Any]:
+        """Return the variant named `name`, or raise `KeyError`."""
+        for variant in self.variants:
+            if variant.name == name:
+                return variant
+        available = ", ".join(v.name for v in self.variants)
+        raise KeyError(
+            f"unknown variant {name!r} for experiment {self.name!r} (available: {available})"
+        )
 
 
 def unwrap_optional(tp: Any) -> tuple[Any, bool]:
@@ -175,58 +207,104 @@ def _has_explicit_config_args(
     return any(field.name in arg_dict for field in dataclasses.fields(config_cls))
 
 
-def _configure_experiment_parser(
+def _add_run_control_args(
     parser: argparse.ArgumentParser,
-    experiment: Experiment[Any],
+    *,
+    suppress_defaults: bool = False,
 ) -> None:
-    """Attach `--interactive`, `--out-dir`, `--no-save`, and all config flags for `experiment`."""
+    """Attach `--interactive`, `--out-dir`, and `--no-save` flags to `parser`."""
     parser.add_argument(
         "-i",
         "--interactive",
         action="store_true",
-        default=False,
+        default=argparse.SUPPRESS if suppress_defaults else False,
         help="Open the interactive config editor before starting the run",
     )
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=None,
+        default=argparse.SUPPRESS if suppress_defaults else None,
         help="Directory to write run artefacts into (default: results/<experiment>/<date>-<sha>-<words>)",
     )
     parser.add_argument(
         "--no-save",
         action="store_true",
-        default=False,
+        default=argparse.SUPPRESS if suppress_defaults else False,
         help="Do not write run artefacts (config.json, train.jsonl, eval.json) to disk",
     )
-    add_config_args(parser, experiment.config_cls)
 
 
-def _execute_experiment[ConfigT: ExperimentConfig](
-    experiment: Experiment[ConfigT],
+def _configure_experiment_parser(
+    parser: argparse.ArgumentParser,
+    experiment: Experiment,
+) -> None:
+    """Attach run-control flags and `<variant>` subparsers for `experiment`."""
+    _add_run_control_args(parser, suppress_defaults=False)
+    subparsers = parser.add_subparsers(
+        dest="variant",
+        metavar="<variant>",
+        help=f"Variant of {experiment.name} to run",
+    )
+    for variant in experiment.variants:
+        v_sub = subparsers.add_parser(
+            variant.name,
+            help=variant.description,
+            description=variant.description,
+        )
+        _add_run_control_args(v_sub, suppress_defaults=True)
+        add_config_args(v_sub, variant.config_cls)
+
+
+def _execute_experiment(
+    experiment: Experiment,
+    exp_parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     *,
     argv: Sequence[str] | None,
     interactive: bool | None,
 ) -> dict[str, Any] | None:
-    has_flags = _has_explicit_config_args(experiment.config_cls, args)
-    should_edit = (
-        interactive
-        if interactive is not None
-        else (
-            args.interactive or (argv is None and sys.stdin.isatty() and not has_flags)
+    variant_name: str | None = getattr(args, "variant", None)
+    if variant_name is None:
+        should_edit = (
+            interactive
+            if interactive is not None
+            else (args.interactive or (argv is None and sys.stdin.isatty()))
         )
-    )
+        if not should_edit:
+            exp_parser.print_help()
+            return None
 
-    config = build_config_from_args(experiment.config_cls, args)
-    if should_edit:
         from yessir.tui import interactive_edit_config
 
-        edited = interactive_edit_config(experiment, initial=config)
+        edited = interactive_edit_config(experiment)
         if edited is None:
             print("Run cancelled.")
             return None
-        config = edited
+        chosen_variant, chosen_config = edited
+    else:
+        chosen_variant = experiment.get_variant(variant_name)
+        has_flags = _has_explicit_config_args(chosen_variant.config_cls, args)
+        should_edit = (
+            interactive
+            if interactive is not None
+            else (
+                args.interactive
+                or (argv is None and sys.stdin.isatty() and not has_flags)
+            )
+        )
+        chosen_config = build_config_from_args(chosen_variant.config_cls, args)
+        if should_edit:
+            from yessir.tui import interactive_edit_config
+
+            edited = interactive_edit_config(
+                experiment,
+                variant=chosen_variant,
+                initial=chosen_config,
+            )
+            if edited is None:
+                print("Run cancelled.")
+                return None
+            chosen_variant, chosen_config = edited
 
     if args.no_save:
         out_dir: Path | None = None
@@ -237,16 +315,16 @@ def _execute_experiment[ConfigT: ExperimentConfig](
 
         out_dir = default_run_dir(experiment.name)
 
-    return experiment.run(config, out_dir)
+    return chosen_variant.run(chosen_config, out_dir)
 
 
-def run_experiment_cli[ConfigT: ExperimentConfig](
-    experiment: Experiment[ConfigT],
+def run_experiment_cli(
+    experiment: Experiment,
     argv: Sequence[str] | None = None,
     *,
     interactive: bool | None = None,
 ) -> dict[str, Any] | None:
-    """Parse CLI flags for a single `experiment` and invoke `experiment.run`.
+    """Parse CLI flags for a single `experiment` and invoke the selected variant's `run`.
 
     When invoked from a terminal (`argv is None` and `sys.stdin.isatty()`) with no
     explicit config flags—or when `-i` / `--interactive` is passed—opens the
@@ -258,11 +336,17 @@ def run_experiment_cli[ConfigT: ExperimentConfig](
     )
     _configure_experiment_parser(parser, experiment)
     args = parser.parse_args(argv)
-    return _execute_experiment(experiment, args, argv=argv, interactive=interactive)
+    return _execute_experiment(
+        experiment,
+        parser,
+        args,
+        argv=argv,
+        interactive=interactive,
+    )
 
 
 def run_experiments_cli(
-    experiments: Sequence[Experiment[Any]],
+    experiments: Sequence[Experiment],
     argv: Sequence[str] | None = None,
     *,
     interactive: bool | None = None,
@@ -270,13 +354,15 @@ def run_experiments_cli(
     """Top-level CLI dispatcher over a sequence of registered `Experiment`s.
 
     If invoked with no experiment name, prints available experiments and returns `None`.
-    If invoked with an experiment name and no config flags in a terminal (or with `-i`),
-    opens the interactive config editor before starting the run.
+    If invoked with an experiment name (and optionally a variant name) and no config
+    flags in a terminal (or with `-i`), opens the interactive config editor before
+    starting the run.
     """
     if not experiments:
         raise ValueError("experiments must contain at least one Experiment")
 
-    by_name: dict[str, Experiment[Any]] = {}
+    by_name: dict[str, Experiment] = {}
+    exp_parsers: dict[str, argparse.ArgumentParser] = {}
     for exp in experiments:
         if exp.name in by_name:
             raise ValueError(f"duplicate experiment name: {exp.name!r}")
@@ -298,6 +384,7 @@ def run_experiments_cli(
             description=exp.description,
         )
         _configure_experiment_parser(sub, exp)
+        exp_parsers[exp.name] = sub
 
     args = parser.parse_args(argv)
     if args.experiment is None:
@@ -305,4 +392,10 @@ def run_experiments_cli(
         return None
 
     selected = by_name[args.experiment]
-    return _execute_experiment(selected, args, argv=argv, interactive=interactive)
+    return _execute_experiment(
+        selected,
+        exp_parsers[selected.name],
+        args,
+        argv=argv,
+        interactive=interactive,
+    )

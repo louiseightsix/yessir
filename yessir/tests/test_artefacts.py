@@ -91,6 +91,7 @@ def test_config_and_eval_writers(tmp_path: Path):
     cfg_path = write_config_json(
         run_dir,
         experiment_name="sir_yes_sir",
+        variant_name="sm_mh",
         config=cfg,
         git_info=fake_git,
     )
@@ -98,6 +99,7 @@ def test_config_and_eval_writers(tmp_path: Path):
     cfg_payload = json.loads(cfg_path.read_text())
     assert cfg_payload == {
         "experiment": "sir_yes_sir",
+        "variant": "sm_mh",
         "git_commit_sha": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         "git_short_sha": "953e4d9",
         "git_commit_date": "2026-11-12",
@@ -131,16 +133,32 @@ def test_load_existing_run_configs(tmp_path: Path):
     write_config_json(
         exp_dir / "2026-11-12-953e4d9-amber-falcon",
         experiment_name="sir_yes_sir",
+        variant_name="sm_mh",
         config=cfg1,
     )
     write_config_json(
         exp_dir / "2026-11-12-953e4d9-quiet-otter",
         experiment_name="sir_yes_sir",
+        variant_name="ar",
         config=cfg2,
     )
 
-    loaded = load_existing_run_configs("sir_yes_sir", results_root=tmp_path)
-    assert loaded == [
+    loaded_all = load_existing_run_configs("sir_yes_sir", results_root=tmp_path)
+    assert loaded_all == [
         ("2026-11-12-953e4d9-amber-falcon", {"steps": 10, "lr": 1e-3}),
+        ("2026-11-12-953e4d9-quiet-otter", {"steps": 20, "lr": 2e-3}),
+    ]
+
+    # Filtering by variant_name only returns runs of that variant.
+    loaded_sm_mh = load_existing_run_configs(
+        "sir_yes_sir", variant_name="sm_mh", results_root=tmp_path
+    )
+    assert loaded_sm_mh == [
+        ("2026-11-12-953e4d9-amber-falcon", {"steps": 10, "lr": 1e-3}),
+    ]
+    loaded_ar = load_existing_run_configs(
+        "sir_yes_sir", variant_name="ar", results_root=tmp_path
+    )
+    assert loaded_ar == [
         ("2026-11-12-953e4d9-quiet-otter", {"steps": 20, "lr": 2e-3}),
     ]

@@ -4,9 +4,9 @@ import itertools
 
 import pytest
 
-from experiments.sir_yes_sir.dataset import SirYesSirDataset, main
 from experiments.sir_yes_sir.inputs import EmbeddingMode, TokenType
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset, main
 from yessir.alphabet import SymbolSet
 from yessir.special_tokens import SpecialToken
 

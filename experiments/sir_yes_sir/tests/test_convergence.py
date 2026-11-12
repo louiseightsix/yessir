@@ -1,9 +1,9 @@
 """End-to-end CPU convergence smoke test for the `sir_yes_sir` experiment."""
 
-from experiments.sir_yes_sir.dataset import SirYesSirDataset
-from experiments.sir_yes_sir.evaluation import evaluate_sm_mh
-from experiments.sir_yes_sir.harness import run_sm_mh
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset
+from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.harness import run_sm_mh
 from yessir.alphabet import SymbolSet
 from yessir.model import Transformer
 from yessir.training import seed_everything, train

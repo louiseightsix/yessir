@@ -6,11 +6,12 @@ from collections.abc import Sequence
 import pytest
 import torch
 
-from experiments.sir_yes_sir.dataset import SirYesSirDataset
-from experiments.sir_yes_sir.evaluation import EvalMetrics, evaluate_sm_mh
-from experiments.sir_yes_sir.harness import run_sm_mh
-from experiments.sir_yes_sir.inputs import build_sm_example
+from experiments.sir_yes_sir.evaluation import EvalMetrics
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset
+from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.harness import run_sm_mh
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
 from yessir.dataset import LabelledExample
 from yessir.example import Example
 from yessir.model import Transformer

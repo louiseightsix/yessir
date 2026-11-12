@@ -4,8 +4,9 @@ import argparse
 import random
 from collections.abc import Iterator, Sequence
 
-from experiments.sir_yes_sir.inputs import EmbeddingMode, build_sm_example
+from experiments.sir_yes_sir.inputs import EmbeddingMode
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
 from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli

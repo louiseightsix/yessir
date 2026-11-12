@@ -5,9 +5,9 @@ import pytest
 from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
     TokenType,
-    build_ar_example,
-    build_sm_example,
 )
+from experiments.sir_yes_sir.variants.ar.inputs import build_ar_example
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import TOKEN_TYPE_RANGE
 

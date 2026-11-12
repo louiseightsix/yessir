@@ -4,9 +4,9 @@ import torch
 
 from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
-    build_sm_example,
     validate_problem,
 )
+from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken

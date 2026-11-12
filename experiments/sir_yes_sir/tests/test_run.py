@@ -16,6 +16,7 @@ def test_sir_yes_sir_registered_in_top_level_experiments():
     names = [exp.name for exp in EXPERIMENTS]
     assert "sir_yes_sir" in names
     assert SIR_YES_SIR_EXPERIMENT in EXPERIMENTS
+    assert [v.name for v in SIR_YES_SIR_EXPERIMENT.variants] == ["sm_mh"]
 
 
 def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
@@ -26,6 +27,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
         EXPERIMENTS,
         [
             "sir_yes_sir",
+            "sm_mh",
             "--out-dir",
             str(run_dir),
             "--steps",
@@ -66,6 +68,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
 
     config_payload = json.loads(config_file.read_text())
     assert config_payload["experiment"] == "sir_yes_sir"
+    assert config_payload["variant"] == "sm_mh"
     assert "git_commit_sha" in config_payload
     loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
     assert loaded_cfg.steps == 2
@@ -82,10 +85,10 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert loaded_eval == eval_results
 
     out = capsys.readouterr().out
-    assert "[sir_yes_sir] Starting run: B=4, L=3" in out
-    assert "[sir_yes_sir] step=1/2 loss=" in out
-    assert "[sir_yes_sir] step=2/2 loss=" in out
-    assert "[sir_yes_sir] eval (4 problems):" in out
+    assert "[sir_yes_sir:sm_mh] Starting run: B=4, L=3" in out
+    assert "[sir_yes_sir:sm_mh] step=1/2 loss=" in out
+    assert "[sir_yes_sir:sm_mh] step=2/2 loss=" in out
+    assert "[sir_yes_sir:sm_mh] eval (4 problems):" in out
     assert f"artefacts written to {run_dir}" in out
 
 

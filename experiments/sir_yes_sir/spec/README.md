@@ -51,9 +51,9 @@ Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rn
 - **Canonical order**: `create_alphabet(SymbolSet.DECIMAL[:B])` or `create_alphabet(SymbolSet.HEX[:B])` — conventional ASCII characters in order (`'0'`–`'9'` or `'0'`–`'9'`, `'A'`–`'F'`).
 - **Canonical permuted**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` — the same canonical glyphs shuffled into a random order.
 
-## 2. Input Layouts (`experiments/sir_yes_sir/inputs.py`)
+## 2. Input Layouts (`experiments/sir_yes_sir/inputs.py` & `experiments/sir_yes_sir/variants/`)
 
-### 2.1 State-machine input (`build_sm_example`)
+### 2.1 State-machine input (`variants/sm_mh/inputs.py`: `build_sm_example`)
 
 At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]` and ending with the step query trigger `[STEP]`:
 
@@ -75,7 +75,7 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 
 In `sm_mh`, `MultiTaskHead.heads[0..2]` read the hidden state at the final unpadded position (`[STEP]`) to predict `(o_k, w_k, flag_k)` in order.
 
-### 2.2 Autoregressive input (`build_ar_example`)
+### 2.2 Autoregressive input (`variants/ar/inputs.py`: `build_ar_example`)
 
 In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and any `trace` tokens generated so far follow in a single `TokenType.OUTPUT` section with sequential `position_ids = 0, 1, ..., len(trace) - 1`:
 
