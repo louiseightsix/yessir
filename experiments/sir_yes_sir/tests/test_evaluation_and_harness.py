@@ -1,6 +1,7 @@
 """Tests for `experiments/sir_yes_sir/harness.py` and `experiments/sir_yes_sir/evaluation.py`."""
 
 import itertools
+import random
 from collections.abc import Sequence
 
 import pytest
@@ -11,6 +12,7 @@ from experiments.sir_yes_sir.evaluation import EvalMetrics, evaluate_sm_mh
 from experiments.sir_yes_sir.harness import run_sm_mh
 from experiments.sir_yes_sir.inputs import build_sm_example
 from experiments.sir_yes_sir.reference import reference_step
+from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.dataset import LabelledExample
 from yessir.example import Example
 from yessir.model import Transformer
@@ -20,12 +22,13 @@ from yessir.vocab import VOCAB_SIZE, Token
 
 
 class _ScriptedModel:
-    """Fake model returning scripted `(o_k, w_k, flag_k)` argmax predictions per step."""
+    """Fake model returning scripted `(o_k, w_k, flag_k)` argmax predictions per step and recording inputs."""
 
     def __init__(self, scripted_steps: Sequence[Sequence[Token]]) -> None:
         self._steps = [tuple(step) for step in scripted_steps]
         self._cursor = 0
         self.training = True
+        self.seen_examples: list[Example] = []
 
     def eval(self) -> "_ScriptedModel":
         self.training = False
@@ -44,6 +47,22 @@ class _ScriptedModel:
         logits_f = torch.zeros(batch_size, VOCAB_SIZE)
 
         for b in range(batch_size):
+            n = int(lengths[b].item())
+            self.seen_examples.append(
+                Example(
+                    input_ids=tuple(input_ids[b, :n].tolist()),
+                    token_type_ids=(
+                        tuple(token_type_ids[b, :n].tolist())
+                        if token_type_ids is not None
+                        else None
+                    ),
+                    position_ids=(
+                        tuple(position_ids[b, :n].tolist())
+                        if position_ids is not None
+                        else None
+                    ),
+                )
+            )
             o_k, w_k, flag_k = self._steps[self._cursor]
             self._cursor += 1
             logits_o[b, o_k] = 10.0
@@ -53,19 +72,71 @@ class _ScriptedModel:
         return logits_o, logits_w, logits_f
 
 
-def test_run_sm_mh_reproduces_spec_example_1_when_predictions_match_oracle():
+class _WrapBlindModel:
+    """Input-dependent fake model that follows `reference_step` except when `x_k` is the last alphabet symbol
+    or when `output_history` already contains a wrong symbol."""
+
+    def __init__(self) -> None:
+        self.training = True
+
+    def eval(self) -> "_WrapBlindModel":
+        self.training = False
+        return self
+
+    def __call__(
+        self,
+        input_ids: torch.Tensor,
+        lengths: torch.Tensor,
+        token_type_ids: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch_size = input_ids.size(0)
+        logits_o = torch.zeros(batch_size, VOCAB_SIZE)
+        logits_w = torch.zeros(batch_size, VOCAB_SIZE)
+        logits_f = torch.zeros(batch_size, VOCAB_SIZE)
+
+        for b in range(batch_size):
+            seq = input_ids[b, : int(lengths[b].item())].tolist()
+            sep_indices = [i for i, tok in enumerate(seq) if tok == SpecialToken.SEP]
+            alphabet = tuple(seq[1 : sep_indices[0]])
+            x = tuple(seq[sep_indices[0] + 1 : sep_indices[1]])
+            out_history = tuple(seq[sep_indices[1] + 1 : -1])
+            k = len(out_history)
+
+            o_k, w_k, flag_k = reference_step(alphabet, x, k)
+            ref_history = tuple(reference_step(alphabet, x, j)[0] for j in range(k))
+
+            # Fail whenever x_k wraps around (x_k == alphabet[-1]) or prior history is already wrong
+            if x[k] == alphabet[-1] or out_history != ref_history:
+                o_k = alphabet[1]
+
+            logits_o[b, o_k] = 10.0
+            logits_w[b, w_k] = 10.0
+            logits_f[b, int(flag_k)] = 10.0
+
+        return logits_o, logits_w, logits_f
+
+
+def test_run_sm_mh_feeds_back_models_own_emitted_outputs():
     alphabet = b"0123"
     x = b"130"
-    oracle_steps = [
-        (ord("2"), ord("0"), int(SpecialToken.FLAG_CONTINUE)),
-        (ord("0"), ord("1"), int(SpecialToken.FLAG_CONTINUE)),
+    # Ground-truth o_0 is '2' and o_1 is '0'; script wrong in-alphabet symbols '3' then '1'
+    # so the model's history diverges from the reference history.
+    scripted = [
+        (ord("3"), ord("0"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("1"), ord("1"), int(SpecialToken.FLAG_CONTINUE)),
         (ord("1"), ord("0"), int(SpecialToken.FLAG_FINISHED)),
     ]
-    model = _ScriptedModel(oracle_steps)
+    model = _ScriptedModel(scripted)
 
     emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert model.training is False
-    assert emitted == oracle_steps
+    assert emitted == scripted
+    assert model.seen_examples == [
+        build_sm_example(alphabet, x, ()),
+        build_sm_example(alphabet, x, (ord("3"),)),
+        build_sm_example(alphabet, x, (ord("3"), ord("1"))),
+    ]
 
 
 def test_run_sm_mh_stops_early_on_premature_flag_finished():
@@ -79,6 +150,7 @@ def test_run_sm_mh_stops_early_on_premature_flag_finished():
 
     emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
+    assert len(model.seen_examples) == 1
 
 
 def test_run_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
@@ -92,6 +164,7 @@ def test_run_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
 
     emitted = run_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
+    assert len(model.seen_examples) == 1
 
 
 def test_run_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
@@ -120,7 +193,11 @@ def test_evaluate_sm_mh_computes_exact_match_step_and_halt_accuracy():
     scripted = [
         items[0].labels,
         items[1].labels,
-        ((items[2].labels[0] + 1) % 240, items[2].labels[1], items[2].labels[2]),
+        (
+            (items[2].labels[0] + 1) % VOCAB_SIZE,
+            items[2].labels[1],
+            items[2].labels[2],
+        ),
         (items[3].labels[0], items[3].labels[1], int(SpecialToken.FLAG_CONTINUE)),
     ]
     model = _ScriptedModel(scripted)
@@ -139,7 +216,54 @@ def test_evaluate_sm_mh_computes_exact_match_step_and_halt_accuracy():
     )
 
 
-def test_evaluate_sm_mh_with_real_transformer_and_batch_size_invariance():
+def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invariance():
+    num_problems = 20
+    alphabet_size = 4
+    x_length = 3
+    seed = 123
+
+    dataset = SirYesSirDataset(
+        alphabet_size=alphabet_size, x_length=x_length, seed=seed
+    )
+    model = _WrapBlindModel()
+
+    metrics_b1 = evaluate_sm_mh(
+        model,  # ty: ignore[invalid-argument-type]
+        dataset,
+        num_problems=num_problems,
+        batch_size=1,
+    )
+    metrics_b7 = evaluate_sm_mh(
+        model,  # ty: ignore[invalid-argument-type]
+        dataset,
+        num_problems=num_problems,
+        batch_size=7,
+    )
+    assert metrics_b1 == metrics_b7
+    assert 0.0 < metrics_b1.exact_match < 1.0
+
+    # Run free-running `run_sm_mh` on the exact same `num_problems` problems
+    rng = random.Random(seed)
+    free_running_em_count = 0
+    for _ in range(num_problems):
+        alphabet = create_alphabet(SymbolSet.ALL, sample_size=alphabet_size, rng=rng)
+        x = tuple(rng.choice(alphabet) for _ in range(x_length))
+        expected_steps = [
+            tuple(int(t) for t in reference_step(alphabet, x, k))
+            for k in range(x_length)
+        ]
+        emitted_steps = run_sm_mh(
+            model,  # ty: ignore[invalid-argument-type]
+            alphabet,
+            x,
+        )
+        if emitted_steps == expected_steps:
+            free_running_em_count += 1
+
+    assert free_running_em_count / num_problems == pytest.approx(metrics_b1.exact_match)
+
+
+def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
     seed_everything(0)
     model = Transformer(
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
@@ -150,13 +274,10 @@ def test_evaluate_sm_mh_with_real_transformer_and_batch_size_invariance():
         d_scratch=0,
     )
     dataset = SirYesSirDataset(alphabet_size=4, x_length=3, seed=99)
-
-    m_batched = evaluate_sm_mh(model, dataset, num_problems=4, batch_size=5)
-    m_single = evaluate_sm_mh(model, dataset, num_problems=4, batch_size=1)
-    assert m_batched == m_single
-    assert 0.0 <= m_batched.exact_match <= 1.0
-    assert 0.0 <= m_batched.step_accuracy <= 1.0
-    assert 0.0 <= m_batched.halt_accuracy <= 1.0
+    metrics = evaluate_sm_mh(model, dataset, num_problems=3, batch_size=4)
+    assert 0.0 <= metrics.exact_match <= 1.0
+    assert 0.0 <= metrics.step_accuracy <= 1.0
+    assert 0.0 <= metrics.halt_accuracy <= 1.0
 
 
 def test_evaluate_sm_mh_validation_errors():
@@ -200,8 +321,12 @@ def test_evaluate_sm_mh_validation_errors():
         )
 
     # Dataset exhausted before num_problems complete problems
-    o_0, w_0, f_0 = reference_step(b"01", b"01", 0)
-    unfinished = [LabelledExample(example=ex_k0, labels=(o_0, w_0, int(f_0)))]
+    unfinished = [
+        LabelledExample(
+            example=ex_k0,
+            labels=(ord("1"), ord("0"), int(SpecialToken.FLAG_CONTINUE)),
+        )
+    ]
     with pytest.raises(ValueError, match="dataset exhausted early"):
         evaluate_sm_mh(model, unfinished, num_problems=1)
 
