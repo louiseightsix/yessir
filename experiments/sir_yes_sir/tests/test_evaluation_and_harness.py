@@ -1,7 +1,6 @@
 """Tests for `experiments/sir_yes_sir/harness.py` and `experiments/sir_yes_sir/evaluation.py`."""
 
 import itertools
-import random
 from collections.abc import Sequence
 
 import pytest
@@ -12,13 +11,23 @@ from experiments.sir_yes_sir.evaluation import EvalMetrics, evaluate_sm_mh
 from experiments.sir_yes_sir.harness import run_sm_mh
 from experiments.sir_yes_sir.inputs import build_sm_example
 from experiments.sir_yes_sir.reference import reference_step
-from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.dataset import LabelledExample
 from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 from yessir.training import seed_everything
 from yessir.vocab import VOCAB_SIZE, Token
+
+
+def _parse_sm_input_ids(
+    seq: Sequence[Token],
+) -> tuple[tuple[Token, ...], tuple[Token, ...], tuple[Token, ...]]:
+    """Extract `(alphabet, x, out_history)` from a state-machine `input_ids` sequence."""
+    sep_indices = [i for i, tok in enumerate(seq) if tok == SpecialToken.SEP]
+    alphabet = tuple(seq[1 : sep_indices[0]])
+    x = tuple(seq[sep_indices[0] + 1 : sep_indices[1]])
+    out_history = tuple(seq[sep_indices[1] + 1 : -1])
+    return alphabet, x, out_history
 
 
 class _ScriptedModel:
@@ -97,10 +106,7 @@ class _WrapBlindModel:
 
         for b in range(batch_size):
             seq = input_ids[b, : int(lengths[b].item())].tolist()
-            sep_indices = [i for i, tok in enumerate(seq) if tok == SpecialToken.SEP]
-            alphabet = tuple(seq[1 : sep_indices[0]])
-            x = tuple(seq[sep_indices[0] + 1 : sep_indices[1]])
-            out_history = tuple(seq[sep_indices[1] + 1 : -1])
+            alphabet, x, out_history = _parse_sm_input_ids(seq)
             k = len(out_history)
 
             o_k, w_k, flag_k = reference_step(alphabet, x, k)
@@ -242,16 +248,14 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert metrics_b1 == metrics_b7
     assert 0.0 < metrics_b1.exact_match < 1.0
 
-    # Run free-running `run_sm_mh` on the exact same `num_problems` problems
-    rng = random.Random(seed)
+    # Run free-running `run_sm_mh` on the exact same `num_problems` problems extracted from `dataset`
+    all_items = list(itertools.islice(dataset, num_problems * x_length))
     free_running_em_count = 0
-    for _ in range(num_problems):
-        alphabet = create_alphabet(SymbolSet.ALL, sample_size=alphabet_size, rng=rng)
-        x = tuple(rng.choice(alphabet) for _ in range(x_length))
-        expected_steps = [
-            tuple(int(t) for t in reference_step(alphabet, x, k))
-            for k in range(x_length)
-        ]
+    for prob_idx in range(num_problems):
+        prob_items = all_items[prob_idx * x_length : (prob_idx + 1) * x_length]
+        alphabet, x, out_history = _parse_sm_input_ids(prob_items[0].example.input_ids)
+        assert out_history == ()
+        expected_steps = [item.labels for item in prob_items]
         emitted_steps = run_sm_mh(
             model,  # ty: ignore[invalid-argument-type]
             alphabet,
