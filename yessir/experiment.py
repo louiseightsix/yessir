@@ -185,7 +185,7 @@ def _configure_experiment_parser(
         "--interactive",
         action="store_true",
         default=False,
-        help="Open the interactive parameter editor before starting the run",
+        help="Open the interactive config editor before starting the run",
     )
     parser.add_argument(
         "--out-dir",
@@ -250,7 +250,7 @@ def run_experiment_cli[ConfigT: ExperimentConfig](
 
     When invoked from a terminal (`argv is None` and `sys.stdin.isatty()`) with no
     explicit config flags—or when `-i` / `--interactive` is passed—opens the
-    interactive parameter editor before starting the run.
+    interactive config editor before starting the run.
     """
     parser = argparse.ArgumentParser(
         prog=experiment.name,
@@ -271,7 +271,7 @@ def run_experiments_cli(
 
     If invoked with no experiment name, prints available experiments and returns `None`.
     If invoked with an experiment name and no config flags in a terminal (or with `-i`),
-    opens the interactive parameter editor before starting the run.
+    opens the interactive config editor before starting the run.
     """
     if not experiments:
         raise ValueError("experiments must contain at least one Experiment")

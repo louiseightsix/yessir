@@ -13,7 +13,7 @@ from yessir.batch import collate
 from yessir.dataset import LabelledExample
 from yessir.model import Transformer
 
-_DEFAULT_LR = 3e-4
+DEFAULT_LR = 3e-4
 
 
 def seed_everything(seed: int) -> None:
@@ -38,7 +38,7 @@ def seed_everything(seed: int) -> None:
 def build_optimizer(
     model: nn.Module,
     *,
-    lr: float = _DEFAULT_LR,
+    lr: float = DEFAULT_LR,
 ) -> torch.optim.AdamW:
     """Create an AdamW optimiser with `betas=(0.9, 0.95)`, `eps=1e-8` (GPT-3), and `weight_decay=0.0`."""
     if lr <= 0:
@@ -164,7 +164,7 @@ def train(
         raise ValueError("cannot specify both lr and optimizer")
 
     if optimizer is None:
-        optimizer = build_optimizer(model, lr=_DEFAULT_LR if lr is None else lr)
+        optimizer = build_optimizer(model, lr=DEFAULT_LR if lr is None else lr)
     stream = iter(dataset)
 
     losses: list[float] = []

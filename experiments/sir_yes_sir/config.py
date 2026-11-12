@@ -6,6 +6,7 @@ from enum import StrEnum, unique
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.alphabet import SymbolSet
 from yessir.experiment import ExperimentConfig
+from yessir.training import DEFAULT_LR
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
 
@@ -24,7 +25,7 @@ class SymbolSetName(StrEnum):
 
 @dataclass(frozen=True, kw_only=True)
 class SirYesSirConfig(ExperimentConfig):
-    """Flat, validated inventory of parameters for a `sir_yes_sir` run.
+    """Flat, validated inventory of settings for a `sir_yes_sir` run.
 
     Cross-parameter rules enforced in `__post_init__`:
     1. **Symbol pool & alphabet size (`B`)**: `symbol_pool_size` (if given) slices the
@@ -69,7 +70,9 @@ class SirYesSirConfig(ExperimentConfig):
     # Training & evaluation
     steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
     batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
-    lr: float = field(default=3e-4, metadata={"domain": "float > 0", "step": 1e-4})
+    lr: float = field(
+        default=DEFAULT_LR, metadata={"domain": "float > 0", "step": 1e-4}
+    )
     seed: int = field(default=42, metadata={"domain": "int (!= eval_seed)"})
     num_eval_problems: int = field(
         default=100, metadata={"domain": "int >= 1", "step": 10}

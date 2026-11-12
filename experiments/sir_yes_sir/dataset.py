@@ -40,7 +40,7 @@ class SirYesSirDataset:
 
         self._alphabet_size = alphabet_size
         self._x_length = x_length
-        self._symbols = symbol_pool
+        self._symbol_pool = symbol_pool
         self._embedding_mode = embedding_mode
         self._seed = seed
 
@@ -49,7 +49,7 @@ class SirYesSirDataset:
         rng = random.Random(self._seed)
         while True:
             alphabet = create_alphabet(
-                self._symbols, sample_size=self._alphabet_size, rng=rng
+                self._symbol_pool, sample_size=self._alphabet_size, rng=rng
             )
             x = tuple(rng.choice(alphabet) for _ in range(self._x_length))
 
