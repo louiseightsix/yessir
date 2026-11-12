@@ -89,8 +89,6 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     model = Transformer(
         num_classes=(VOCAB_SIZE,),
         n_layers=n_layers,
-        n_heads=8,
-        d_ffn=1376,
     )
 
     expected_base_std = 0.02
@@ -106,12 +104,16 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     assert abs(layer0.ffn.w_down.weight.std().item() - expected_residual_std) < 0.0005
 
     # Perturb RMSNorm weights and verify reset_parameters restores them to 1.0
+    # and re-initialises residual projections rather than scaling them a second time.
     with torch.no_grad():
         layer0.attn_norm.weight.fill_(3.5)
         model.head.norm.weight.fill_(0.25)
     model.reset_parameters()
     assert torch.equal(layer0.attn_norm.weight, torch.ones(model.d_model))
     assert torch.equal(model.head.norm.weight, torch.ones(model.d_model))
+    assert (
+        abs(layer0.attn.out_proj.weight.std().item() - expected_residual_std) < 0.0005
+    )
 
 
 def test_transformer_gradient_flow_to_all_parameters():
