@@ -20,16 +20,33 @@ def format_token(token: Token) -> str:
 
 
 def format_labelled_example(item: LabelledExample, index: int) -> str:
-    """Format one `LabelledExample` for human inspection on the console."""
+    """Format one `LabelledExample` with aligned columns for console inspection."""
     ex = item.example
+    token_strs = [format_token(t) for t in ex.input_ids]
+    col_widths = [
+        max(
+            len(token_strs[i]),
+            len(str(ex.token_type_ids[i])) if ex.token_type_ids is not None else 0,
+            len(str(ex.position_ids[i])) if ex.position_ids is not None else 0,
+        )
+        for i in range(len(token_strs))
+    ]
+
+    in_row = "  ".join(s.rjust(w) for s, w in zip(token_strs, col_widths, strict=True))
     lines = [
         f"Example {index}:",
-        f"  input_ids:      {' '.join(format_token(t) for t in ex.input_ids)}",
+        f"  input_ids:      {in_row}",
     ]
     if ex.token_type_ids is not None:
-        lines.append(f"  token_type_ids: {' '.join(str(t) for t in ex.token_type_ids)}")
+        type_row = "  ".join(
+            str(t).rjust(w) for t, w in zip(ex.token_type_ids, col_widths, strict=True)
+        )
+        lines.append(f"  token_type_ids: {type_row}")
     if ex.position_ids is not None:
-        lines.append(f"  position_ids:   {' '.join(str(p) for p in ex.position_ids)}")
+        pos_row = "  ".join(
+            str(p).rjust(w) for p, w in zip(ex.position_ids, col_widths, strict=True)
+        )
+        lines.append(f"  position_ids:   {pos_row}")
     lines.append(
         f"  targets:        ({', '.join(format_token(t) for t in item.targets)})"
     )
