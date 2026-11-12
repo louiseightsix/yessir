@@ -35,4 +35,3 @@ def test_web_export_prints_schemas_with_stdlib_only():
 def test_web_export_matches_experiment_registry():
     assert CONFIGS == {exp.name: exp.config_cls for exp in EXPERIMENTS}
     assert DESCRIPTIONS == {exp.name: exp.description for exp in EXPERIMENTS}
-
