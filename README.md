@@ -6,6 +6,7 @@
 
 | Experiment | Rule | Status |
 | :--- | :--- | :--- |
+| [`sir_yes_sir`](experiments/sir_yes_sir/) | Next symbol in an in-context alphabet (mod B, no carry) | Live smoke-test & reference experiment |
 | [`addition`](experiments/addition/) | Long addition in bases defined in the prompt | Prototype done; implementation in progress |
 
 ## Layout
@@ -21,6 +22,7 @@
 Needs [uv](https://docs.astral.sh/uv/). Everything goes through `yessir.sh`, which creates and syncs the environment on first use:
 
 ```bash
+./yessir.sh run              # run an experiment (interactive TUI or CLI flags)
 ./yessir.sh test             # run the tests
 ./yessir.sh check            # lint and typecheck (ruff check + ty check)
 ./yessir.sh fix              # typecheck, autofix lint issues, and format

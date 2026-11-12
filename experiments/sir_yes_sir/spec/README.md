@@ -91,6 +91,8 @@ In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and
 
 ## 3. Scoring
 
-An instance is an **exact match** (`em`) if and only if the model:
-1. emits the correct `o_k` and `w_k` at every step `k` in `0 .. L - 1`, and
-2. emits `FLAG_CONTINUE` for all `k < L - 1` and `FLAG_FINISHED` at `k == L - 1`.
+Evaluation over a set of problems reports three metrics in `0.0..1.0`:
+
+- **`exact_match`**: fraction of problems where every step `k` in `0 .. L - 1` emits the ground-truth `(o_k, w_k, flag_k)` (`FLAG_CONTINUE` for all `k < L - 1` and `FLAG_FINISHED` at `k == L - 1`).
+- **`step_accuracy`**: fraction of individual steps across all evaluated problems where all three outputs `(o_k, w_k, flag_k)` match the ground truth.
+- **`halt_accuracy`**: fraction of individual steps across all evaluated problems where the halting output matches `flag_k` (`FLAG_CONTINUE` vs. `FLAG_FINISHED`).
