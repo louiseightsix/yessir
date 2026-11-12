@@ -48,7 +48,7 @@ class Experiment[ConfigT: ExperimentConfig]:
     run: Callable[[ConfigT, Path | None], dict[str, Any]]
 
 
-def _unwrap_optional(tp: Any) -> tuple[Any, bool]:
+def unwrap_optional(tp: Any) -> tuple[Any, bool]:
     """If `tp` is `T | None`, return `(T, True)`; otherwise return `(tp, False)`."""
     origin = get_origin(tp)
     if origin in (types.UnionType, Union):
@@ -71,7 +71,10 @@ def _make_optional_parser(inner_type: Callable[[str], Any]) -> Callable[[str], A
     return _parse
 
 
-def _format_default(value: Any) -> str:
+def format_config_value(value: Any) -> str:
+    """Format a config field value (`None`, `Enum`, or primitive) for CLI/TUI display."""
+    if value is None:
+        return "None"
     if isinstance(value, Enum):
         return str(value.value)
     return str(value)
@@ -101,8 +104,8 @@ def add_config_args(
     for field in dataclasses.fields(config_cls):
         flag = f"--{field.name.replace('_', '-')}"
         field_type = type_hints.get(field.name, field.type)
-        inner_type, is_optional = _unwrap_optional(field_type)
-        default_help = f"(default: {_format_default(field.default)})"
+        inner_type, is_optional = unwrap_optional(field_type)
+        default_help = f"(default: {format_config_value(field.default)})"
 
         if inner_type is bool and not is_optional:
             parser.add_argument(
@@ -208,8 +211,18 @@ def _execute_experiment[ConfigT: ExperimentConfig](
     experiment: Experiment[ConfigT],
     args: argparse.Namespace,
     *,
-    should_edit: bool,
+    argv: Sequence[str] | None,
+    interactive: bool | None,
 ) -> dict[str, Any] | None:
+    has_flags = _has_explicit_config_args(experiment.config_cls, args)
+    should_edit = (
+        interactive
+        if interactive is not None
+        else (
+            args.interactive or (argv is None and sys.stdin.isatty() and not has_flags)
+        )
+    )
+
     config = build_config_from_args(experiment.config_cls, args)
     if should_edit:
         from yessir.tui import interactive_edit_config
@@ -250,15 +263,7 @@ def run_experiment_cli[ConfigT: ExperimentConfig](
     )
     _configure_experiment_parser(parser, experiment)
     args = parser.parse_args(argv)
-    has_flags = _has_explicit_config_args(experiment.config_cls, args)
-    should_edit = (
-        interactive
-        if interactive is not None
-        else (
-            args.interactive or (argv is None and sys.stdin.isatty() and not has_flags)
-        )
-    )
-    return _execute_experiment(experiment, args, should_edit=should_edit)
+    return _execute_experiment(experiment, args, argv=argv, interactive=interactive)
 
 
 def run_experiments_cli(
@@ -305,12 +310,4 @@ def run_experiments_cli(
         return None
 
     selected = by_name[args.experiment]
-    has_flags = _has_explicit_config_args(selected.config_cls, args)
-    should_edit = (
-        interactive
-        if interactive is not None
-        else (
-            args.interactive or (argv is None and sys.stdin.isatty() and not has_flags)
-        )
-    )
-    return _execute_experiment(selected, args, should_edit=should_edit)
+    return _execute_experiment(selected, args, argv=argv, interactive=interactive)

@@ -145,11 +145,12 @@ def test_live_cross_parameter_validation_and_run_blocking():
     rendered = "\n".join(state.render_lines())
     assert "Status: INVALID" in rendered
 
-    # Navigate to `d_position` and type 0 inline; status becomes VALID again!
+    # Navigate to `d_position` and step left down to 0 (staying even all the way).
     d_pos_idx = next(i for i, s in enumerate(state.specs) if s.name == "d_position")
     state.cursor = d_pos_idx
-    state.handle_key("0")
-    state.handle_key("ENTER")
+    for _ in range(18):
+        state.handle_key("LEFT")
+        assert state.values["d_position"] % 2 == 0
     assert state.values["d_position"] == 0
 
     cfg, err = state.validate()
@@ -159,6 +160,22 @@ def test_live_cross_parameter_validation_and_run_blocking():
 
     # Now pressing 'r' (or ENTER on the Run row) succeeds and returns RUN.
     assert state.handle_key("r") == EditorOutcome.RUN
+
+
+def test_stray_letter_keys_do_not_start_inline_edit_without_enter():
+    state = ConfigEditorState(_SmallConfig)
+    # Row 0 is `choice` (Enum): stray letter 'j' is ignored unless ENTER is pressed first.
+    assert state.cursor == 0
+    state.handle_key("j")
+    assert state.edit_buffer is None
+
+    # Row 1 is `count` (int): stray letter 'x' is ignored, whereas digit '5' starts inline editing.
+    state.handle_key("DOWN")
+    assert state.cursor == 1
+    state.handle_key("x")
+    assert state.edit_buffer is None
+    state.handle_key("5")
+    assert state.edit_buffer == "5"
 
 
 def test_quit_cancels_editor():

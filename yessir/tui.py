@@ -8,13 +8,17 @@ validation can be unit-tested without a TTY.
 import dataclasses
 import select
 import sys
-import types
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum, StrEnum, unique
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from typing import Any, get_type_hints
 
-from yessir.experiment import Experiment, ExperimentConfig
+from yessir.experiment import (
+    Experiment,
+    ExperimentConfig,
+    format_config_value,
+    unwrap_optional,
+)
 
 
 @unique
@@ -39,31 +43,13 @@ class FieldSpec:
     choices: tuple[Any, ...] | None = None
 
 
-def _unwrap_optional(tp: Any) -> tuple[Any, bool]:
-    origin = get_origin(tp)
-    if origin in (types.UnionType, Union):
-        args = get_args(tp)
-        non_none = [a for a in args if a is not type(None)]
-        if len(non_none) == 1 and len(args) == 2:
-            return non_none[0], True
-    return tp, False
-
-
-def _format_value(value: Any) -> str:
-    if value is None:
-        return "None"
-    if isinstance(value, Enum):
-        return str(value.value)
-    return str(value)
-
-
 def build_field_specs(config_cls: type[ExperimentConfig]) -> tuple[FieldSpec, ...]:
     """Introspect `config_cls` fields into `FieldSpec` descriptors for the TUI table."""
     type_hints = get_type_hints(config_cls)
     specs: list[FieldSpec] = []
     for field in dataclasses.fields(config_cls):
         raw_type = type_hints.get(field.name, field.type)
-        inner_type, is_optional = _unwrap_optional(raw_type)
+        inner_type, is_optional = unwrap_optional(raw_type)
         meta = field.metadata
 
         choices: tuple[Any, ...] | None = None
@@ -121,8 +107,7 @@ def _step_value(spec: FieldSpec, current: Any, delta: int) -> Any:
         next_val = int(current) + delta * step
         if spec.is_optional and next_val < 2:
             return None
-        min_val = 0 if (isinstance(spec.default, int) and spec.default == 0) else 1
-        return max(min_val, next_val)
+        return max(0, next_val)
 
     if spec.inner_type is float:
         step_f = float(spec.step)
@@ -304,7 +289,7 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             return EditorOutcome.CONTINUE
 
         if key == "ENTER":
-            self.edit_buffer = _format_value(self.values[spec.name])
+            self.edit_buffer = format_config_value(self.values[spec.name])
             self.message = None
             self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
@@ -315,8 +300,8 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
-        # Typing digits, '-', '.', or letters directly on a row starts inline editing.
-        if len(key) == 1 and key.isprintable() and key not in (" ",):
+        # Typing digits, '-', or '.' directly on a numeric row starts inline editing.
+        if spec.inner_type in (int, float) and len(key) == 1 and key in "0123456789-.":
             self.edit_buffer = key
             self.message = None
             self.confirm_duplicate = False
@@ -346,10 +331,10 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             if selected and self.edit_buffer is not None:
                 val_str = f"[{self.edit_buffer}_]"
             elif selected:
-                val_str = f"< {_format_value(self.values[spec.name])} >"
+                val_str = f"< {format_config_value(self.values[spec.name])} >"
             else:
-                val_str = _format_value(self.values[spec.name])
-            def_str = _format_value(spec.default)
+                val_str = format_config_value(self.values[spec.name])
+            def_str = format_config_value(spec.default)
             lines.append(
                 f"{prefix}{spec.name:<20} {val_str:<20} {def_str:<16} {spec.domain}"
             )
