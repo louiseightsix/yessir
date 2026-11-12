@@ -1,0 +1,15 @@
+# Local GCP / Vertex AI settings for `./yessir.sh vertex`.
+# Copy this file to `vertex.toml` (which is gitignored) and fill in your values.
+
+project = "your-gcp-project-id"
+region = "us-central1"
+bucket = "your-gcs-bucket-name"
+image_uri = "us-central1-docker.pkg.dev/your-gcp-project-id/yessir/runner:latest"
+
+# Public GitHub repository that the Vertex container clones at job start.
+repo_url = "https://github.com/louiseightsix/yessir.git"
+
+# Default hardware for Vertex Custom Jobs (1x NVIDIA L4 on g2-standard-4).
+machine_type = "g2-standard-4"
+accelerator_type = "NVIDIA_L4"
+accelerator_count = 1
