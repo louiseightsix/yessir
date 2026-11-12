@@ -45,6 +45,30 @@ interface RunData {
   flawedReason: string | null;
 }
 
+interface StudyRunEntry {
+  run: string;
+  label?: string | null;
+}
+
+interface StudyFile {
+  title?: string;
+  status?: string;
+  kind?: string | null;
+  question?: string | null;
+  runs?: StudyRunEntry[];
+  conclusion?: string | null;
+}
+
+interface StudyData {
+  slug: string;
+  title: string;
+  status: string;
+  kind: string | null;
+  question: string | null;
+  runs: Array<{ run: string; label: string | null }>;
+  conclusion: string | null;
+}
+
 function readJsonIfExists<T>(path: string): T | null {
   if (!existsSync(path)) return null;
   try {
@@ -112,18 +136,73 @@ function lossSvgPoints(points: TrainPoint[], width: number, height: number): str
     .join(" ");
 }
 
+function loadStudies(expStudiesDir: string): StudyData[] {
+  if (!existsSync(expStudiesDir)) return [];
+  return readdirSync(expStudiesDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((entry) => {
+      const raw = readJsonIfExists<StudyFile>(resolve(expStudiesDir, entry.name));
+      if (!raw || typeof raw.title !== "string") return [];
+      const slug = entry.name.slice(0, -".json".length);
+      const runs = Array.isArray(raw.runs)
+        ? raw.runs
+            .filter((r): r is StudyRunEntry => Boolean(r && typeof r.run === "string"))
+            .map((r) => ({
+              run: r.run,
+              label: typeof r.label === "string" ? r.label : null,
+            }))
+        : [];
+      return [
+        {
+          slug,
+          title: raw.title,
+          status: typeof raw.status === "string" ? raw.status : "draft",
+          kind: typeof raw.kind === "string" ? raw.kind : null,
+          question: typeof raw.question === "string" ? raw.question : null,
+          runs,
+          conclusion: typeof raw.conclusion === "string" ? raw.conclusion : null,
+        },
+      ];
+    });
+}
+
+function listSubdirs(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+}
+
 const resultsDir = resolve(repoRoot, "results");
-const experiments = readdirSync(resultsDir, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .sort((a, b) => a.name.localeCompare(b.name))
-  .map((entry) => {
-    const expDir = resolve(resultsDir, entry.name);
-    const runs = readdirSync(expDir, { withFileTypes: true })
-      .filter((run) => run.isDirectory())
-      .map((run) => loadRun(resolve(expDir, run.name), run.name))
-      .sort((a, b) => b.name.localeCompare(a.name));
-    return { name: entry.name, runs };
-  });
+const studiesDir = resolve(repoRoot, "studies");
+const experimentNames = Array.from(
+  new Set([...listSubdirs(resultsDir), ...listSubdirs(studiesDir)]),
+).sort((a, b) => a.localeCompare(b));
+
+const experiments = experimentNames.map((name) => {
+  const expResultsDir = resolve(resultsDir, name);
+  const runs = listSubdirs(expResultsDir)
+    .map((runName) => loadRun(resolve(expResultsDir, runName), runName))
+    .sort((a, b) => b.name.localeCompare(a.name));
+  const studies = loadStudies(resolve(studiesDir, name));
+  const runsByName = new Map(runs.map((r) => [r.name, r]));
+  const studiesByRun = new Map<
+    string,
+    Array<{ slug: string; title: string; label: string | null }>
+  >();
+  for (const study of studies) {
+    for (const entry of study.runs) {
+      const list = studiesByRun.get(entry.run) ?? [];
+      list.push({ slug: study.slug, title: study.title, label: entry.label });
+      studiesByRun.set(entry.run, list);
+    }
+  }
+  return { name, runs, studies, runsByName, studiesByRun };
+});
+
+const experimentsWithStudies = experiments.filter((exp) => exp.studies.length > 0);
+const experimentsWithRuns = experiments.filter((exp) => exp.runs.length > 0);
 
 const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
   experiments.map((exp) => [
@@ -247,6 +326,55 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
         padding: 0.6rem 0.8rem;
         overflow-x: auto;
       }
+      .study-card {
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1.25rem;
+        background: #f8fafc;
+      }
+      .study-header {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+      }
+      .study-header h4 {
+        margin: 0;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        padding: 0.1rem 0.45rem;
+        border-radius: 4px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #334155;
+      }
+      .badge.status-draft {
+        background: #fef9c3;
+        border-color: #fde047;
+        color: #854d0e;
+      }
+      .badge.status-in_progress {
+        background: #dbeafe;
+        border-color: #93c5fd;
+        color: #1e40af;
+      }
+      .badge.status-concluded {
+        background: #dcfce7;
+        border-color: #86efac;
+        color: #166534;
+      }
+      .study-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0.4rem 0;
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
@@ -256,9 +384,109 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
     <h2>Config builder</h2>
     <ConfigBuilder client:load schemas={schemas} existingRuns={existingRuns} />
 
+    <h2>Studies</h2>
+    {experimentsWithStudies.length === 0 && (
+      <p>No studies recorded under <code>studies/</code> yet.</p>
+    )}
+    {experimentsWithStudies.map((exp) => {
+      const expVariants = schemas[exp.name]?.variants ?? [];
+      return (
+        <section>
+          <h3>
+            {exp.name} ({exp.studies.length} {exp.studies.length === 1 ? "study" : "studies"})
+          </h3>
+          {exp.studies.map((study) => (
+            <article class="study-card" id={`study-${exp.name}-${study.slug}`}>
+              <div class="study-header">
+                <h4>{study.title}</h4>
+                <code class="meta">{study.slug}</code>
+                <span class={`badge status-${study.status}`}>{study.status}</span>
+                {study.kind && <span class="badge">{study.kind}</span>}
+              </div>
+              {study.question && <p><strong>Question:</strong> {study.question}</p>}
+              {study.runs.length > 0 ? (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Run</th>
+                      <th>Arm / label</th>
+                      <th>Non-default config</th>
+                      <th>Evaluation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {study.runs.map((entry) => {
+                      const matched = exp.runsByName.get(entry.run);
+                      const runVariant = matched?.meta?.variant;
+                      const defaultConfig =
+                        expVariants.find((v) => v.name === runVariant)?.default_config ??
+                        expVariants[0]?.default_config ??
+                        {};
+                      const runConfig = matched?.meta?.config ?? {};
+                      const nonDefaults = Object.entries(runConfig).filter(
+                        ([k, v]) => k in defaultConfig && defaultConfig[k] !== v,
+                      );
+                      return (
+                        <tr>
+                          <td>
+                            {matched ? (
+                              <a href={`#run-${exp.name}-${entry.run}`}>
+                                <code>{entry.run}</code>
+                              </a>
+                            ) : (
+                              <code>{entry.run}</code>
+                            )}
+                            {matched?.flawedReason !== null && matched?.flawedReason !== undefined && (
+                              <span class="flawed-banner"> [FLAWED]</span>
+                            )}
+                          </td>
+                          <td>{entry.label ?? "—"}</td>
+                          <td>
+                            {nonDefaults.length > 0
+                              ? nonDefaults.map(([k, v], idx) => (
+                                  <>
+                                    {idx > 0 && ", "}
+                                    <code>
+                                      {k}={JSON.stringify(v)}
+                                    </code>
+                                  </>
+                                ))
+                              : matched
+                                ? "defaults"
+                                : "—"}
+                          </td>
+                          <td>
+                            {matched?.evalMetrics
+                              ? Object.entries(matched.evalMetrics).map(([k, v], idx) => (
+                                  <>
+                                    {idx > 0 && ", "}
+                                    <code>
+                                      {k}={typeof v === "number" ? v.toFixed(4) : String(v)}
+                                    </code>
+                                  </>
+                                ))
+                              : matched
+                                ? "not evaluated"
+                                : "run not found"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <p class="meta">No runs attached yet.</p>
+              )}
+              {study.conclusion && <p><strong>Conclusion:</strong> {study.conclusion}</p>}
+            </article>
+          ))}
+        </section>
+      );
+    })}
+
     <h2>Results</h2>
-    {experiments.length === 0 && <p>No results yet.</p>}
-    {experiments.map((exp) => {
+    {experimentsWithRuns.length === 0 && <p>No results yet.</p>}
+    {experimentsWithRuns.map((exp) => {
       const expVariants = schemas[exp.name]?.variants ?? [];
       return (
         <section>
@@ -278,8 +506,12 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
               {};
             const runConfig = run.meta?.config ?? {};
             const totalSteps = typeof runConfig.steps === "number" ? runConfig.steps : null;
+            const memberStudies = exp.studiesByRun.get(run.name) ?? [];
             return (
-              <article class={`run-card${run.flawedReason !== null ? " flawed" : ""}`}>
+              <article
+                class={`run-card${run.flawedReason !== null ? " flawed" : ""}`}
+                id={`run-${exp.name}-${run.name}`}
+              >
                 <h4>{run.name}</h4>
                 <div class="meta">
                   {runVariant && (
@@ -299,6 +531,17 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
                   {" · "}
                   <span>{run.evalMetrics ? "evaluated" : "in progress / no eval.json"}</span>
                 </div>
+                {memberStudies.length > 0 && (
+                  <div class="study-tags">
+                    <span class="meta">Studies:</span>
+                    {memberStudies.map((s) => (
+                      <a class="badge" href={`#study-${exp.name}-${s.slug}`}>
+                        {s.title}
+                        {s.label ? ` (${s.label})` : ""}
+                      </a>
+                    ))}
+                  </div>
+                )}
 
                 {run.flawedReason !== null && (
                   <p class="flawed-banner">FLAWED: {run.flawedReason}</p>
