@@ -8,7 +8,7 @@ from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 
 
-def test_collate_right_pads_input_ids_and_coordinates():
+def test_collate_right_pads_input_ids_token_type_and_position_ids():
     ex1 = Example(
         input_ids=(SpecialToken.BOS, 10),
         token_type_ids=(0, 1),
@@ -49,7 +49,7 @@ def test_collate_right_pads_input_ids_and_coordinates():
     )
 
 
-def test_collate_without_coordinates_leaves_them_none():
+def test_collate_with_input_ids_only_leaves_ids_none():
     ex1 = Example(input_ids=(SpecialToken.BOS, 1))
     ex2 = Example(input_ids=(SpecialToken.BOS, 1, 2))
 
