@@ -1,4 +1,4 @@
-"""Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), and JSON artefact writers (`write_config_json`, `write_summary_json`)."""
+"""Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), and JSON artefact writers (`write_config_json`, `write_eval_json`)."""
 
 import json
 import random
@@ -102,41 +102,41 @@ def default_run_dir(
     return exp_results_dir / run_name
 
 
-def write_config_json(out_dir: Path, config: ExperimentConfig) -> Path:
-    """Write `config.to_dict()` to `out_dir / 'config.json'`."""
+def write_config_json(
+    out_dir: Path,
+    *,
+    experiment_name: str,
+    config: ExperimentConfig,
+    git_info: GitInfo | None = None,
+) -> Path:
+    """Write experiment name, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    info = git_info if git_info is not None else get_git_info()
+    payload: dict[str, Any] = {
+        "experiment": experiment_name,
+        "git_commit": info.commit_sha,
+        "git_short_sha": info.short_sha,
+        "git_commit_date": info.commit_date,
+        "git_dirty": info.dirty,
+        "params": config.to_dict(),
+    }
     path = out_dir / "config.json"
     path.write_text(
-        json.dumps(config.to_dict(), indent=2, allow_nan=False) + "\n",
+        json.dumps(payload, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
     return path
 
 
-def write_summary_json(
+def write_eval_json(
     out_dir: Path,
-    *,
-    experiment_name: str,
-    config: ExperimentConfig,
-    metrics: Mapping[str, Any],
-    git_info: GitInfo | None = None,
+    eval_metrics: Mapping[str, Any],
 ) -> Path:
-    """Write run provenance, configuration, and final metrics to `out_dir / 'summary.json'`."""
+    """Write flat final evaluation metrics to `out_dir / 'eval.json'`."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    info = git_info if git_info is not None else get_git_info()
-    payload: dict[str, Any] = {
-        "experiment": experiment_name,
-        "run_name": out_dir.name,
-        "git_commit": info.commit_sha,
-        "git_short_sha": info.short_sha,
-        "git_commit_date": info.commit_date,
-        "git_dirty": info.dirty,
-        "config": config.to_dict(),
-        "metrics": json_safe(metrics),
-    }
-    path = out_dir / "summary.json"
+    path = out_dir / "eval.json"
     path.write_text(
-        json.dumps(payload, indent=2, allow_nan=False) + "\n",
+        json.dumps(json_safe(eval_metrics), indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
     return path

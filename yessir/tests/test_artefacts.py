@@ -1,4 +1,4 @@
-"""Tests for `yessir.artefacts` (`GitInfo`, `generate_run_name`, `default_run_dir`, `write_config_json`, `write_summary_json`)."""
+"""Tests for `yessir.artefacts` (`GitInfo`, `generate_run_name`, `default_run_dir`, `write_config_json`, `write_eval_json`)."""
 
 import json
 import math
@@ -13,9 +13,9 @@ from yessir.artefacts import (
     generate_run_name,
     get_git_info,
     write_config_json,
-    write_summary_json,
+    write_eval_json,
 )
-from yessir.experiment import ExperimentConfig
+from yessir.experiment import ExperimentConfig, parse_config_cli
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -76,36 +76,43 @@ def test_default_run_dir_layout(tmp_path: Path):
     assert run_dir.name.startswith("2026-11-12-abcdef0-")
 
 
-def test_config_and_summary_writers(tmp_path: Path):
+def test_config_and_eval_writers(tmp_path: Path):
     run_dir = tmp_path / "2026-11-12-953e4d9-amber-falcon"
     cfg = _SampleConfig(steps=2, lr=5e-4)
-
-    cfg_path = write_config_json(run_dir, cfg)
-    assert cfg_path == run_dir / "config.json"
-    assert _SampleConfig.from_dict(json.loads(cfg_path.read_text())) == cfg
-
     fake_git = GitInfo(
         commit_date="2026-11-12",
         short_sha="953e4d9",
         commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         dirty=True,
     )
-    summary_path = write_summary_json(
+
+    cfg_path = write_config_json(
         run_dir,
         experiment_name="sir_yes_sir",
         config=cfg,
-        metrics={"final_loss": 0.5, "exact_match": 1.0, "nan_val": math.nan},
         git_info=fake_git,
     )
-    assert summary_path == run_dir / "summary.json"
-    summary = json.loads(summary_path.read_text())
-    assert summary == {
+    assert cfg_path == run_dir / "config.json"
+    cfg_payload = json.loads(cfg_path.read_text())
+    assert cfg_payload == {
         "experiment": "sir_yes_sir",
-        "run_name": "2026-11-12-953e4d9-amber-falcon",
         "git_commit": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         "git_short_sha": "953e4d9",
         "git_commit_date": "2026-11-12",
         "git_dirty": True,
-        "config": {"steps": 2, "lr": 5e-4},
-        "metrics": {"final_loss": 0.5, "exact_match": 1.0, "nan_val": None},
+        "params": {"steps": 2, "lr": 5e-4},
+    }
+    # Verify `--config` loads `config.json` directly by reading its `params` dict.
+    assert parse_config_cli(_SampleConfig, ["--config", str(cfg_path)]) == cfg
+
+    eval_path = write_eval_json(
+        run_dir,
+        {"exact_match": 1.0, "step_accuracy": 1.0, "nan_val": math.nan},
+    )
+    assert eval_path == run_dir / "eval.json"
+    eval_payload = json.loads(eval_path.read_text())
+    assert eval_payload == {
+        "exact_match": 1.0,
+        "step_accuracy": 1.0,
+        "nan_val": None,
     }

@@ -65,7 +65,7 @@ Why this task:
    - State-machine drivers (`sm_mh`, read through `MultiTaskHead`; `sm_seq`, read through `TiedIdentityHead`) and autonomous autoregressive (`ar`) rollout driver.
    - Teacher-forced vs. free-running evaluation, exact match, step/token accuracy, halting accuracy, and error taxonomy (prior intrusion, out-of-alphabet, procedural error, syntax malformation).
 5. **Logging & artefacts**:
-   - `MetricsLogger` (`NaN`-safe `metrics.jsonl`), `config.json`, and `summary.json` written to `results/<experiment>/<run>/`.
+   - `config.json` (inputs + git provenance), `train.jsonl` (`NaN`-safe per-step training trajectory via `MetricsLogger`), and `eval.json` (final evaluation metrics) written to `results/<experiment>/<run>/`.
 
 ## Plan
 
@@ -88,7 +88,7 @@ The order is: first build one path end to end, then add a second variant of each
 6. **Dataset & minimal training** *(done)*: `LabelledExample` and `IterableDataset` (`yessir/dataset.py`, `yessir/inspect_data.py`, `experiments/sir_yes_sir/dataset.py`); `seed_everything`, `build_optimizer` (AdamW), `multitask_cross_entropy`, `train_step`, and `train` (`yessir/training.py`, fp32 on CPU, no scheduler).
 7. **`sm_mh` harness and teacher-forced evaluation** *(done)*: `run_sm_mh` (`experiments/sir_yes_sir/harness.py`) and `EvalMetrics` / `evaluate_sm_mh` (`experiments/sir_yes_sir/evaluation.py`: exact match, step accuracy, halting accuracy).
 8. **Convergence test** *(done)*: `experiments/sir_yes_sir/tests/test_convergence.py` trains a tiny model for a few hundred steps on CPU and asserts in-distribution exact match above 99%. This is the smoke test that stays live.
-9. **Artefacts & CLI runner** *(done)*: `MetricsLogger` (`yessir/metrics.py`), `config.json` & `summary.json` + `<YYYY-MM-DD>-<short_sha>-<adj>-<noun>` run naming (`yessir/artefacts.py`), config & experiment contract (`yessir/experiment.py`, `yessir/tui.py`), and `experiments/sir_yes_sir/config.py` / `run.py`.
+9. **Artefacts & CLI runner** *(done)*: `MetricsLogger` (`train.jsonl`, in `yessir/metrics.py`), `config.json` & `eval.json` + `<YYYY-MM-DD>-<short_sha>-<adj>-<noun>` run naming (`yessir/artefacts.py`), config & experiment contract (`yessir/experiment.py`, `yessir/tui.py`), and `experiments/sir_yes_sir/config.py` / `run.py`.
 
 ### Stage B: second variants (each one forces an interface to become generic)
 

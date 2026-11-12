@@ -142,7 +142,8 @@ def build_config_from_args[ConfigT: ExperimentConfig](
             raise ValueError(
                 f"expected a JSON object in {config_path}, got {type(raw_json).__name__}"
             )
-        merged.update(raw_json)
+        params = raw_json.get("params")
+        merged.update(params if isinstance(params, dict) else raw_json)
 
     arg_dict = vars(args)
     for field in dataclasses.fields(config_cls):
@@ -198,7 +199,7 @@ def _configure_experiment_parser(
         "--no-save",
         action="store_true",
         default=False,
-        help="Do not write run artefacts (config.json, metrics.jsonl, summary.json) to disk",
+        help="Do not write run artefacts (config.json, train.jsonl, eval.json) to disk",
     )
     add_config_args(parser, experiment.config_cls)
 

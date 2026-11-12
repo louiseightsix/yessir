@@ -22,7 +22,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
     run_dir = tmp_path / "2026-11-12-953e4d9-amber-falcon"
-    summary = run_experiments_cli(
+    eval_results = run_experiments_cli(
         EXPERIMENTS,
         [
             "sir_yes_sir",
@@ -46,40 +46,40 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
             "0",
         ],
     )
-    assert summary is not None
-    assert set(summary.keys()) == {
-        "final_loss",
+    assert eval_results is not None
+    assert set(eval_results.keys()) == {
         "exact_match",
         "step_accuracy",
         "halt_accuracy",
     }
-    assert isinstance(summary["final_loss"], float)
-    assert 0.0 <= summary["exact_match"] <= 1.0
-    assert 0.0 <= summary["step_accuracy"] <= 1.0
-    assert 0.0 <= summary["halt_accuracy"] <= 1.0
+    assert 0.0 <= eval_results["exact_match"] <= 1.0
+    assert 0.0 <= eval_results["step_accuracy"] <= 1.0
+    assert 0.0 <= eval_results["halt_accuracy"] <= 1.0
 
-    # Verify all three Stage A step 9 artefacts were written.
+    # Verify config.json, train.jsonl, and eval.json were written.
     config_file = run_dir / "config.json"
-    metrics_file = run_dir / "metrics.jsonl"
-    summary_file = run_dir / "summary.json"
+    train_file = run_dir / "train.jsonl"
+    eval_file = run_dir / "eval.json"
     assert config_file.is_file()
-    assert metrics_file.is_file()
-    assert summary_file.is_file()
+    assert train_file.is_file()
+    assert eval_file.is_file()
 
-    loaded_cfg = SirYesSirConfig.from_dict(json.loads(config_file.read_text()))
+    config_payload = json.loads(config_file.read_text())
+    assert config_payload["experiment"] == "sir_yes_sir"
+    assert "git_commit" in config_payload
+    loaded_cfg = SirYesSirConfig.from_dict(config_payload["params"])
     assert loaded_cfg.steps == 2
     assert loaded_cfg.n_layers == 1
 
-    metric_lines = [json.loads(line) for line in metrics_file.read_text().splitlines()]
-    assert len(metric_lines) == 2
-    assert metric_lines[0]["step"] == 1
-    assert metric_lines[1]["step"] == 2
-    assert metric_lines[1]["exact_match"] == summary["exact_match"]
+    train_lines = [json.loads(line) for line in train_file.read_text().splitlines()]
+    assert len(train_lines) == 2
+    assert train_lines[0]["step"] == 1
+    assert isinstance(train_lines[0]["loss"], float)
+    assert train_lines[1]["step"] == 2
+    assert isinstance(train_lines[1]["loss"], float)
 
-    loaded_summary = json.loads(summary_file.read_text())
-    assert loaded_summary["experiment"] == "sir_yes_sir"
-    assert loaded_summary["run_name"] == "2026-11-12-953e4d9-amber-falcon"
-    assert loaded_summary["metrics"] == summary
+    loaded_eval = json.loads(eval_file.read_text())
+    assert loaded_eval == eval_results
 
     out = capsys.readouterr().out
     assert "[sir_yes_sir] step=2" in out

@@ -7,7 +7,7 @@ from typing import Any
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.dataset import SirYesSirDataset
 from experiments.sir_yes_sir.evaluation import evaluate_sm_mh
-from yessir.artefacts import write_config_json, write_summary_json
+from yessir.artefacts import write_config_json, write_eval_json
 from yessir.experiment import Experiment, run_experiment_cli
 from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
@@ -22,8 +22,12 @@ def run_sir_yes_sir(
     """Train and evaluate a `sir_yes_sir` model according to `config`."""
     logger: MetricsLogger | None = None
     if out_dir is not None:
-        write_config_json(out_dir, config)
-        logger = MetricsLogger(out_dir / "metrics.jsonl")
+        write_config_json(
+            out_dir,
+            experiment_name="sir_yes_sir",
+            config=config,
+        )
+        logger = MetricsLogger(out_dir / "train.jsonl")
 
     seed_everything(config.seed)
 
@@ -59,6 +63,10 @@ def run_sir_yes_sir(
         batch_size=config.batch_size,
         lr=config.lr,
     )
+    if logger is not None:
+        for step_idx, step_loss in enumerate(losses, start=1):
+            logger.log(step_idx, {"loss": step_loss})
+
     metrics = evaluate_sm_mh(
         model,
         eval_dataset,
@@ -66,41 +74,24 @@ def run_sir_yes_sir(
         batch_size=config.eval_batch_size,
     )
 
-    summary: dict[str, Any] = {
-        "final_loss": losses[-1],
+    eval_results: dict[str, Any] = {
         "exact_match": metrics.exact_match,
         "step_accuracy": metrics.step_accuracy,
         "halt_accuracy": metrics.halt_accuracy,
     }
-    if logger is not None and out_dir is not None:
-        for step_idx, step_loss in enumerate(losses[:-1], start=1):
-            logger.log(step_idx, {"loss": step_loss})
-        logger.log(
-            config.steps,
-            {
-                "loss": losses[-1],
-                "exact_match": metrics.exact_match,
-                "step_accuracy": metrics.step_accuracy,
-                "halt_accuracy": metrics.halt_accuracy,
-            },
-        )
-        write_summary_json(
-            out_dir,
-            experiment_name="sir_yes_sir",
-            config=config,
-            metrics=summary,
-        )
+    if out_dir is not None:
+        write_eval_json(out_dir, eval_results)
 
     print(
         f"[sir_yes_sir] step={config.steps} "
-        f"loss={summary['final_loss']:.4f} "
+        f"loss={losses[-1]:.4f} "
         f"exact_match={metrics.exact_match:.2%} "
         f"step_acc={metrics.step_accuracy:.2%} "
         f"halt_acc={metrics.halt_accuracy:.2%}"
     )
     if out_dir is not None:
         print(f"[sir_yes_sir] artefacts written to {out_dir}")
-    return summary
+    return eval_results
 
 
 SIR_YES_SIR_EXPERIMENT = Experiment(

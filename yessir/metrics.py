@@ -20,7 +20,7 @@ def json_safe(metrics: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class MetricsLogger:
-    """Appends `NaN`-safe JSON Lines records (`metrics.jsonl`) during a training run."""
+    """Appends `NaN`-safe JSON Lines records (`train.jsonl`) during a training run."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
