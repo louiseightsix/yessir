@@ -8,6 +8,10 @@ import torch
 
 from experiments.sir_yes_sir.evaluation import EvalMetrics
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
+from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
+from experiments.sir_yes_sir.variants.ar.harness import parse_ar_trace, run_ar
+from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_example
 from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset
 from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
 from experiments.sir_yes_sir.variants.sm_mh.harness import run_sm_mh
@@ -348,3 +352,118 @@ def test_evaluate_sm_mh_validation_errors():
             ],
             num_problems=1,
         )
+
+
+class _ScriptedArModel:
+    """Fake sequence-level model returning scripted next-token argmax predictions."""
+
+    def __init__(self, scripted_tokens: Sequence[Token]) -> None:
+        self._tokens = list(scripted_tokens)
+        self._cursor = 0
+        self.training = True
+        self.seen_examples: list[Example] = []
+
+    def eval(self) -> "_ScriptedArModel":
+        self.training = False
+        return self
+
+    def __call__(
+        self,
+        input_ids: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+        token_type_ids: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        batch_size, seq_len = input_ids.shape
+        logits = torch.zeros(batch_size, seq_len, VOCAB_SIZE)
+        for b in range(batch_size):
+            n = int(lengths[b].item()) if lengths is not None else seq_len
+            self.seen_examples.append(
+                Example(
+                    input_ids=tuple(input_ids[b, :n].tolist()),
+                    token_type_ids=(
+                        tuple(token_type_ids[b, :n].tolist())
+                        if token_type_ids is not None
+                        else None
+                    ),
+                    position_ids=(
+                        tuple(position_ids[b, :n].tolist())
+                        if position_ids is not None
+                        else None
+                    ),
+                )
+            )
+            tok = self._tokens[self._cursor]
+            self._cursor += 1
+            logits[b, n - 1, tok] = 10.0
+        return logits
+
+
+def test_parse_ar_trace_and_run_ar():
+    alphabet = b"0123"
+    x = b"13"
+
+    # Script 2 steps in WRAP_FIRST order: (w_0='0', o_0='2', CONTINUE), (w_1='1', o_1='0', FINISHED)
+    scripted = [
+        ord("0"),
+        ord("2"),
+        int(SpecialToken.FLAG_CONTINUE),
+        ord("1"),
+        ord("0"),
+        int(SpecialToken.FLAG_FINISHED),
+    ]
+    model = _ScriptedArModel(scripted)
+    steps = run_ar(
+        model,  # ty: ignore[invalid-argument-type]
+        alphabet,
+        x,
+        step_order=StepOrder.WRAP_FIRST,
+    )
+    assert model.training is False
+    # Returned tuples are canonical (o_k, w_k, flag_k)
+    assert steps == [
+        (ord("2"), ord("0"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("0"), ord("1"), int(SpecialToken.FLAG_FINISHED)),
+    ]
+    assert model.seen_examples[0] == build_ar_example(alphabet, x, ())
+    assert model.seen_examples[1] == build_ar_example(alphabet, x, (ord("0"),))
+
+    # Premature FLAG_FINISHED at the end of step 0 stops generation after 3 tokens
+    early_model = _ScriptedArModel(
+        [ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED), ord("0")]
+    )
+    early_steps = run_ar(
+        early_model,  # ty: ignore[invalid-argument-type]
+        alphabet,
+        x,
+        step_order=StepOrder.OUT_FIRST,
+    )
+    assert early_steps == [(ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED))]
+    assert len(early_model.seen_examples) == 3
+
+    # Trailing incomplete step tokens are ignored by parse_ar_trace
+    assert parse_ar_trace([ord("2"), ord("0")]) == []
+
+
+def test_evaluate_ar_end_to_end_and_validation():
+    seed_everything(0)
+    model = Transformer(
+        num_classes=None,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    dataset = SirYesSirArDataset(alphabet_size=4, x_length=2, seed=99)
+    metrics = evaluate_ar(model, dataset, num_problems=3, batch_size=2)
+    assert 0.0 <= metrics.exact_match <= 1.0
+    assert 0.0 <= metrics.step_accuracy <= 1.0
+    assert 0.0 <= metrics.halt_accuracy <= 1.0
+
+    with pytest.raises(ValueError, match="num_problems must be >= 1"):
+        evaluate_ar(model, dataset, num_problems=0)
+    with pytest.raises(ValueError, match="batch_size must be >= 1"):
+        evaluate_ar(model, dataset, num_problems=1, batch_size=0)
+    with pytest.raises(ValueError, match="dataset exhausted early"):
+        evaluate_ar(model, [], num_problems=1)

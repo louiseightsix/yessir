@@ -1,6 +1,9 @@
 """End-to-end CPU convergence smoke test for the `sir_yes_sir` experiment."""
 
 from experiments.sir_yes_sir.reference import reference_step
+from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
+from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
+from experiments.sir_yes_sir.variants.ar.harness import run_ar
 from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirDataset
 from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
 from experiments.sir_yes_sir.variants.sm_mh.harness import run_sm_mh
@@ -68,3 +71,49 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
                 for k in range(len(x))
             ]
             assert run_sm_mh(model, alphabet, x) == expected
+
+
+def test_sir_yes_sir_ar_cpu_convergence():
+    """Train a tiny `TiedIdentityHead` `Transformer` on CPU under the `ar` variant and verify >99% exact match."""
+    seed_everything(42)
+
+    symbols = SymbolSet.DECIMAL[:3]
+    alphabet_size = 3
+    x_length = 2
+
+    model = Transformer(
+        num_classes=None,
+        n_layers=2,
+        n_heads=8,
+        d_ff=64,
+        d_position=8,
+        d_scratch=16,
+    )
+
+    train_dataset = SirYesSirArDataset(
+        alphabet_size=alphabet_size,
+        x_length=x_length,
+        symbols=symbols,
+        seed=42,
+    )
+    eval_dataset = SirYesSirArDataset(
+        alphabet_size=alphabet_size,
+        x_length=x_length,
+        symbols=symbols,
+        seed=999,
+    )
+
+    train(model, train_dataset, steps=500, batch_size=16, lr=1e-3)
+
+    metrics = evaluate_ar(model, eval_dataset, num_problems=100)
+    assert metrics.exact_match > 0.99
+    assert metrics.step_accuracy > 0.99
+    assert metrics.halt_accuracy > 0.99
+
+    for alphabet in (b"012", b"210"):
+        for x in (b"01", b"12"):
+            expected = [
+                tuple(int(t) for t in reference_step(alphabet, x, k))
+                for k in range(len(x))
+            ]
+            assert run_ar(model, alphabet, x) == expected

@@ -3,13 +3,14 @@
 from collections.abc import Sequence
 
 from experiments.sir_yes_sir.config import SIR_YES_SIR_DESCRIPTION
+from experiments.sir_yes_sir.variants.ar.run import AR_VARIANT
 from experiments.sir_yes_sir.variants.sm_mh.run import SM_MH_VARIANT
 from yessir.experiment import Experiment, run_experiment_cli
 
 SIR_YES_SIR_EXPERIMENT = Experiment(
     name="sir_yes_sir",
     description=SIR_YES_SIR_DESCRIPTION,
-    variants=(SM_MH_VARIANT,),
+    variants=(SM_MH_VARIANT, AR_VARIANT),
 )
 
 
