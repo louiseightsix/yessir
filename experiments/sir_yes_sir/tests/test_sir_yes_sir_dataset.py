@@ -7,6 +7,7 @@ import pytest
 from experiments.sir_yes_sir.dataset import SirYesSirDataset, main
 from experiments.sir_yes_sir.inputs import EmbeddingMode, TokenType
 from experiments.sir_yes_sir.reference import reference_step
+from yessir.alphabet import SymbolSet
 from yessir.special_tokens import SpecialToken
 
 
@@ -87,18 +88,30 @@ def test_dataset_respects_embedding_mode(mode: EmbeddingMode):
         assert ex.position_ids is not None
 
 
+def test_dataset_samples_only_from_given_symbols_pool():
+    pool = SymbolSet.DECIMAL[:3]
+    ds = SirYesSirDataset(alphabet_size=3, x_length=2, symbols=pool, seed=42)
+    items = list(itertools.islice(ds, 12))
+    for item in items[::2]:
+        alphabet = item.example.input_ids[1:4]
+        assert set(alphabet) == set(pool)
+
+
 @pytest.mark.parametrize(
-    ("alphabet_size", "x_length", "match"),
+    ("alphabet_size", "x_length", "symbols", "match"),
     [
-        (1, 3, "alphabet_size must be in 2..240"),
-        (241, 3, "alphabet_size must be in 2..240"),
-        (4, 0, "x_length must be >= 1"),
-        (4, -2, "x_length must be >= 1"),
+        (1, 3, SymbolSet.ALL, "alphabet_size must be in 2..240"),
+        (241, 3, SymbolSet.ALL, "alphabet_size must be in 2..240"),
+        (4, 3, SymbolSet.DECIMAL[:3], "alphabet_size must be in 2..3"),
+        (4, 0, SymbolSet.ALL, "x_length must be >= 1"),
+        (4, -2, SymbolSet.ALL, "x_length must be >= 1"),
     ],
 )
-def test_dataset_rejects_invalid_init_args(alphabet_size, x_length, match):
+def test_dataset_rejects_invalid_init_args(alphabet_size, x_length, symbols, match):
     with pytest.raises(ValueError, match=match):
-        SirYesSirDataset(alphabet_size=alphabet_size, x_length=x_length)
+        SirYesSirDataset(
+            alphabet_size=alphabet_size, x_length=x_length, symbols=symbols
+        )
 
 
 def test_dataset_cli_main_prints_examples(capsys: pytest.CaptureFixture[str]):
