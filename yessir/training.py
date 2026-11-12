@@ -1,4 +1,4 @@
-"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `train_step`, `train`)."""
+"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `pack_multitask_targets`, `train_step`, `train`)."""
 
 import itertools
 import os
@@ -92,8 +92,10 @@ def multitask_cross_entropy(
     return total_loss
 
 
-def _pack_multitask_targets(items: Sequence[LabelledExample]) -> torch.Tensor:
+def pack_multitask_targets(items: Sequence[LabelledExample]) -> torch.Tensor:
     """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_heads)` LongTensor."""
+    if not items:
+        raise ValueError("items must not be empty")
     num_heads = len(items[0].labels)
     for idx, item in enumerate(items):
         if len(item.labels) != num_heads:
@@ -119,7 +121,7 @@ def train_step(
 
     model.train()
     batch = collate([item.example for item in items])
-    targets = _pack_multitask_targets(items)
+    targets = pack_multitask_targets(items)
 
     optimizer.zero_grad()
     logits = model(

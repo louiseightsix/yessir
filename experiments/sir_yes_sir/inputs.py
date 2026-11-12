@@ -45,7 +45,7 @@ class EmbeddingMode(StrEnum):
     TOKEN_TYPE_PE = "token_type_pe"  # input_ids + token_type_ids + position_ids
 
 
-def _validate_problem(
+def validate_problem(
     alphabet: TokenSequence, x: TokenSequence
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
     """Validate `(alphabet, x)` and return both as tuples of ints."""
@@ -114,7 +114,7 @@ def build_sm_example(
     Notice that in the `OUTPUT` section (`token_type_ids == 3`), `[STEP]` sits at
     `position_id = k = 1`, aligning it with `x_1 = '3'` in the `INPUT` section.
     """
-    alphabet_tokens, x_tokens = _validate_problem(alphabet, x)
+    alphabet_tokens, x_tokens = validate_problem(alphabet, x)
     alphabet_set = set(alphabet_tokens)
 
     out_tokens = tuple(output_history)
@@ -169,7 +169,7 @@ def build_ar_example(
     #    whether to keep sequential `0, 1, 2, ...` or assign step-aligned `position_id = k`.
     # 2. `StepOrder` (`OUT_FIRST`: `(o_k, w_k, flag_k)` vs. `WRAP_FIRST`: `(w_k, o_k, flag_k)`):
     #    make within-step emission order configurable in the AR trace builder/parser.
-    alphabet_tokens, x_tokens = _validate_problem(alphabet, x)
+    alphabet_tokens, x_tokens = validate_problem(alphabet, x)
     trace_tokens = tuple(trace)
 
     sections: list[tuple[tuple[int, ...], TokenType]] = [

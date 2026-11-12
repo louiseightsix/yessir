@@ -15,6 +15,7 @@ from yessir.model import Transformer
 from yessir.training import (
     build_optimizer,
     multitask_cross_entropy,
+    pack_multitask_targets,
     seed_everything,
     train,
     train_step,
@@ -104,6 +105,28 @@ def test_multitask_cross_entropy_rejects_invalid_shapes():
     mismatched_logits = (torch.randn(2, 8), torch.randn(3, 8))
     with pytest.raises(ValueError, match="batch size"):
         multitask_cross_entropy(mismatched_logits, torch.zeros(2, 2, dtype=torch.long))
+
+
+def test_pack_multitask_targets_shapes_and_validation():
+    ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
+    items = [
+        LabelledExample(example=ex, labels=(10, 20, 30)),
+        LabelledExample(example=ex, labels=(40, 50, 60)),
+    ]
+    packed = pack_multitask_targets(items)
+    assert packed.dtype == torch.long
+    assert torch.equal(packed, torch.tensor([[10, 20, 30], [40, 50, 60]]))
+
+    with pytest.raises(ValueError, match="items must not be empty"):
+        pack_multitask_targets([])
+
+    with pytest.raises(ValueError, match="all LabelledExamples in a multitask batch"):
+        pack_multitask_targets(
+            [
+                LabelledExample(example=ex, labels=(1, 2, 3)),
+                LabelledExample(example=ex, labels=(1, 2)),
+            ]
+        )
 
 
 def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights():
