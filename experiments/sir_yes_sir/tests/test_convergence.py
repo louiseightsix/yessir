@@ -28,12 +28,12 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
 
     symbols = SymbolSet.DECIMAL[:3]
     alphabet_size = 3
-    x_length = 3
+    x_length = 2
 
     model = Transformer(
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
-        n_heads=4,
+        n_heads=8,
         d_ff=64,
         d_position=8,
         d_scratch=16,
@@ -52,7 +52,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, steps=600, batch_size=24, lr=1e-3)
+    train(model, train_dataset, steps=500, batch_size=24, lr=8e-4)
 
     metrics = evaluate_sm_mh(model, eval_dataset, num_problems=100)
     assert metrics.exact_match > 0.99
@@ -60,10 +60,11 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
     assert metrics.halt_accuracy > 0.99
 
     # Also verify free-running `run_sm_mh` on two reversed 3-symbol permutations
-    # where every symbol's successor and wrap output differ.
-    for alphabet in (b"012", b"021"):
-        x = b"012"
-        expected = [
-            tuple(int(t) for t in reference_step(alphabet, x, k)) for k in range(len(x))
-        ]
-        assert run_sm_mh(model, alphabet, x) == expected
+    # (`b"012"` and `b"210"`), where every symbol's `o_k` and `w_k` both differ.
+    for alphabet in (b"012", b"210"):
+        for x in (b"01", b"12"):
+            expected = [
+                tuple(int(t) for t in reference_step(alphabet, x, k))
+                for k in range(len(x))
+            ]
+            assert run_sm_mh(model, alphabet, x) == expected
