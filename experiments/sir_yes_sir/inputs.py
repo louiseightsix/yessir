@@ -3,8 +3,7 @@
 Turns a task state into an `Example`:
 1. Concatenates the sections (`[BOS]`, `alphabet`, `[SEP]`, `x`, `[SEP]`, and the
    output section) end-to-end into a single token sequence (`input_ids`).
-2. Attaches the coordinate tracks requested by `embedding_mode` (`token_type_ids`
-   and/or `position_ids`).
+2. Attaches `token_type_ids` and/or `position_ids` as requested by `embedding_mode`.
 """
 
 from enum import IntEnum, StrEnum, unique
@@ -22,17 +21,17 @@ class TokenType(IntEnum):
     SPECIAL = 0  # Delimiters and markers ([BOS], [SEP])
     ALPHABET = 1  # Alphabet symbols (s_0 .. s_{B-1})
     INPUT = 2  # Input sequence symbols (x_0 .. x_{L-1})
-    OUT = 3  # Output section (step history + [S] in SM; generated trace in AR)
+    OUTPUT = 3  # Output section (step history + [STEP] in SM; generated trace in AR)
 
 
 @unique
 class EmbeddingMode(StrEnum):
-    """Which coordinate side-channels are attached to an `Example`.
+    """Which of `token_type_ids` and `position_ids` are attached to an `Example`.
 
     Why there is no `PE`-only mode (`position_ids` without `token_type_ids`) here:
     - Section-resetting `position_ids` (`0..B-1`, `0..L-1`, `0..`) reuse `0, 1, ...`
       in every section, so without `token_type_ids` to identify the section, tokens
-      from the alphabet, input `x`, and output section collide at the same coordinates.
+      from the alphabet, input `x`, and output section collide at the same positions.
     - Global 1D `position_ids` (`0 .. T - 1` across the whole sequence) place `x_k`
       at `B + 2 + k`, so changing the alphabet size `B` or input length `L` shifts
       every downstream position and would likely hurt length/base generalisation
@@ -105,14 +104,14 @@ def build_sm_example(
     """Build the state-machine input `Example` for step `k = len(output_history)`.
 
     The three pieces of task state (`alphabet`, `x`, `output_history`) are glued
-    together end-to-end with `[BOS]`, `[SEP]`, and `[S]` into a single sequence.
+    together end-to-end with `[BOS]`, `[SEP]`, and `[STEP]` into a single sequence.
     For example, with `alphabet = "0123"`, `x = "130"`, `output_history = "2"` (`k = 1`):
 
-        input_ids:       [BOS]  '0' '1' '2' '3'  [SEP]  '1' '3' '0'  [SEP]  '2'  [S]
-        token_type_ids:    0     1   1   1   1     0     2   2   2     0     3    3
-        position_ids:      0     0   1   2   3     0     0   1   2     0     0    1
+        input_ids:       [BOS]  '0' '1' '2' '3'  [SEP]  '1' '3' '0'  [SEP]  '2'  [STEP]
+        token_type_ids:    0     1   1   1   1     0     2   2   2     0     3     3
+        position_ids:      0     0   1   2   3     0     0   1   2     0     0     1
 
-    Notice that in the `OUT` section (`token_type_ids == 3`), `[S]` sits at
+    Notice that in the `OUTPUT` section (`token_type_ids == 3`), `[STEP]` sits at
     `position_id = k = 1`, aligning it with `x_1 = '3'` in the `INPUT` section.
     """
     alphabet_tokens, x_tokens = _validate_problem(alphabet, x)
@@ -138,7 +137,7 @@ def build_sm_example(
         ((SpecialToken.SEP,), TokenType.SPECIAL),
         (x_tokens, TokenType.INPUT),
         ((SpecialToken.SEP,), TokenType.SPECIAL),
-        ((*out_tokens, SpecialToken.STEP), TokenType.OUT),
+        ((*out_tokens, SpecialToken.STEP), TokenType.OUTPUT),
     ]
     return _sections_to_example(sections, embedding_mode)
 
@@ -153,14 +152,14 @@ def build_ar_example(
     """Build the autoregressive (`ar`) input `Example` for `(alphabet, x)` and `trace`.
 
     The harness is passive: the problem prefix ends at the second `[SEP]`, and any
-    `trace` tokens emitted so far follow in a single `TokenType.OUT` section with
+    `trace` tokens emitted so far follow in a single `TokenType.OUTPUT` section with
     sequential `position_ids = 0, 1, ..., len(trace) - 1`.
 
     For `alphabet = "0123"`, `x = "130"`, and a complete `OUT_FIRST` trace:
 
-        input_ids:       [BOS] '0' '1' '2' '3' [SEP] '1' '3' '0' [SEP] '2' '0' [CONT] '0' '1' [CONT] '1' '0' [FIN]
-        token_type_ids:    0    1   1   1   1    0    2   2   2    0    3   3    3     3   3    3     3   3    3
-        position_ids:      0    0   1   2   3    0    0   1   2    0    0   1    2     3   4    5     6   7    8
+        input_ids:       [BOS] '0' '1' '2' '3' [SEP] '1' '3' '0' [SEP] '2' '0' [FLAG_CONTINUE] '0' '1' [FLAG_CONTINUE] '1' '0' [FLAG_FINISHED]
+        token_type_ids:    0    1   1   1   1    0    2   2   2    0    3   3         3         3   3         3         3   3         3
+        position_ids:      0    0   1   2   3    0    0   1   2    0    0   1         2         3   4         5         6   7         8
 
     At the start of generation (`trace = ()`), the `Example` ends at the second `[SEP]`.
     """
@@ -179,6 +178,6 @@ def build_ar_example(
         ((SpecialToken.SEP,), TokenType.SPECIAL),
         (x_tokens, TokenType.INPUT),
         ((SpecialToken.SEP,), TokenType.SPECIAL),
-        (trace_tokens, TokenType.OUT),
+        (trace_tokens, TokenType.OUTPUT),
     ]
     return _sections_to_example(sections, embedding_mode)

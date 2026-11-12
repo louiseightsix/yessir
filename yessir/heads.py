@@ -13,9 +13,9 @@ class MultiTaskHead(nn.Module):
 
     In a right-padded `Batch`, example `b` has real tokens at indices
     `0 .. lengths[b] - 1` and `PAD` tokens at `>= lengths[b]`. Rather than reading
-    `h[:, -1]` (which is a `PAD` position whenever examples in the batch have
-    different lengths), `MultiTaskHead` gathers `h[b, lengths[b] - 1]` for each
-    example, applies a final `RMSNorm`, and projects that single hidden state
+    `hidden_states[:, -1]` (which is a `PAD` position whenever examples in the batch
+    have different lengths), `MultiTaskHead` gathers `hidden_states[b, lengths[b] - 1]`
+    for each example, applies a final `RMSNorm`, and projects that single hidden state
     through each head in `self.heads`.
     """
 
@@ -35,7 +35,7 @@ class MultiTaskHead(nn.Module):
         )
 
     def forward(
-        self, h: torch.Tensor, lengths: torch.Tensor
+        self, hidden_states: torch.Tensor, lengths: torch.Tensor
     ) -> tuple[torch.Tensor, ...]:
         """Project the last unpadded hidden state of each sequence into per-head logits.
 
@@ -44,20 +44,20 @@ class MultiTaskHead(nn.Module):
         the last position).
 
         Args:
-            h: Hidden states of shape `(B, T, d_model)`.
+            hidden_states: Hidden states of shape `(B, T, d_model)`.
             lengths: Unpadded sequence lengths of shape `(B,)` with values in `1..T`.
 
         Returns:
             Tuple of `(B, num_classes_i)` logit tensors, one per head.
         """
-        batch_size = h.size(0)
+        batch_size = hidden_states.size(0)
         if lengths.shape != (batch_size,):
             raise ValueError(
                 f"lengths shape {tuple(lengths.shape)} must match batch size ({batch_size},)"
             )
 
-        batch_indices = torch.arange(batch_size, device=h.device)
+        batch_indices = torch.arange(batch_size, device=hidden_states.device)
         # Normalising after indexing `lengths - 1` is equivalent to normalising all
         # T positions first (RMSNorm is per-position), at 1/T the compute cost.
-        h_last = self.norm(h[batch_indices, lengths - 1])
+        h_last = self.norm(hidden_states[batch_indices, lengths - 1])
         return tuple(head(h_last) for head in self.heads)

@@ -18,11 +18,11 @@ def test_token_types_are_in_valid_range():
 
 
 def test_example_1_step_0_and_step_1_layout():
-    """Verify exact tracks for Example 1 (`alphabet = '0123'`, `x = '130'`)."""
+    """Verify exact layout for Example 1 (`alphabet = '0123'`, `x = '130'`)."""
     alphabet = b"0123"
     x = b"130"
 
-    # k = 0 (empty output_history): [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] [S]
+    # k = 0 (empty output_history): [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] [STEP]
     ex0 = build_sm_example(alphabet, x)
     assert ex0.input_ids == (
         SpecialToken.BOS,
@@ -48,7 +48,7 @@ def test_example_1_step_0_and_step_1_layout():
         TokenType.INPUT,
         TokenType.INPUT,
         TokenType.SPECIAL,
-        TokenType.OUT,
+        TokenType.OUTPUT,
     )
     assert ex0.position_ids == (
         0,
@@ -64,16 +64,16 @@ def test_example_1_step_0_and_step_1_layout():
         0,
     )
 
-    # k = 1 (output_history = '2'): [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] 2 [S]
+    # k = 1 (output_history = '2'): [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] 2 [STEP]
     ex1 = build_sm_example(alphabet, x, output_history=b"2")
     assert ex1.input_ids[-2:] == (ord("2"), SpecialToken.STEP)
     assert ex1.token_type_ids is not None
-    assert ex1.token_type_ids[-2:] == (TokenType.OUT, TokenType.OUT)
+    assert ex1.token_type_ids[-2:] == (TokenType.OUTPUT, TokenType.OUTPUT)
     assert ex1.position_ids is not None
     assert ex1.position_ids[-2:] == (0, 1)
 
 
-def test_embedding_modes_attach_expected_tracks():
+def test_embedding_modes_attach_expected_ids():
     alphabet = b"0123"
     x = b"130"
     history = b"20"
@@ -163,13 +163,13 @@ def test_ar_example_empty_and_with_trace():
     )
     assert ex_start.position_ids == (0, 0, 1, 2, 3, 0, 0, 1, 2, 0)
 
-    # With a trace appended in TokenType.OUT
+    # With a trace appended in TokenType.OUTPUT
     trace = (ord("2"), ord("0"), SpecialToken.FLAG_CONTINUE)
     ex_trace = build_ar_example(alphabet, x, trace=trace)
     assert ex_trace.input_ids == ex_start.input_ids + trace
     assert ex_trace.token_type_ids == ex_start.token_type_ids + (
-        TokenType.OUT,
-        TokenType.OUT,
-        TokenType.OUT,
+        TokenType.OUTPUT,
+        TokenType.OUTPUT,
+        TokenType.OUTPUT,
     )
     assert ex_trace.position_ids == ex_start.position_ids + (0, 1, 2)

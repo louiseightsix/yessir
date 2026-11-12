@@ -15,33 +15,33 @@ At each step `k` in `0 .. L - 1`, where the input symbol is `x_k = s_i`, the gro
 - **Wrap output (`w_k`)**: `s_1` if `i == B - 1` (wrapped around), else `s_0`.
 - **Halting flag (`flag_k`)**: `FLAG_FINISHED` if `k == L - 1`, else `FLAG_CONTINUE`.
 
-### Examples (`sm_mh`, the state-machine driver read through the multi-task head, turn by turn)
+### Examples (`sm_mh`, the state-machine driver read through `MultiTaskHead`, turn by turn)
 
 **Example 1 (`alphabet = ['0', '1', '2', '3']`, `x = ['1', '3', '0']`):**
 ```
-k = 0:  in:  [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] [S]
-        out: ('2', '0', FLAG_CONTINUE)
+k = 0:  in:  [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] [STEP]
+        out: ('2', '0', [FLAG_CONTINUE])
 
-k = 1:  in:  [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] 2 [S]
-        out: ('0', '1', FLAG_CONTINUE)
+k = 1:  in:  [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] 2 [STEP]
+        out: ('0', '1', [FLAG_CONTINUE])
 
-k = 2:  in:  [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] 2 0 [S]
-        out: ('1', '0', FLAG_FINISHED)
+k = 2:  in:  [BOS] 0 1 2 3 [SEP] 1 3 0 [SEP] 2 0 [STEP]
+        out: ('1', '0', [FLAG_FINISHED])
 ```
 
 **Example 2 (`alphabet = ['q', '#', '7']`, `x = ['#', '7', 'q', '7']`):**
 ```
-k = 0:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] [S]
-        out: ('7', 'q', FLAG_CONTINUE)
+k = 0:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] [STEP]
+        out: ('7', 'q', [FLAG_CONTINUE])
 
-k = 1:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 [S]
-        out: ('q', '#', FLAG_CONTINUE)
+k = 1:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 [STEP]
+        out: ('q', '#', [FLAG_CONTINUE])
 
-k = 2:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q [S]
-        out: ('#', 'q', FLAG_CONTINUE)
+k = 2:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q [STEP]
+        out: ('#', 'q', [FLAG_CONTINUE])
 
-k = 3:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q # [S]
-        out: ('q', '#', FLAG_FINISHED)
+k = 3:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q # [STEP]
+        out: ('q', '#', [FLAG_FINISHED])
 ```
 
 ### Alphabets (`yessir.alphabet`)
@@ -55,10 +55,10 @@ Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rn
 
 ### 2.1 State-machine input (`build_sm_example`)
 
-At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]` and ending with the step query trigger `[S]`:
+At step `k` (with `0 <= k < L` and previous primary outputs `out_k = [o_0, ..., o_{k-1}]`), the state-machine input is a single sequence of tokens separated by the delimiter `[SEP]` and ending with the step query trigger `[STEP]`:
 
 ```
-[BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  o_0 ... o_{k-1}  [S]
+[BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  o_0 ... o_{k-1}  [STEP]
 ```
 
 Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) optional entries in `token_type_ids` and `position_ids`. Token type ids mark which section a token belongs to (like BERT's segment ids); position ids restart at `0` in each section.
@@ -70,14 +70,14 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Input `x` | `x_0, ..., x_{L-1}` | `TokenType.INPUT` (`2`) | `0, 1, ..., L - 1` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Output history `out_k` | `o_0, ..., o_{k-1}` | `TokenType.OUT` (`3`) | `0, 1, ..., k - 1` |
-| Step query trigger | `[S]` | `TokenType.OUT` (`3`) | `k` |
+| Output history `out_k` | `o_0, ..., o_{k-1}` | `TokenType.OUTPUT` (`3`) | `0, 1, ..., k - 1` |
+| Step query trigger | `[STEP]` | `TokenType.OUTPUT` (`3`) | `k` |
 
-In `sm_mh`, the three output heads (`head_out`, `head_wrap`, `head_flag`) read the hidden state at the final unpadded position (`[S]`) to predict `(o_k, w_k, flag_k)`.
+In `sm_mh`, `MultiTaskHead.heads[0..2]` read the hidden state at the final unpadded position (`[STEP]`) to predict `(o_k, w_k, flag_k)` in order.
 
 ### 2.2 Autoregressive input (`build_ar_example`)
 
-In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and any `trace` tokens generated so far follow in a single `TokenType.OUT` section with sequential `position_ids = 0, 1, ..., len(trace) - 1`:
+In autoregressive (`ar`) mode, the problem prefix ends at the second `[SEP]` and any `trace` tokens generated so far follow in a single `TokenType.OUTPUT` section with sequential `position_ids = 0, 1, ..., len(trace) - 1`:
 
 ```
 [BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  trace_0 ... trace_{m-1}

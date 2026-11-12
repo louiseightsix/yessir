@@ -64,10 +64,10 @@ def test_rmsnorm_rejects_non_positive_eps(bad_eps):
 
 def test_swiglu_shape_bias_free_and_position_independence():
     torch.manual_seed(0)
-    ffn = SwiGLUFeedForward(d_model=16, d_ffn=32)
-    assert ffn.w_gate.bias is None
-    assert ffn.w_up.bias is None
-    assert ffn.w_down.bias is None
+    ffn = SwiGLUFeedForward(d_model=16, d_ff=32)
+    assert ffn.gate_proj.bias is None
+    assert ffn.up_proj.bias is None
+    assert ffn.down_proj.bias is None
 
     # Zero input produces exact zero output (no biases)
     zeros = torch.zeros(1, 3, 16)
@@ -83,10 +83,10 @@ def test_swiglu_shape_bias_free_and_position_independence():
     assert torch.allclose(out1[:, 0, :], out2[:, 0, :])
 
 
-@pytest.mark.parametrize(("d_model", "d_ffn"), [(0, 16), (-1, 16), (16, 0), (16, -8)])
-def test_swiglu_rejects_non_positive_dimensions(d_model, d_ffn):
+@pytest.mark.parametrize(("d_model", "d_ff"), [(0, 16), (-1, 16), (16, 0), (16, -8)])
+def test_swiglu_rejects_non_positive_dimensions(d_model, d_ff):
     with pytest.raises(ValueError, match="must be > 0"):
-        SwiGLUFeedForward(d_model=d_model, d_ffn=d_ffn)
+        SwiGLUFeedForward(d_model=d_model, d_ff=d_ff)
 
 
 def test_attention_shape_bias_free_and_causal_masking():
@@ -122,7 +122,7 @@ def test_attention_rejects_invalid_head_configuration(d_model, n_heads, match):
 
 def test_transformer_block_causal_invariance_and_gradient_flow():
     torch.manual_seed(0)
-    block = TransformerBlock(d_model=16, n_heads=4, d_ffn=32)
+    block = TransformerBlock(d_model=16, n_heads=4, d_ff=32)
 
     x = torch.randn(2, 5, 16, requires_grad=True)
     out = block(x)

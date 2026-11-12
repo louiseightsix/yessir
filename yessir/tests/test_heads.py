@@ -9,18 +9,18 @@ from yessir.vocab import VOCAB_SIZE
 
 def test_multitask_head_shapes_and_bias_free():
     torch.manual_seed(0)
-    head = MultiTaskHead(d_model=16, num_classes=(VOCAB_SIZE, VOCAB_SIZE, 2))
+    head = MultiTaskHead(d_model=16, num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE))
     assert len(head.heads) == 3
     for linear in head.heads:
         assert linear.bias is None
 
-    h = torch.randn(4, 7, 16)
+    hidden_states = torch.randn(4, 7, 16)
     lengths = torch.tensor([3, 7, 1, 5], dtype=torch.long)
 
-    logits_a, logits_b, logits_c = head(h, lengths)
+    logits_a, logits_b, logits_c = head(hidden_states, lengths)
     assert logits_a.shape == (4, VOCAB_SIZE)
     assert logits_b.shape == (4, VOCAB_SIZE)
-    assert logits_c.shape == (4, 2)
+    assert logits_c.shape == (4, VOCAB_SIZE)
 
 
 def test_multitask_head_reads_at_lengths_minus_one_and_ignores_padding():

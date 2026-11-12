@@ -1,4 +1,4 @@
-"""Shared formatting, JSONL dumping, and CLI runner for `yessir` `Dataset`s."""
+"""Shared formatting, JSONL dumping, and CLI runner for `yessir` `IterableDataset`s."""
 
 import argparse
 import itertools
@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from yessir.dataset import Dataset, LabelledExample
+from yessir.dataset import IterableDataset, LabelledExample
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token
 
@@ -48,7 +48,7 @@ def format_labelled_example(item: LabelledExample, index: int) -> str:
         )
         lines.append(f"  position_ids:   {pos_row}")
     lines.append(
-        f"  targets:        ({', '.join(format_token(t) for t in item.targets)})"
+        f"  labels:         ({', '.join(format_token(t) for t in item.labels)})"
     )
     return "\n".join(lines)
 
@@ -64,12 +64,12 @@ def to_json_record(item: LabelledExample) -> dict[str, object]:
         "position_ids": (
             list(ex.position_ids) if ex.position_ids is not None else None
         ),
-        "targets": list(item.targets),
+        "labels": list(item.labels),
     }
 
 
 def inspect_dataset(
-    dataset: Dataset,
+    dataset: IterableDataset,
     *,
     num_examples: int,
     out: Path | None = None,
@@ -99,7 +99,7 @@ def run_inspect_cli(
     *,
     description: str,
     add_dataset_args: Callable[[argparse.ArgumentParser], None],
-    build_dataset: Callable[[argparse.Namespace], Dataset],
+    build_dataset: Callable[[argparse.Namespace], IterableDataset],
     argv: Sequence[str] | None = None,
 ) -> None:
     """Parse shared + experiment CLI flags and run `inspect_dataset`."""

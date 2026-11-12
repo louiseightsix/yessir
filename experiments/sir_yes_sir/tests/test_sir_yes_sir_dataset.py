@@ -11,38 +11,38 @@ from yessir.special_tokens import SpecialToken
 
 
 def test_dataset_reproducibility_and_seed_variation():
-    ds = SirYesSirDataset(alphabet_size=4, seq_length=3, seed=123)
+    ds = SirYesSirDataset(alphabet_size=4, x_length=3, seed=123)
     run1 = list(itertools.islice(ds, 6))
     run2 = list(itertools.islice(ds, 6))
     assert run1 == run2
 
-    ds_other = SirYesSirDataset(alphabet_size=4, seq_length=3, seed=456)
+    ds_other = SirYesSirDataset(alphabet_size=4, x_length=3, seed=456)
     run_other = list(itertools.islice(ds_other, 6))
     assert run1 != run_other
 
 
 def test_dataset_matches_reference_step_and_accumulates_output_history():
     alphabet_size = 5
-    seq_length = 4
+    x_length = 4
     ds = SirYesSirDataset(
         alphabet_size=alphabet_size,
-        seq_length=seq_length,
+        x_length=x_length,
         seed=7,
     )
-    items = list(itertools.islice(ds, seq_length))
+    items = list(itertools.islice(ds, x_length))
 
     # Extract alphabet and input sequence x from the first example's sections:
     # [BOS] alphabet[0..B-1] [SEP] x[0..L-1] [SEP] out_history[0..k-1] [STEP]
     first_ids = items[0].example.input_ids
     alphabet = first_ids[1 : 1 + alphabet_size]
     x_start = 1 + alphabet_size + 1
-    x = first_ids[x_start : x_start + seq_length]
-    out_start = x_start + seq_length + 1
+    x = first_ids[x_start : x_start + x_length]
+    out_start = x_start + x_length + 1
 
     expected_history: list[int] = []
     for k, item in enumerate(items):
         o_k, w_k, flag_k = reference_step(alphabet, x, k)
-        assert item.targets == (o_k, w_k, int(flag_k))
+        assert item.labels == (o_k, w_k, int(flag_k))
 
         ids = item.example.input_ids
         assert ids[out_start:-1] == tuple(expected_history)
@@ -50,10 +50,10 @@ def test_dataset_matches_reference_step_and_accumulates_output_history():
 
         expected_flag = (
             SpecialToken.FLAG_FINISHED
-            if k == seq_length - 1
+            if k == x_length - 1
             else SpecialToken.FLAG_CONTINUE
         )
-        assert item.targets[2] == int(expected_flag)
+        assert item.labels[2] == int(expected_flag)
         expected_history.append(o_k)
 
 
@@ -68,7 +68,7 @@ def test_dataset_matches_reference_step_and_accumulates_output_history():
 def test_dataset_respects_embedding_mode(mode: EmbeddingMode):
     ds = SirYesSirDataset(
         alphabet_size=3,
-        seq_length=2,
+        x_length=2,
         embedding_mode=mode,
         seed=0,
     )
@@ -80,7 +80,7 @@ def test_dataset_respects_embedding_mode(mode: EmbeddingMode):
         assert ex.position_ids is None
     elif mode == EmbeddingMode.TOKEN_TYPE_NOPE:
         assert ex.token_type_ids is not None
-        assert ex.token_type_ids[-1] == TokenType.OUT
+        assert ex.token_type_ids[-1] == TokenType.OUTPUT
         assert ex.position_ids is None
     else:
         assert ex.token_type_ids is not None
@@ -88,17 +88,17 @@ def test_dataset_respects_embedding_mode(mode: EmbeddingMode):
 
 
 @pytest.mark.parametrize(
-    ("alphabet_size", "seq_length", "match"),
+    ("alphabet_size", "x_length", "match"),
     [
         (1, 3, "alphabet_size must be in 2..240"),
         (241, 3, "alphabet_size must be in 2..240"),
-        (4, 0, "seq_length must be >= 1"),
-        (4, -2, "seq_length must be >= 1"),
+        (4, 0, "x_length must be >= 1"),
+        (4, -2, "x_length must be >= 1"),
     ],
 )
-def test_dataset_rejects_invalid_init_args(alphabet_size, seq_length, match):
+def test_dataset_rejects_invalid_init_args(alphabet_size, x_length, match):
     with pytest.raises(ValueError, match=match):
-        SirYesSirDataset(alphabet_size=alphabet_size, seq_length=seq_length)
+        SirYesSirDataset(alphabet_size=alphabet_size, x_length=x_length)
 
 
 def test_dataset_cli_main_prints_examples(capsys: pytest.CaptureFixture[str]):

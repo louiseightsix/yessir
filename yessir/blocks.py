@@ -34,27 +34,27 @@ class RMSNorm(nn.Module):
 
 
 class SwiGLUFeedForward(nn.Module):
-    """Bias-free SwiGLU feed-forward network: `w_down(silu(w_gate(x)) * w_up(x))`.
+    """Bias-free SwiGLU feed-forward network: `down_proj(silu(gate_proj(x)) * up_proj(x))`.
 
-    The elementwise product `silu(w_gate(x)) * w_up(x)` lets hidden units act as
+    The elementwise product `silu(gate_proj(x)) * up_proj(x)` lets hidden units act as
     multiplicative gates, and omitting biases avoids adding constant offsets into
     the residual stream.
     """
 
-    def __init__(self, d_model: int, d_ffn: int) -> None:
+    def __init__(self, d_model: int, d_ff: int) -> None:
         super().__init__()
         if d_model <= 0:
             raise ValueError(f"d_model must be > 0, got {d_model}")
-        if d_ffn <= 0:
-            raise ValueError(f"d_ffn must be > 0, got {d_ffn}")
+        if d_ff <= 0:
+            raise ValueError(f"d_ff must be > 0, got {d_ff}")
 
-        self.w_gate = nn.Linear(d_model, d_ffn, bias=False)
-        self.w_up = nn.Linear(d_model, d_ffn, bias=False)
-        self.w_down = nn.Linear(d_ffn, d_model, bias=False)
+        self.gate_proj = nn.Linear(d_model, d_ff, bias=False)
+        self.up_proj = nn.Linear(d_model, d_ff, bias=False)
+        self.down_proj = nn.Linear(d_ff, d_model, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply SwiGLU FFN to `x` of shape `(B, T, d_model)`."""
-        return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
+        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -109,12 +109,12 @@ class TransformerBlock(nn.Module):
     unrescaled identity path from `SubspaceEmbedding` through to the output head.
     """
 
-    def __init__(self, d_model: int, n_heads: int, d_ffn: int) -> None:
+    def __init__(self, d_model: int, n_heads: int, d_ff: int) -> None:
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
         self.attn = MultiHeadSelfAttention(d_model, n_heads)
         self.ffn_norm = RMSNorm(d_model)
-        self.ffn = SwiGLUFeedForward(d_model, d_ffn)
+        self.ffn = SwiGLUFeedForward(d_model, d_ff)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run one Pre-LN attention + FFN block on `x` of shape `(B, T, d_model)`."""

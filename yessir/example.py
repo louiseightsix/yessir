@@ -1,7 +1,7 @@
 """Single unbatched model inputs (`Example`).
 
 Every example has a primary sequence of byte tokens (`input_ids`) and may also
-carry aligned per-token coordinate side channels (`token_type_ids`, `position_ids`).
+carry aligned per-token `token_type_ids` and `position_ids`.
 """
 
 from dataclasses import dataclass
@@ -22,17 +22,17 @@ def _is_int(value: object) -> bool:
 
 @dataclass(frozen=True)
 class Example:
-    """One unbatched sequence of token ids and its optional side-channel coordinates.
+    """One unbatched sequence of token ids and its optional `token_type_ids` and `position_ids`.
 
     Attributes:
         input_ids: Non-empty tuple of byte token ids (each in 0..255).
-        token_type_ids: Optional tuple of per-token section / role ids
-            (each in `0..15`, i.e. `TOKEN_TYPE_RANGE`). None when section roles
+        token_type_ids: Optional tuple of per-token section ids
+            (each in `0..15`, i.e. `TOKEN_TYPE_RANGE`). None when section ids
             are not used.
         position_ids: Optional tuple of per-token position offsets (non-negative
             ints). Unlike Hugging Face—where `position_ids=None` means
             "auto-generate 0, 1, ..., T-1"—here `None` means NoPE (no positional
-            coordinates are given to the model).
+            ids are given to the model).
     """
 
     input_ids: tuple[Token, ...]

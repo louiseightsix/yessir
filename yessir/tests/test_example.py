@@ -8,7 +8,7 @@ from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 
 
-def test_example_with_all_coordinates():
+def test_example_with_token_type_and_position_ids():
     ex = Example(
         input_ids=(SpecialToken.BOS, 0x30, 0x31),
         token_type_ids=(0, 1, 1),
@@ -20,7 +20,7 @@ def test_example_with_all_coordinates():
     assert ex.position_ids == (0, 0, 1)
 
 
-def test_example_without_side_channels():
+def test_example_with_input_ids_only():
     ex = Example(input_ids=(SpecialToken.BOS, 0x30))
     assert len(ex) == 2
     assert ex.token_type_ids is None
@@ -67,7 +67,7 @@ def test_rejects_invalid_token_ids(bad_token):
         Example(input_ids=(SpecialToken.BOS, bad_token))
 
 
-def test_rejects_mismatched_coordinate_lengths():
+def test_rejects_mismatched_lengths():
     with pytest.raises(ValueError, match="token_type_ids length"):
         Example(input_ids=(0, 1, 2), token_type_ids=(0, 1))
 

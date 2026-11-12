@@ -12,12 +12,12 @@ from yessir.heads import MultiTaskHead
 
 _INIT_STD = 0.02
 
-# A standard 2-matrix FFN at the default d_model = 512 uses d_ffn = 4 * d_model = 2048.
-# SwiGLU uses 3 matrices (w_gate, w_up, w_down), so matching that parameter count
-# takes (2 / 3) * 4 * 512 ≈ 1365.3 hidden units; rounding up to a multiple of 32
+# A standard 2-matrix FFN at the default d_model = 512 uses d_ff = 4 * d_model = 2048.
+# SwiGLU uses 3 matrices (gate_proj, up_proj, down_proj), so matching that parameter
+# count takes (2 / 3) * 4 * 512 ≈ 1365.3 hidden units; rounding up to a multiple of 32
 # gives 43 * 32 = 1376. Callers that change d_model (via d_scratch / d_position /
-# use_token_type) should pass d_ffn explicitly if they want d_ffn to scale with it.
-_DEFAULT_D_FFN = 1376
+# use_token_type) should pass d_ff explicitly if they want d_ff to scale with it.
+_DEFAULT_D_FF = 1376
 
 
 class Transformer(nn.Module):
@@ -28,7 +28,7 @@ class Transformer(nn.Module):
     - Each `TransformerBlock` adds two residual branches (`attn` and `ffn`) into the
       residual stream, giving `2 * n_layers` additions across the network. To keep
       the variance accumulated along the residual stream independent of depth, the
-      output projection of each residual branch (`attn.out_proj` and `ffn.w_down`)
+      output projection of each residual branch (`attn.out_proj` and `ffn.down_proj`)
       is scaled by `1 / sqrt(2 * n_layers)` (Radford et al., 2019).
     """
 
@@ -38,7 +38,7 @@ class Transformer(nn.Module):
         num_classes: Sequence[int],
         n_layers: int = 6,
         n_heads: int = 8,
-        d_ffn: int = _DEFAULT_D_FFN,
+        d_ff: int = _DEFAULT_D_FF,
         use_token_type: bool = True,
         d_position: int = 32,
         d_scratch: int = 208,
@@ -59,7 +59,7 @@ class Transformer(nn.Module):
                 TransformerBlock(
                     d_model=self.d_model,
                     n_heads=n_heads,
-                    d_ffn=d_ffn,
+                    d_ff=d_ff,
                 )
                 for _ in range(n_layers)
             ]
@@ -81,7 +81,7 @@ class Transformer(nn.Module):
         for layer in self.layers:
             assert isinstance(layer, TransformerBlock)
             layer.attn.out_proj.weight.mul_(residual_scale)
-            layer.ffn.w_down.weight.mul_(residual_scale)
+            layer.ffn.down_proj.weight.mul_(residual_scale)
 
     def forward(
         self,

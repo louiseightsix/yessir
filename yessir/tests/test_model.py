@@ -14,7 +14,7 @@ from yessir.vocab import VOCAB_SIZE
 
 def test_transformer_default_dimensions_and_forward_shapes():
     torch.manual_seed(0)
-    model = Transformer(num_classes=(VOCAB_SIZE, VOCAB_SIZE, 2))
+    model = Transformer(num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE))
     assert model.d_model == 512
     assert len(model.layers) == 6
 
@@ -38,7 +38,7 @@ def test_transformer_default_dimensions_and_forward_shapes():
     )
     assert logits_a.shape == (2, VOCAB_SIZE)
     assert logits_b.shape == (2, VOCAB_SIZE)
-    assert logits_c.shape == (2, 2)
+    assert logits_c.shape == (2, VOCAB_SIZE)
 
 
 def test_transformer_end_to_end_right_padding_invariance():
@@ -47,7 +47,7 @@ def test_transformer_end_to_end_right_padding_invariance():
         num_classes=(16, 2),
         n_layers=2,
         n_heads=4,
-        d_ffn=64,
+        d_ff=64,
         d_position=8,
         d_scratch=16,
     )
@@ -97,11 +97,13 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     layer0 = model.layers[0]
     assert isinstance(layer0, TransformerBlock)
     assert abs(layer0.attn.q_proj.weight.std().item() - expected_base_std) < 0.002
-    assert abs(layer0.ffn.w_gate.weight.std().item() - expected_base_std) < 0.002
+    assert abs(layer0.ffn.gate_proj.weight.std().item() - expected_base_std) < 0.002
     assert (
         abs(layer0.attn.out_proj.weight.std().item() - expected_residual_std) < 0.0005
     )
-    assert abs(layer0.ffn.w_down.weight.std().item() - expected_residual_std) < 0.0005
+    assert (
+        abs(layer0.ffn.down_proj.weight.std().item() - expected_residual_std) < 0.0005
+    )
 
     # Perturb RMSNorm weights and verify reset_parameters restores them to 1.0
     # and re-initialises residual projections rather than scaling them a second time.
@@ -122,7 +124,7 @@ def test_transformer_gradient_flow_to_all_parameters():
         num_classes=(8, 2),
         n_layers=2,
         n_heads=4,
-        d_ffn=32,
+        d_ff=32,
         d_position=8,
         d_scratch=0,
     )

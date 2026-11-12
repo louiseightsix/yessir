@@ -16,15 +16,15 @@ class SirYesSirDataset:
     """Infinite deterministic stream of state-machine `LabelledExample`s for `sir_yes_sir`.
 
     Each problem samples a fresh alphabet of size `alphabet_size` from `SymbolSet.ALL`
-    and a random input sequence `x` of length `seq_length` over that alphabet, then
-    yields one `LabelledExample` for each step `k = 0 .. seq_length - 1`.
+    and a random input sequence `x` of length `x_length` over that alphabet, then
+    yields one `LabelledExample` for each step `k = 0 .. x_length - 1`.
     """
 
     def __init__(
         self,
         *,
         alphabet_size: int = 4,
-        seq_length: int = 3,
+        x_length: int = 3,
         embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
@@ -32,11 +32,11 @@ class SirYesSirDataset:
             raise ValueError(
                 f"alphabet_size must be in 2..{len(SymbolSet.ALL)}, got {alphabet_size}"
             )
-        if seq_length < 1:
-            raise ValueError(f"seq_length must be >= 1, got {seq_length}")
+        if x_length < 1:
+            raise ValueError(f"x_length must be >= 1, got {x_length}")
 
         self._alphabet_size = alphabet_size
-        self._seq_length = seq_length
+        self._x_length = x_length
         self._embedding_mode = embedding_mode
         self._seed = seed
 
@@ -47,10 +47,10 @@ class SirYesSirDataset:
             alphabet = create_alphabet(
                 SymbolSet.ALL, sample_size=self._alphabet_size, rng=rng
             )
-            x = tuple(rng.choice(alphabet) for _ in range(self._seq_length))
+            x = tuple(rng.choice(alphabet) for _ in range(self._x_length))
 
             output_history: list[Token] = []
-            for k in range(self._seq_length):
+            for k in range(self._x_length):
                 o_k, w_k, flag_k = reference_step(alphabet, x, k)
                 example = build_sm_example(
                     alphabet,
@@ -60,7 +60,7 @@ class SirYesSirDataset:
                 )
                 yield LabelledExample(
                     example=example,
-                    targets=(o_k, w_k, int(flag_k)),
+                    labels=(o_k, w_k, int(flag_k)),
                 )
                 output_history.append(o_k)
 
@@ -75,17 +75,17 @@ def _add_cli_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "-L",
-        "--seq-length",
+        "--x-length",
         type=int,
         default=3,
-        help="Input sequence length L (default: 3)",
+        help="Length L of input sequence x (default: 3)",
     )
     parser.add_argument(
         "--embedding-mode",
         type=EmbeddingMode,
         choices=tuple(EmbeddingMode),
         default=EmbeddingMode.TOKEN_TYPE_PE,
-        help="Coordinate embedding mode (default: token_type_pe)",
+        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
     )
     parser.add_argument(
         "--seed",
@@ -98,7 +98,7 @@ def _add_cli_args(parser: argparse.ArgumentParser) -> None:
 def _build_from_args(args: argparse.Namespace) -> SirYesSirDataset:
     return SirYesSirDataset(
         alphabet_size=args.alphabet_size,
-        seq_length=args.seq_length,
+        x_length=args.x_length,
         embedding_mode=args.embedding_mode,
         seed=args.seed,
     )
