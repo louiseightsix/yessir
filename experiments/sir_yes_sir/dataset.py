@@ -9,15 +9,16 @@ from experiments.sir_yes_sir.reference import reference_step
 from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
-from yessir.vocab import Token
+from yessir.vocab import Token, TokenSequence
 
 
 class SirYesSirDataset:
     """Infinite deterministic stream of state-machine `LabelledExample`s for `sir_yes_sir`.
 
-    Each problem samples a fresh alphabet of size `alphabet_size` from `SymbolSet.ALL`
-    and a random input sequence `x` of length `x_length` over that alphabet, then
-    yields one `LabelledExample` for each step `k = 0 .. x_length - 1`.
+    Each problem samples a fresh alphabet of size `alphabet_size` from `symbols`
+    (defaulting to `SymbolSet.ALL`) and a random input sequence `x` of length
+    `x_length` over that alphabet, then yields one `LabelledExample` for each
+    step `k = 0 .. x_length - 1`.
     """
 
     def __init__(
@@ -25,18 +26,21 @@ class SirYesSirDataset:
         *,
         alphabet_size: int = 4,
         x_length: int = 3,
+        symbols: TokenSequence = SymbolSet.ALL,
         embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
-        if not (2 <= alphabet_size <= len(SymbolSet.ALL)):
+        symbol_pool = create_alphabet(symbols)
+        if not (2 <= alphabet_size <= len(symbol_pool)):
             raise ValueError(
-                f"alphabet_size must be in 2..{len(SymbolSet.ALL)}, got {alphabet_size}"
+                f"alphabet_size must be in 2..{len(symbol_pool)}, got {alphabet_size}"
             )
         if x_length < 1:
             raise ValueError(f"x_length must be >= 1, got {x_length}")
 
         self._alphabet_size = alphabet_size
         self._x_length = x_length
+        self._symbols = symbol_pool
         self._embedding_mode = embedding_mode
         self._seed = seed
 
@@ -45,7 +49,7 @@ class SirYesSirDataset:
         rng = random.Random(self._seed)
         while True:
             alphabet = create_alphabet(
-                SymbolSet.ALL, sample_size=self._alphabet_size, rng=rng
+                self._symbols, sample_size=self._alphabet_size, rng=rng
             )
             x = tuple(rng.choice(alphabet) for _ in range(self._x_length))
 
