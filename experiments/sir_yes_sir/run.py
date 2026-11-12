@@ -4,7 +4,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from experiments.sir_yes_sir.config import SirYesSirConfig
+from experiments.sir_yes_sir.config import (
+    SIR_YES_SIR_DESCRIPTION,
+    SirYesSirConfig,
+)
 from experiments.sir_yes_sir.dataset import SirYesSirDataset
 from experiments.sir_yes_sir.evaluation import evaluate_sm_mh
 from yessir.artefacts import write_config_json, write_eval_json
@@ -111,7 +114,7 @@ def run_sir_yes_sir(
 
 SIR_YES_SIR_EXPERIMENT = Experiment(
     name="sir_yes_sir",
-    description="In-context successor (next symbol mod B, no carry) smoke-test experiment.",
+    description=SIR_YES_SIR_DESCRIPTION,
     config_cls=SirYesSirConfig,
     run=run_sir_yes_sir,
 )

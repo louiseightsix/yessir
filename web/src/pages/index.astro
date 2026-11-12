@@ -40,7 +40,7 @@ interface RunData {
   meta: ConfigFile | null;
   evalMetrics: Record<string, number> | null;
   trainPoints: TrainPoint[];
-  readme: string | null;
+  readmeBody: string | null;
   flawedReason: string | null;
 }
 
@@ -73,16 +73,25 @@ function loadRun(runDir: string, name: string): RunData {
   const evalMetrics = readJsonIfExists<Record<string, number>>(resolve(runDir, "eval.json"));
   const trainPoints = readTrainJsonl(resolve(runDir, "train.jsonl"));
   const readmePath = resolve(runDir, "README.md");
-  const readme = existsSync(readmePath) ? readFileSync(readmePath, "utf8").trim() : null;
-  const firstLine = readme?.split("\n", 1)[0] ?? "";
-  const flawedReason = firstLine.startsWith("FLAWED:")
-    ? firstLine.slice("FLAWED:".length).trim()
-    : null;
-  return { name, meta, evalMetrics, trainPoints, readme, flawedReason };
+  const rawReadme = existsSync(readmePath) ? readFileSync(readmePath, "utf8").trim() : null;
+  const lines = rawReadme ? rawReadme.split("\n") : [];
+  const firstLine = lines[0] ?? "";
+  const isFlawed = firstLine.startsWith("FLAWED:");
+  const flawedReason = isFlawed ? firstLine.slice("FLAWED:".length).trim() : null;
+  const remaining = (isFlawed ? lines.slice(1) : lines).join("\n").trim();
+  const readmeBody = remaining.length > 0 ? remaining : null;
+  return { name, meta, evalMetrics, trainPoints, readmeBody, flawedReason };
 }
 
 function lossSvgPoints(points: TrainPoint[], width: number, height: number): string {
   if (points.length === 0) return "";
+  const pad = 4;
+  const innerW = width - 2 * pad;
+  const innerH = height - 2 * pad;
+  if (points.length === 1) {
+    const midY = (height / 2).toFixed(1);
+    return `${pad.toFixed(1)},${midY} ${(width - pad).toFixed(1)},${midY}`;
+  }
   const minStep = points[0].step;
   const maxStep = points[points.length - 1].step;
   let minLoss = Infinity;
@@ -95,8 +104,8 @@ function lossSvgPoints(points: TrainPoint[], width: number, height: number): str
   const lossSpan = maxLoss > minLoss ? maxLoss - minLoss : 1;
   return points
     .map((p) => {
-      const x = ((p.step - minStep) / stepSpan) * width;
-      const y = height - ((p.loss - minLoss) / lossSpan) * height;
+      const x = pad + ((p.step - minStep) / stepSpan) * innerW;
+      const y = height - pad - ((p.loss - minLoss) / lossSpan) * innerH;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
@@ -207,6 +216,22 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
         padding: 0.5rem 0.75rem;
         margin: 0.75rem 0;
       }
+      .status-valid {
+        color: #166534;
+        background: #f0fdf4;
+        border: 1px solid #86efac;
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        margin: 0.75rem 0;
+      }
+      .status-invalid {
+        color: #991b1b;
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        border-radius: 4px;
+        padding: 0.5rem 0.75rem;
+        margin: 0.75rem 0;
+      }
       .cli-output {
         margin-top: 1rem;
       }
@@ -260,7 +285,7 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
                 {run.flawedReason !== null && (
                   <p class="flawed-banner">FLAWED: {run.flawedReason}</p>
                 )}
-                {run.readme && <pre>{run.readme}</pre>}
+                {run.readmeBody && <pre>{run.readmeBody}</pre>}
 
                 <div class="grid">
                   <div>

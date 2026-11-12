@@ -9,7 +9,10 @@ nothing beyond the standard library, so it works without the project's venv
 import json
 from typing import Any
 
-from experiments.sir_yes_sir.config import SirYesSirConfig
+from experiments.sir_yes_sir.config import (
+    SIR_YES_SIR_DESCRIPTION,
+    SirYesSirConfig,
+)
 from yessir.experiment import ExperimentConfig
 from yessir.tui import build_field_specs
 
@@ -17,9 +20,7 @@ from yessir.tui import build_field_specs
 # that imports each experiment's `run.py`, which imports torch.
 # `test_web_export.py` verifies both dicts stay in sync with `EXPERIMENTS`.
 CONFIGS: dict[str, type[ExperimentConfig]] = {"sir_yes_sir": SirYesSirConfig}
-DESCRIPTIONS: dict[str, str] = {
-    "sir_yes_sir": "In-context successor (next symbol mod B, no carry) smoke-test experiment.",
-}
+DESCRIPTIONS: dict[str, str] = {"sir_yes_sir": SIR_YES_SIR_DESCRIPTION}
 
 
 def export_schemas() -> dict[str, dict[str, Any]]:

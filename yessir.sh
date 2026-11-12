@@ -40,6 +40,9 @@ cmd="${1:-}"
 case "$cmd" in
     run)     exec uv run python -m experiments "$@" ;;
     browser)
+        # In AI-agent shells Astro 7 auto-backgrounds `astro dev` and exits immediately;
+        # manage it with `./yessir.sh browser stop | status | logs`, or pass `--ignore-lock`
+        # to keep it in the foreground.
         if ! command -v pnpm >/dev/null 2>&1; then
             echo "pnpm not found: install it from https://pnpm.io/installation" >&2
             exit 1

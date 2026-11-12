@@ -35,7 +35,7 @@ web/                     static web interface (Astro, pnpm) for browsing results
 
 ### Environment
 
-- Use `./yessir.sh` for everything in the live repo. `./yessir.sh run` runs an experiment (opening the interactive config editor by default, or taking CLI flags); `./yessir.sh browser` starts the Astro dev server for `web/`; `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh check` runs `ruff check` and `ty check`; `./yessir.sh fix` typechecks, autofixes lint issues, and formats; `./yessir.sh format` runs `ruff format`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
+- Use `./yessir.sh` for everything in the live repo. `./yessir.sh run` runs an experiment (opening the interactive config editor by default, or taking CLI flags); `./yessir.sh browser` starts the Astro dev server for `web/` (in agent shells Astro 7 auto-backgrounds and exits—use `./yessir.sh browser stop | status | logs`, or pass `--ignore-lock` to stay in the foreground); `./yessir.sh test` runs the tests in `experiments/` and `yessir/`; `./yessir.sh check` runs `ruff check` and `ty check`; `./yessir.sh fix` typechecks, autofixes lint issues, and formats; `./yessir.sh format` runs `ruff format`; `./yessir.sh uv <args>` runs any uv command (e.g. `./yessir.sh uv add numpy`).
 - There is one venv per OS (`.venv-darwin`, `.venv-linux`), because the same checkout is used from a macOS host and a Linux VM. Don't set a global `UV_PROJECT_ENVIRONMENT`, and don't create or delete venvs unless asked.
 - Prototypes keep their own run instructions (see each prototype's README).
 
