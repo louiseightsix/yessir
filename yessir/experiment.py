@@ -3,6 +3,7 @@
 import argparse
 import dataclasses
 import json
+import sys
 import types
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -31,6 +32,10 @@ class ExperimentConfig:
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
         """Construct and validate an instance of `cls` from a mapping."""
         return cls(**data)
+
+    def summary_info(self) -> str:
+        """Optional one-line summary of derived quantities for the interactive TUI."""
+        return ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -160,11 +165,29 @@ def parse_config_cli[ConfigT: ExperimentConfig](
     return build_config_from_args(config_cls, args)
 
 
+def _has_explicit_config_args(
+    config_cls: type[ExperimentConfig],
+    args: argparse.Namespace,
+) -> bool:
+    """Return `True` if `--config` or any config field flag was explicitly passed."""
+    if getattr(args, "config", None) is not None:
+        return True
+    arg_dict = vars(args)
+    return any(field.name in arg_dict for field in dataclasses.fields(config_cls))
+
+
 def _configure_experiment_parser(
     parser: argparse.ArgumentParser,
     experiment: Experiment[Any],
 ) -> None:
-    """Attach `--out-dir` and all config flags for `experiment` onto `parser`."""
+    """Attach `--interactive`, `--out-dir`, and all config flags for `experiment` onto `parser`."""
+    parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        default=False,
+        help="Open the interactive parameter editor before starting the run",
+    )
     parser.add_argument(
         "--out-dir",
         type=Path,
@@ -174,28 +197,64 @@ def _configure_experiment_parser(
     add_config_args(parser, experiment.config_cls)
 
 
+def _execute_experiment[ConfigT: ExperimentConfig](
+    experiment: Experiment[ConfigT],
+    args: argparse.Namespace,
+    *,
+    should_edit: bool,
+) -> dict[str, Any] | None:
+    config = build_config_from_args(experiment.config_cls, args)
+    if should_edit:
+        from yessir.tui import interactive_edit_config
+
+        edited = interactive_edit_config(experiment, initial=config)
+        if edited is None:
+            print("Run cancelled.")
+            return None
+        config = edited
+    return experiment.run(config, args.out_dir)
+
+
 def run_experiment_cli[ConfigT: ExperimentConfig](
     experiment: Experiment[ConfigT],
     argv: Sequence[str] | None = None,
-) -> dict[str, Any]:
-    """Parse CLI flags for a single `experiment` and invoke `experiment.run`."""
+    *,
+    interactive: bool | None = None,
+) -> dict[str, Any] | None:
+    """Parse CLI flags for a single `experiment` and invoke `experiment.run`.
+
+    When invoked from a terminal (`argv is None` and `sys.stdin.isatty()`) with no
+    explicit config flags—or when `-i` / `--interactive` is passed—opens the
+    interactive parameter editor before starting the run.
+    """
     parser = argparse.ArgumentParser(
         prog=experiment.name,
         description=experiment.description,
     )
     _configure_experiment_parser(parser, experiment)
     args = parser.parse_args(argv)
-    config = build_config_from_args(experiment.config_cls, args)
-    return experiment.run(config, args.out_dir)
+    has_flags = _has_explicit_config_args(experiment.config_cls, args)
+    should_edit = (
+        interactive
+        if interactive is not None
+        else (
+            args.interactive or (argv is None and sys.stdin.isatty() and not has_flags)
+        )
+    )
+    return _execute_experiment(experiment, args, should_edit=should_edit)
 
 
 def run_experiments_cli(
     experiments: Sequence[Experiment[Any]],
     argv: Sequence[str] | None = None,
+    *,
+    interactive: bool | None = None,
 ) -> dict[str, Any] | None:
     """Top-level CLI dispatcher over a sequence of registered `Experiment`s.
 
     If invoked with no experiment name, prints available experiments and returns `None`.
+    If invoked with an experiment name and no config flags in a terminal (or with `-i`),
+    opens the interactive parameter editor before starting the run.
     """
     if not experiments:
         raise ValueError("experiments must contain at least one Experiment")
@@ -229,5 +288,12 @@ def run_experiments_cli(
         return None
 
     selected = by_name[args.experiment]
-    config = build_config_from_args(selected.config_cls, args)
-    return selected.run(config, args.out_dir)
+    has_flags = _has_explicit_config_args(selected.config_cls, args)
+    should_edit = (
+        interactive
+        if interactive is not None
+        else (
+            args.interactive or (argv is None and sys.stdin.isatty() and not has_flags)
+        )
+    )
+    return _execute_experiment(selected, args, should_edit=should_edit)

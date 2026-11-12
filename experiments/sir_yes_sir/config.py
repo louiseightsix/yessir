@@ -1,6 +1,6 @@
 """Configuration schema and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
@@ -46,27 +46,32 @@ class SirYesSirConfig(ExperimentConfig):
     """
 
     # Task & data
-    alphabet_size: int = 4
-    x_length: int = 3
+    alphabet_size: int = field(default=4, metadata={"domain": "int in 2..len(symbols)"})
+    x_length: int = field(default=3, metadata={"domain": "int >= 1"})
     symbol_set: SymbolSetName = SymbolSetName.ALL
-    symbol_pool_size: int | None = None
+    symbol_pool_size: int | None = field(
+        default=None, metadata={"domain": "int in 2..len(symbol_set) or None"}
+    )
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
 
     # Model architecture
-    n_layers: int = 6
-    n_heads: int = 8
-    d_ff: int = 1376
-    d_position: int = 32
-    d_scratch: int = 208
+    n_layers: int = field(default=6, metadata={"domain": "int >= 1"})
+    n_heads: int = field(default=8, metadata={"domain": "int >= 1 (divides d_model)"})
+    d_ff: int = field(default=1376, metadata={"domain": "int >= 1", "step": 32})
+    d_position: int = field(
+        default=32,
+        metadata={"domain": "even int >= 0 (>0 if pe, 0 if nope)", "step": 2},
+    )
+    d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
 
     # Training & evaluation
-    steps: int = 1000
-    batch_size: int = 64
-    lr: float = 3e-4
-    seed: int = 42
-    eval_problems: int = 100
-    eval_batch_size: int = 64
-    eval_seed: int = 999
+    steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
+    batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
+    lr: float = field(default=3e-4, metadata={"domain": "float > 0", "step": 1e-4})
+    seed: int = field(default=42, metadata={"domain": "int (!= eval_seed)"})
+    eval_problems: int = field(default=100, metadata={"domain": "int >= 1", "step": 10})
+    eval_batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
+    eval_seed: int = field(default=999, metadata={"domain": "int (!= seed)"})
 
     def __post_init__(self) -> None:
         # Coerce string enum values when constructed from deserialised JSON/dicts.
@@ -153,3 +158,7 @@ class SirYesSirConfig(ExperimentConfig):
         """Total residual-stream width (`256 + d_token_type + d_position + d_scratch`)."""
         d_token_type = MAX_TOKEN_TYPES if self.use_token_type else 0
         return VOCAB_SIZE + d_token_type + self.d_position + self.d_scratch
+
+    def summary_info(self) -> str:
+        """Derived quantities displayed in the interactive TUI status bar."""
+        return f"d_model={self.d_model}, active_symbols={len(self.symbols)}"
