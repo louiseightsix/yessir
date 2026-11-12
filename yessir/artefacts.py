@@ -201,29 +201,35 @@ class StudyStatus(StrEnum):
 
 
 class StudyKind(StrEnum):
-    """Experimental design of a study."""
+    """Experimental design of a study.
+
+    - `exploratory`: baseline, pilot, or one-off run
+    - `ablation`: remove a component relative to a baseline
+    - `comparison`: A vs B where neither is a removal
+    - `sweep`: vary one setting over a range
+    """
 
     EXPLORATORY = "exploratory"
     ABLATION = "ablation"
-    CONTROLLED_COMPARISON = "controlled_comparison"
+    COMPARISON = "comparison"
     SWEEP = "sweep"
 
 
 @dataclass(frozen=True, kw_only=True)
 class StudyRun:
-    """Reference to a run directory within a study, with an optional role/arm label."""
+    """Reference to a run directory within a study, with an optional label."""
 
-    run: str
+    run_name: str
     label: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.run, str):
+        if not isinstance(self.run_name, str):
             raise TypeError(
-                f"StudyRun.run must be a str, got {type(self.run).__name__}"
+                f"StudyRun.run_name must be a str, got {type(self.run_name).__name__}"
             )
-        if not self.run.strip():
+        if not self.run_name.strip():
             raise ValueError(
-                f"StudyRun.run must be a non-empty string, got {self.run!r}"
+                f"StudyRun.run_name must be a non-empty string, got {self.run_name!r}"
             )
         if self.label is not None and not isinstance(self.label, str):
             raise TypeError(
@@ -232,7 +238,7 @@ class StudyRun:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a JSON-compatible dictionary."""
-        return {"run": self.run, "label": self.label}
+        return {"run_name": self.run_name, "label": self.label}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Self:
@@ -241,17 +247,20 @@ class StudyRun:
             raise TypeError(
                 f"expected a mapping for StudyRun, got {type(data).__name__}"
             )
-        run_val = data.get("run")
-        if not isinstance(run_val, str):
-            raise TypeError(f"StudyRun requires a string 'run' field, got {run_val!r}")
+        run_name_val = data.get("run_name")
+        if not isinstance(run_name_val, str):
+            raise TypeError(
+                f"StudyRun requires a string 'run_name' field, got {run_name_val!r}"
+            )
         label_val = data.get("label")
         if label_val is not None and not isinstance(label_val, str):
             raise TypeError(
                 f"StudyRun 'label' must be a string or null, got {type(label_val).__name__}"
             )
-        return cls(run=run_val, label=label_val)
+        return cls(run_name=run_name_val, label=label_val)
 
 
+# Keep the JSON schema in sync with `StudyFile` / `loadStudies` in `web/src/pages/index.astro`.
 @dataclass(frozen=True, kw_only=True)
 class Study:
     """A many-to-many grouping of runs around a research question, ablation, comparison, or sweep."""

@@ -15,7 +15,7 @@
 | :--- | :--- |
 | `experiments/` | The experiments: code, tests and spec for each. |
 | `results/` | Results from the experiments, one directory per experiment. A run whose `README.md` starts with `FLAWED:` is known to be wrong, for the reason given. |
-| `studies/` | Research questions and many-to-many groupings of runs (`exploratory`, `ablation`, `controlled_comparison`, `sweep`), one directory per experiment. |
+| `studies/` | Research questions and many-to-many groupings of runs (`exploratory`, `ablation`, `comparison`, `sweep`), one directory per experiment. |
 | `web/` | Static web UI (Astro) for browsing `results/`, `studies/`, and experiment configs. |
 | `yessir/` | Code shared between experiments. |
 

@@ -14,4 +14,4 @@ Prototype results are not in `results/`. They live with their prototype under `.
 
 ## Studies (`studies/`)
 
-`studies/<experiment>/<slug>.json` files group zero or more runs from `results/<experiment>/` around a research question (`Study` in `yessir/artefacts.py`). A study has a `status` (`draft`, `in_progress`, or `concluded`) and an optional `kind` (`exploratory`, `ablation`, `controlled_comparison`, or `sweep`). Because studies reference run directory names rather than containing them, a single run can belong to multiple studies, and a `draft` study can be recorded before any runs exist.
+`studies/<experiment>/<slug>.json` files group zero or more runs from `results/<experiment>/` around a research question (`Study` in `yessir/artefacts.py`). A study has a `status` (`draft`, `in_progress`, or `concluded`) and an optional `kind` (`exploratory`, `ablation`, `comparison`, or `sweep`). Because studies reference run directory names rather than containing them, a single run can belong to multiple studies, and a `draft` study can be recorded before any runs exist.

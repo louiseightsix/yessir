@@ -212,8 +212,8 @@ def test_study_with_runs_and_many_to_many_reuse(tmp_path: Path):
         kind=StudyKind.ABLATION,
         question="Does disabling use_token_type hurt exact match on sir_yes_sir?",
         runs=[
-            StudyRun(run=baseline_run, label="baseline (use_token_type=true)"),
-            StudyRun(run=ablated_run, label="ablated (use_token_type=false)"),
+            StudyRun(run_name=baseline_run, label="baseline (use_token_type=true)"),
+            StudyRun(run_name=ablated_run, label="ablated (use_token_type=false)"),
         ],
         conclusion="No degradation on L=4, B=4.",
     )
@@ -223,8 +223,8 @@ def test_study_with_runs_and_many_to_many_reuse(tmp_path: Path):
         kind=StudyKind.SWEEP,
         question="What learning rate converges fastest on L=4, B=4?",
         runs=[
-            StudyRun(run=baseline_run, label="lr=1e-3"),
-            StudyRun(run=fast_lr_run, label="lr=3e-3"),
+            StudyRun(run_name=baseline_run, label="lr=1e-3"),
+            StudyRun(run_name=fast_lr_run, label="lr=3e-3"),
         ],
     )
 
@@ -245,8 +245,8 @@ def test_study_with_runs_and_many_to_many_reuse(tmp_path: Path):
 def test_study_validation_errors(tmp_path: Path):
     with pytest.raises(ValueError, match="Study.title"):
         Study(title="   ")
-    with pytest.raises(ValueError, match="StudyRun.run"):
-        StudyRun(run="")
+    with pytest.raises(ValueError, match="StudyRun.run_name"):
+        StudyRun(run_name="")
     with pytest.raises(ValueError, match="study slug"):
         write_study_json(
             "sir_yes_sir",

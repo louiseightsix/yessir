@@ -45,8 +45,9 @@ interface RunData {
   flawedReason: string | null;
 }
 
+// Keep in sync with `Study` / `StudyRun` in `yessir/artefacts.py`.
 interface StudyRunEntry {
-  run: string;
+  run_name: string;
   label?: string | null;
 }
 
@@ -65,7 +66,7 @@ interface StudyData {
   status: string;
   kind: string | null;
   question: string | null;
-  runs: Array<{ run: string; label: string | null }>;
+  runs: Array<{ run_name: string; label: string | null }>;
   conclusion: string | null;
 }
 
@@ -147,9 +148,9 @@ function loadStudies(expStudiesDir: string): StudyData[] {
       const slug = entry.name.slice(0, -".json".length);
       const runs = Array.isArray(raw.runs)
         ? raw.runs
-            .filter((r): r is StudyRunEntry => Boolean(r && typeof r.run === "string"))
+            .filter((r): r is StudyRunEntry => Boolean(r && typeof r.run_name === "string"))
             .map((r) => ({
-              run: r.run,
+              run_name: r.run_name,
               label: typeof r.label === "string" ? r.label : null,
             }))
         : [];
@@ -193,9 +194,9 @@ const experiments = experimentNames.map((name) => {
   >();
   for (const study of studies) {
     for (const entry of study.runs) {
-      const list = studiesByRun.get(entry.run) ?? [];
+      const list = studiesByRun.get(entry.run_name) ?? [];
       list.push({ slug: study.slug, title: study.title, label: entry.label });
-      studiesByRun.set(entry.run, list);
+      studiesByRun.set(entry.run_name, list);
     }
   }
   return { name, runs, studies, runsByName, studiesByRun };
@@ -409,14 +410,14 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
                   <thead>
                     <tr>
                       <th>Run</th>
-                      <th>Arm / label</th>
+                      <th>Label</th>
                       <th>Non-default config</th>
                       <th>Evaluation</th>
                     </tr>
                   </thead>
                   <tbody>
                     {study.runs.map((entry) => {
-                      const matched = exp.runsByName.get(entry.run);
+                      const matched = exp.runsByName.get(entry.run_name);
                       const runVariant = matched?.meta?.variant;
                       const defaultConfig =
                         expVariants.find((v) => v.name === runVariant)?.default_config ??
@@ -430,11 +431,11 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
                         <tr>
                           <td>
                             {matched ? (
-                              <a href={`#run-${exp.name}-${entry.run}`}>
-                                <code>{entry.run}</code>
+                              <a href={`#run-${exp.name}-${entry.run_name}`}>
+                                <code>{entry.run_name}</code>
                               </a>
                             ) : (
-                              <code>{entry.run}</code>
+                              <code>{entry.run_name}</code>
                             )}
                             {matched?.flawedReason !== null && matched?.flawedReason !== undefined && (
                               <span class="flawed-banner"> [FLAWED]</span>
