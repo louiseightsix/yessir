@@ -1,4 +1,4 @@
-"""Tests for `yessir.artefacts` (`GitInfo`, `generate_run_name`, `default_run_dir`, `write_config_json`, `write_eval_json`)."""
+"""Tests for `yessir.artefacts` (`GitInfo`, `generate_run_name`, `default_run_dir`, `write_config_json`, `write_eval_json`, `Study`, `write_study_json`, `read_study_json`, `load_studies`)."""
 
 import json
 import math
@@ -7,15 +7,24 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from yessir.artefacts import (
     GitInfo,
+    Study,
+    StudyKind,
+    StudyRun,
+    StudyStatus,
     default_run_dir,
     generate_run_name,
     get_git_info,
     load_existing_run_configs,
+    load_studies,
     read_config_dict,
+    read_study_json,
     write_config_json,
     write_eval_json,
+    write_study_json,
 )
 from yessir.experiment import ExperimentConfig, parse_config_cli
 
@@ -162,3 +171,86 @@ def test_load_existing_run_configs(tmp_path: Path):
     assert loaded_ar == [
         ("2026-11-12-953e4d9-quiet-otter", {"steps": 20, "lr": 2e-3}),
     ]
+
+
+def test_study_draft_defaults_and_roundtrip(tmp_path: Path):
+    draft = Study(
+        title="Carry propagation across longer operands",
+        question="Does the model fail on long carry chains before random lengths?",
+    )
+    assert draft.status == StudyStatus.DRAFT
+    assert draft.kind is None
+    assert draft.runs == ()
+    assert draft.conclusion is None
+
+    path = write_study_json(
+        "addition",
+        "carry-propagation",
+        draft,
+        studies_root=tmp_path,
+    )
+    assert path == tmp_path / "addition" / "carry-propagation.json"
+    assert json.loads(path.read_text()) == {
+        "title": "Carry propagation across longer operands",
+        "status": "draft",
+        "kind": None,
+        "question": "Does the model fail on long carry chains before random lengths?",
+        "runs": [],
+        "conclusion": None,
+    }
+    assert read_study_json(path) == draft
+
+
+def test_study_with_runs_and_many_to_many_reuse(tmp_path: Path):
+    baseline_run = "2026-11-12-a13cc88-closing-filly"
+    ablated_run = "2026-11-12-a13cc88-steady-otter"
+    fast_lr_run = "2026-11-12-a13cc88-bright-heron"
+
+    ablation_study = Study(
+        title="Token-type embedding ablation",
+        status=StudyStatus.CONCLUDED,
+        kind=StudyKind.ABLATION,
+        question="Does disabling use_token_type hurt exact match on sir_yes_sir?",
+        runs=[
+            StudyRun(run=baseline_run, label="baseline (use_token_type=true)"),
+            StudyRun(run=ablated_run, label="ablated (use_token_type=false)"),
+        ],
+        conclusion="No degradation on L=4, B=4.",
+    )
+    sweep_study = Study(
+        title="Learning rate sweep",
+        status=StudyStatus.IN_PROGRESS,
+        kind=StudyKind.SWEEP,
+        question="What learning rate converges fastest on L=4, B=4?",
+        runs=[
+            StudyRun(run=baseline_run, label="lr=1e-3"),
+            StudyRun(run=fast_lr_run, label="lr=3e-3"),
+        ],
+    )
+
+    write_study_json(
+        "sir_yes_sir", "token-type-ablation", ablation_study, studies_root=tmp_path
+    )
+    write_study_json("sir_yes_sir", "lr-sweep", sweep_study, studies_root=tmp_path)
+
+    loaded = load_studies("sir_yes_sir", studies_root=tmp_path)
+    assert loaded == [
+        ("lr-sweep", sweep_study),
+        ("token-type-ablation", ablation_study),
+    ]
+    # Non-existent experiment directory returns [].
+    assert load_studies("nonexistent", studies_root=tmp_path) == []
+
+
+def test_study_validation_errors(tmp_path: Path):
+    with pytest.raises(ValueError, match="Study.title"):
+        Study(title="   ")
+    with pytest.raises(ValueError, match="StudyRun.run"):
+        StudyRun(run="")
+    with pytest.raises(ValueError, match="study slug"):
+        write_study_json(
+            "sir_yes_sir",
+            "../bad-slug",
+            Study(title="Valid title"),
+            studies_root=tmp_path,
+        )
