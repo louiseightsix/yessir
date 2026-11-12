@@ -17,6 +17,17 @@ class TiedIdentityHead(nn.Module):
     slicing `[:, :, :VOCAB_SIZE]` computes the dot product of the normalised hidden
     state with each token's unit-vector embedding (up to the shared `sqrt(d_model)`
     RMS scale factor), with zero trainable parameters.
+
+    Initialisation note (self-copy bias vs. `MultiTaskHead`):
+    At step 0 of training, residual branch output projections are small, so the final
+    hidden state at position `t` is still dominated by `SubspaceEmbedding`'s input
+    one-hot vector (`+1` at coordinate `input_ids[b, t]` and `0` elsewhere in `0..255`).
+    As a result, `TiedIdentityHead` initially assigns its largest logit to repeating
+    the current position's input token (just like standard Pre-LN weight-tied
+    transformers `norm(h) @ W_E^T`), and must learn through the residual blocks to
+    suppress or outweigh the input token coordinate when predicting the next token.
+    `MultiTaskHead`, by contrast, projects through freshly initialised linear weights
+    and starts with near-uniform logits (`loss ≈ ln(256)` per head).
     """
 
     def __init__(self, d_model: int) -> None:

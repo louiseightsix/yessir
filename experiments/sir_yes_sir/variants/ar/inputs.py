@@ -110,6 +110,5 @@ def build_ar_labelled_example(
         trace=trace[:-1],
         embedding_mode=embedding_mode,
     )
-    prefix_len = 1 + len(alphabet_tokens) + 1 + len(x_tokens) + 1
-    labels = (IGNORE_INDEX,) * (prefix_len - 1) + trace
+    labels = (IGNORE_INDEX,) * (len(example) - len(trace)) + trace
     return LabelledExample(example=example, labels=labels)

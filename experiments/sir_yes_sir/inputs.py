@@ -1,8 +1,11 @@
-"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`) for `sir_yes_sir`."""
+"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`, `iter_problems`, `add_common_dataset_args`) for `sir_yes_sir`."""
 
+import argparse
+import random
+from collections.abc import Iterator
 from enum import IntEnum, StrEnum, unique
 
-from yessir.alphabet import create_alphabet
+from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.example import Example
 from yessir.vocab import TokenSequence
 
@@ -85,3 +88,65 @@ def sections_to_example(
             position_ids=tuple(position_ids),
         )
     raise ValueError(f"unknown embedding_mode: {embedding_mode!r}")
+
+
+def validate_stream_params(
+    alphabet_size: int,
+    x_length: int,
+    symbols: TokenSequence = SymbolSet.ALL,
+) -> tuple[int, ...]:
+    """Validate `(alphabet_size, x_length, symbols)` and return the symbol pool tuple."""
+    symbol_pool = create_alphabet(symbols)
+    if not (2 <= alphabet_size <= len(symbol_pool)):
+        raise ValueError(
+            f"alphabet_size must be in 2..{len(symbol_pool)}, got {alphabet_size}"
+        )
+    if x_length < 1:
+        raise ValueError(f"x_length must be >= 1, got {x_length}")
+    return symbol_pool
+
+
+def iter_problems(
+    *,
+    alphabet_size: int,
+    x_length: int,
+    symbol_pool: tuple[int, ...],
+    seed: int,
+) -> Iterator[tuple[tuple[int, ...], tuple[int, ...]]]:
+    """Yield an infinite deterministic stream of `(alphabet, x)` problem instances from `seed`."""
+    rng = random.Random(seed)
+    while True:
+        alphabet = create_alphabet(symbol_pool, sample_size=alphabet_size, rng=rng)
+        x = tuple(rng.choice(alphabet) for _ in range(x_length))
+        yield alphabet, x
+
+
+def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
+    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--embedding-mode`, and `--seed` flags."""
+    parser.add_argument(
+        "-B",
+        "--alphabet-size",
+        type=int,
+        default=4,
+        help="Alphabet size B (default: 4)",
+    )
+    parser.add_argument(
+        "-L",
+        "--x-length",
+        type=int,
+        default=3,
+        help="Length L of input sequence x (default: 3)",
+    )
+    parser.add_argument(
+        "--embedding-mode",
+        type=EmbeddingMode,
+        choices=tuple(EmbeddingMode),
+        default=EmbeddingMode.TOKEN_TYPE_PE,
+        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed (default: 42)",
+    )
