@@ -1,0 +1,56 @@
+---
+// Runs at build time only (and on each request under `astro dev`).
+import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Astro runs with web/ as the working directory; the repo root is one up.
+const repoRoot = resolve(process.cwd(), "..");
+
+// Plain python3, not `uv run`: the export needs only the standard library,
+// so the build doesn't have to install torch. YESSIR_PYTHON overrides it.
+const python = process.env.YESSIR_PYTHON ?? "python3";
+const pythonVersion = execFileSync(python, ["--version"], { encoding: "utf8" }).trim();
+const configs = JSON.parse(
+  execFileSync(python, ["-m", "experiments.web_export"], { cwd: repoRoot, encoding: "utf8" }),
+);
+
+const resultsDir = resolve(repoRoot, "results");
+const experiments = readdirSync(resultsDir, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => ({
+    name: entry.name,
+    runs: readdirSync(resolve(resultsDir, entry.name), { withFileTypes: true })
+      .filter((run) => run.isDirectory())
+      .map((run) => run.name),
+  }));
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>yessir</title>
+  </head>
+  <body>
+    <h1>yessir</h1>
+    <p>Built with {pythonVersion}.</p>
+
+    <h2>Results</h2>
+    {experiments.length === 0 && <p>No results yet.</p>}
+    <ul>
+      {experiments.map((exp) => (
+        <li>
+          {exp.name}: {exp.runs.length === 0 ? "no runs" : exp.runs.join(", ")}
+        </li>
+      ))}
+    </ul>
+
+    <h2>Default configs</h2>
+    {Object.entries(configs).map(([name, config]) => (
+      <>
+        <h3>{name}</h3>
+        <pre>{JSON.stringify(config, null, 2)}</pre>
+      </>
+    ))}
+  </body>
+</html>

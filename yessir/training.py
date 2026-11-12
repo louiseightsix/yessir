@@ -11,9 +11,8 @@ from torch import nn
 
 from yessir.batch import collate
 from yessir.dataset import LabelledExample
+from yessir.defaults import DEFAULT_LR
 from yessir.model import Transformer
-
-DEFAULT_LR = 3e-4
 
 
 def seed_everything(seed: int) -> None:
