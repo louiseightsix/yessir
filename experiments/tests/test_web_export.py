@@ -10,8 +10,9 @@ from experiments.web_export import CONFIGS
 
 
 def test_web_export_prints_default_configs_with_stdlib_only():
-    # `-S` disables `site` so `.venv` third-party packages (torch, numpy, petname)
-    # are not on `sys.path`, matching the plain `python3` Cloudflare build.
+    # `-S` disables `site` so venv (`.venv-darwin` / `.venv-linux`) third-party
+    # packages (torch, numpy, petname) are not on `sys.path`, matching the plain
+    # `python3` Cloudflare build.
     code = (
         "import runpy, sys\n"
         "runpy.run_module('experiments.web_export', run_name='__main__')\n"

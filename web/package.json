@@ -2,6 +2,7 @@
   "name": "yessir-web",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
