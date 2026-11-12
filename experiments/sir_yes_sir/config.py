@@ -1,11 +1,11 @@
 """Configuration schema and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`)."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import StrEnum, unique
-from typing import Any
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.alphabet import SymbolSet
+from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
 
@@ -23,7 +23,7 @@ class SymbolSetName(StrEnum):
 
 
 @dataclass(frozen=True, kw_only=True)
-class SirYesSirConfig:
+class SirYesSirConfig(ExperimentConfig):
     """Flat, validated inventory of parameters for a `sir_yes_sir` run.
 
     Cross-parameter rules enforced in `__post_init__`:
@@ -153,15 +153,3 @@ class SirYesSirConfig:
         """Total residual-stream width (`256 + d_token_type + d_position + d_scratch`)."""
         d_token_type = MAX_TOKEN_TYPES if self.use_token_type else 0
         return VOCAB_SIZE + d_token_type + self.d_position + self.d_scratch
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialise to a plain JSON-compatible dictionary."""
-        raw = asdict(self)
-        raw["symbol_set"] = self.symbol_set.value
-        raw["embedding_mode"] = self.embedding_mode.value
-        return raw
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SirYesSirConfig":
-        """Construct and validate a `SirYesSirConfig` from a dictionary."""
-        return cls(**data)
