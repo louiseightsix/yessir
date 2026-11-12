@@ -29,7 +29,7 @@ class SirYesSirConfig(ExperimentConfig):
     Cross-parameter rules enforced in `__post_init__`:
     1. **Symbol pool & alphabet size (`B`)**: `symbol_pool_size` (if given) slices the
        first `symbol_pool_size` bytes of `symbol_set` (useful for small-pool smoke
-       tests on CPU), and `alphabet_size` must satisfy `2 <= alphabet_size <= len(symbols)`.
+       tests on CPU), and `alphabet_size` must satisfy `2 <= alphabet_size <= len(symbol_pool)`.
     2. **Embedding mode vs. position dimensions**:
        - `EmbeddingMode.TOKEN_TYPE_PE` attaches `position_ids`, so `d_position` must
          be a positive even integer.
@@ -46,7 +46,9 @@ class SirYesSirConfig(ExperimentConfig):
     """
 
     # Task & data
-    alphabet_size: int = field(default=4, metadata={"domain": "int in 2..len(symbols)"})
+    alphabet_size: int = field(
+        default=4, metadata={"domain": "int in 2..len(symbol_pool)"}
+    )
     x_length: int = field(default=3, metadata={"domain": "int >= 1"})
     symbol_set: SymbolSetName = SymbolSetName.ALL
     symbol_pool_size: int | None = field(
@@ -69,7 +71,9 @@ class SirYesSirConfig(ExperimentConfig):
     batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
     lr: float = field(default=3e-4, metadata={"domain": "float > 0", "step": 1e-4})
     seed: int = field(default=42, metadata={"domain": "int (!= eval_seed)"})
-    eval_problems: int = field(default=100, metadata={"domain": "int >= 1", "step": 10})
+    num_eval_problems: int = field(
+        default=100, metadata={"domain": "int >= 1", "step": 10}
+    )
     eval_batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
     eval_seed: int = field(default=999, metadata={"domain": "int (!= seed)"})
 
@@ -87,10 +91,10 @@ class SirYesSirConfig(ExperimentConfig):
                 f"symbol_set={self.symbol_set.value!r}, got {self.symbol_pool_size}"
             )
 
-        pool_len = len(self.symbols)
+        pool_len = len(self.symbol_pool)
         if not (2 <= self.alphabet_size <= pool_len):
             raise ValueError(
-                f"alphabet_size must be in 2..{pool_len} (size of active symbol pool), "
+                f"alphabet_size must be in 2..{pool_len} (size of symbol_pool), "
                 f"got {self.alphabet_size}"
             )
         if self.x_length < 1:
@@ -129,8 +133,10 @@ class SirYesSirConfig(ExperimentConfig):
             raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
         if self.lr <= 0:
             raise ValueError(f"lr must be > 0, got {self.lr}")
-        if self.eval_problems < 1:
-            raise ValueError(f"eval_problems must be >= 1, got {self.eval_problems}")
+        if self.num_eval_problems < 1:
+            raise ValueError(
+                f"num_eval_problems must be >= 1, got {self.num_eval_problems}"
+            )
         if self.eval_batch_size < 1:
             raise ValueError(
                 f"eval_batch_size must be >= 1, got {self.eval_batch_size}"
@@ -141,7 +147,7 @@ class SirYesSirConfig(ExperimentConfig):
             )
 
     @property
-    def symbols(self) -> bytes:
+    def symbol_pool(self) -> bytes:
         """The active byte symbol pool to draw alphabets from."""
         pool = bytes(self.symbol_set.resolve())
         if self.symbol_pool_size is not None:
@@ -159,6 +165,6 @@ class SirYesSirConfig(ExperimentConfig):
         d_token_type = MAX_TOKEN_TYPES if self.use_token_type else 0
         return VOCAB_SIZE + d_token_type + self.d_position + self.d_scratch
 
-    def summary_info(self) -> str:
+    def derived_summary(self) -> str:
         """Derived quantities displayed in the interactive TUI status bar."""
-        return f"d_model={self.d_model}, active_symbols={len(self.symbols)}"
+        return f"d_model={self.d_model}, symbol_pool_size={len(self.symbol_pool)}"

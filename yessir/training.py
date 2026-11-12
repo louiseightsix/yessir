@@ -1,4 +1,4 @@
-"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `pack_multitask_targets`, `train_step`, `train`)."""
+"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
 
 import itertools
 import os
@@ -54,11 +54,11 @@ def build_optimizer(
 
 def multitask_cross_entropy(
     logits: Sequence[torch.Tensor],
-    targets: torch.Tensor,
+    labels: torch.Tensor,
 ) -> torch.Tensor:
     """Compute the sum of cross-entropy losses across `MultiTaskHead` outputs.
 
-    When a `MultiTaskHead` predicts `H` conditionally independent targets
+    When a `MultiTaskHead` predicts `H` conditionally independent labels
     `(y_0, ..., y_{H-1})` from the final hidden state `h_last`, the joint
     log-probability is `sum_h log P(y_h | h_last)`. Minimising the negative
     joint log-likelihood is therefore the unweighted sum of each head's
@@ -67,7 +67,7 @@ def multitask_cross_entropy(
     Args:
         logits: Sequence of `H` tensors, where `logits[h]` has shape
             `(batch_size, num_classes_h)`.
-        targets: LongTensor of shape `(batch_size, H)`, where `targets[b, h]`
+        labels: LongTensor of shape `(batch_size, H)`, where `labels[b, h]`
             is the ground-truth class index for example `b` and head `h`.
 
     Returns:
@@ -77,9 +77,9 @@ def multitask_cross_entropy(
         raise ValueError("logits must contain at least one head")
     num_heads = len(logits)
     batch_size = logits[0].size(0)
-    if targets.shape != (batch_size, num_heads):
+    if labels.shape != (batch_size, num_heads):
         raise ValueError(
-            f"targets shape {tuple(targets.shape)} must match (batch_size, num_heads) = ({batch_size}, {num_heads})"
+            f"labels shape {tuple(labels.shape)} must match (batch_size, num_heads) = ({batch_size}, {num_heads})"
         )
 
     total_loss = torch.zeros((), dtype=logits[0].dtype, device=logits[0].device)
@@ -88,11 +88,11 @@ def multitask_cross_entropy(
             raise ValueError(
                 f"logits[{h}] batch size {head_logits.size(0)} does not match logits[0] batch size {batch_size}"
             )
-        total_loss = total_loss + F.cross_entropy(head_logits, targets[:, h])
+        total_loss = total_loss + F.cross_entropy(head_logits, labels[:, h])
     return total_loss
 
 
-def pack_multitask_targets(items: Sequence[LabelledExample]) -> torch.Tensor:
+def pack_multitask_labels(items: Sequence[LabelledExample]) -> torch.Tensor:
     """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_heads)` LongTensor."""
     if not items:
         raise ValueError("items must not be empty")
@@ -121,7 +121,7 @@ def train_step(
 
     model.train()
     batch = collate([item.example for item in items])
-    targets = pack_multitask_targets(items)
+    labels = pack_multitask_labels(items)
 
     optimizer.zero_grad()
     logits = model(
@@ -130,7 +130,7 @@ def train_step(
         token_type_ids=batch.token_type_ids,
         position_ids=batch.position_ids,
     )
-    loss = multitask_cross_entropy(logits, targets)
+    loss = multitask_cross_entropy(logits, labels)
     loss.backward()
     optimizer.step()
     return loss.item()

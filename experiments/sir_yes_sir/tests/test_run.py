@@ -32,7 +32,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
             "2",
             "--batch-size",
             "4",
-            "--eval-problems",
+            "--num-eval-problems",
             "4",
             "--n-layers",
             "1",
@@ -66,8 +66,8 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
 
     config_payload = json.loads(config_file.read_text())
     assert config_payload["experiment"] == "sir_yes_sir"
-    assert "git_commit" in config_payload
-    loaded_cfg = SirYesSirConfig.from_dict(config_payload["params"])
+    assert "git_commit_sha" in config_payload
+    loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
     assert loaded_cfg.steps == 2
     assert loaded_cfg.n_layers == 1
 

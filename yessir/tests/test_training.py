@@ -15,7 +15,7 @@ from yessir.model import Transformer
 from yessir.training import (
     build_optimizer,
     multitask_cross_entropy,
-    pack_multitask_targets,
+    pack_multitask_labels,
     seed_everything,
     train,
     train_step,
@@ -78,13 +78,13 @@ def test_multitask_cross_entropy_matches_manual_sum():
     logits_0 = torch.randn(3, 10, requires_grad=True)
     logits_1 = torch.randn(3, 10, requires_grad=True)
     logits_2 = torch.randn(3, 4, requires_grad=True)
-    targets = torch.tensor([[1, 2, 0], [5, 0, 3], [9, 8, 1]], dtype=torch.long)
+    labels = torch.tensor([[1, 2, 0], [5, 0, 3], [9, 8, 1]], dtype=torch.long)
 
-    loss = multitask_cross_entropy((logits_0, logits_1, logits_2), targets)
+    loss = multitask_cross_entropy((logits_0, logits_1, logits_2), labels)
     expected = (
-        F.cross_entropy(logits_0, targets[:, 0])
-        + F.cross_entropy(logits_1, targets[:, 1])
-        + F.cross_entropy(logits_2, targets[:, 2])
+        F.cross_entropy(logits_0, labels[:, 0])
+        + F.cross_entropy(logits_1, labels[:, 1])
+        + F.cross_entropy(logits_2, labels[:, 2])
     )
     assert torch.allclose(loss, expected)
 
@@ -99,7 +99,7 @@ def test_multitask_cross_entropy_rejects_invalid_shapes():
         multitask_cross_entropy((), torch.zeros(2, 0, dtype=torch.long))
 
     logits = (torch.randn(2, 8), torch.randn(2, 8))
-    with pytest.raises(ValueError, match="targets shape"):
+    with pytest.raises(ValueError, match="labels shape"):
         multitask_cross_entropy(logits, torch.zeros(2, 3, dtype=torch.long))
 
     mismatched_logits = (torch.randn(2, 8), torch.randn(3, 8))
@@ -107,21 +107,21 @@ def test_multitask_cross_entropy_rejects_invalid_shapes():
         multitask_cross_entropy(mismatched_logits, torch.zeros(2, 2, dtype=torch.long))
 
 
-def test_pack_multitask_targets_shapes_and_validation():
+def test_pack_multitask_labels_shapes_and_validation():
     ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
     items = [
         LabelledExample(example=ex, labels=(10, 20, 30)),
         LabelledExample(example=ex, labels=(40, 50, 60)),
     ]
-    packed = pack_multitask_targets(items)
+    packed = pack_multitask_labels(items)
     assert packed.dtype == torch.long
     assert torch.equal(packed, torch.tensor([[10, 20, 30], [40, 50, 60]]))
 
     with pytest.raises(ValueError, match="items must not be empty"):
-        pack_multitask_targets([])
+        pack_multitask_labels([])
 
     with pytest.raises(ValueError, match="all LabelledExamples in a multitask batch"):
-        pack_multitask_targets(
+        pack_multitask_labels(
             [
                 LabelledExample(example=ex, labels=(1, 2, 3)),
                 LabelledExample(example=ex, labels=(1, 2)),
@@ -144,7 +144,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
     items = list(itertools.islice(_SyntheticDataset(), 4))
 
     batch = collate([item.example for item in items])
-    targets = torch.tensor([item.labels for item in items], dtype=torch.long)
+    labels = torch.tensor([item.labels for item in items], dtype=torch.long)
     with torch.no_grad():
         pre_logits = model(
             batch.input_ids,
@@ -152,7 +152,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
-        expected_pre_loss = multitask_cross_entropy(pre_logits, targets).item()
+        expected_pre_loss = multitask_cross_entropy(pre_logits, labels).item()
     params_before = [p.detach().clone() for p in model.parameters()]
 
     step_loss = train_step(model, opt, items)

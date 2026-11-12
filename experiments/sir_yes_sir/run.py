@@ -53,14 +53,14 @@ def run_sir_yes_sir(
     train_dataset = SirYesSirDataset(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
-        symbols=config.symbols,
+        symbols=config.symbol_pool,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
     eval_dataset = SirYesSirDataset(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
-        symbols=config.symbols,
+        symbols=config.symbol_pool,
         embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )
@@ -85,7 +85,7 @@ def run_sir_yes_sir(
     metrics = evaluate_sm_mh(
         model,
         eval_dataset,
-        num_problems=config.eval_problems,
+        num_problems=config.num_eval_problems,
         batch_size=config.eval_batch_size,
     )
 
@@ -98,7 +98,7 @@ def run_sir_yes_sir(
         write_eval_json(out_dir, eval_results)
 
     print(
-        f"[sir_yes_sir] eval ({config.eval_problems} problems): "
+        f"[sir_yes_sir] eval ({config.num_eval_problems} problems): "
         f"exact_match={metrics.exact_match:.2%} "
         f"step_acc={metrics.step_accuracy:.2%} "
         f"halt_acc={metrics.halt_accuracy:.2%}",

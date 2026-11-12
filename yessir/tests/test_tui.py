@@ -156,7 +156,7 @@ def test_live_cross_parameter_validation_and_run_blocking():
     cfg, err = state.validate()
     assert cfg is not None and err is None
     rendered_valid = "\n".join(state.render_lines())
-    assert "Status: VALID (d_model=464, active_symbols=240)" in rendered_valid
+    assert "Status: VALID (d_model=464, symbol_pool_size=240)" in rendered_valid
 
     # Now pressing 'r' (or ENTER on the Run row) succeeds and returns RUN.
     assert state.handle_key("r") == EditorOutcome.RUN
@@ -185,17 +185,17 @@ def test_quit_cancels_editor():
 
 
 def test_duplicate_run_alert_and_confirmation():
-    default_params = _SmallConfig().to_dict()
+    default_cfg = _SmallConfig().to_dict()
     state = ConfigEditorState(
         _SmallConfig,
-        existing_runs=[("2026-11-12-953e4d9-amber-falcon", default_params)],
+        existing_runs=[("2026-11-12-953e4d9-amber-falcon", default_cfg)],
     )
 
     # Matching run is detected immediately and displayed in rendered lines.
     assert state.matching_runs() == ["2026-11-12-953e4d9-amber-falcon"]
     rendered = "\n".join(state.render_lines())
     assert (
-        "Alert:  Parameters match existing run(s): 2026-11-12-953e4d9-amber-falcon"
+        "Alert:  Config matches existing run(s): 2026-11-12-953e4d9-amber-falcon"
         in rendered
     )
 

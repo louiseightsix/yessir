@@ -15,10 +15,11 @@ def test_default_config_is_valid():
     assert cfg.x_length == 3
     assert cfg.symbol_set == SymbolSetName.ALL
     assert cfg.symbol_pool_size is None
-    assert cfg.symbols == bytes(SymbolSet.ALL)
+    assert cfg.symbol_pool == bytes(SymbolSet.ALL)
     assert cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
     assert cfg.use_token_type is True
     assert cfg.d_model == 256 + 16 + 32 + 208 == 512
+    assert cfg.derived_summary() == "d_model=512, symbol_pool_size=240"
 
 
 def test_embedding_mode_and_d_position_combinations():
@@ -63,7 +64,7 @@ def test_symbol_pool_and_alphabet_size_validation():
         symbol_pool_size=3,
         alphabet_size=3,
     )
-    assert cfg.symbols == b"012"
+    assert cfg.symbol_pool == b"012"
 
     # alphabet_size cannot exceed symbol_pool_size or symbol_set length.
     with pytest.raises(ValueError, match="alphabet_size must be in 2..3"):
@@ -103,8 +104,8 @@ def test_model_and_training_bounds():
         SirYesSirConfig(batch_size=0)
     with pytest.raises(ValueError, match="lr must be > 0"):
         SirYesSirConfig(lr=0.0)
-    with pytest.raises(ValueError, match="eval_problems must be >= 1"):
-        SirYesSirConfig(eval_problems=0)
+    with pytest.raises(ValueError, match="num_eval_problems must be >= 1"):
+        SirYesSirConfig(num_eval_problems=0)
     with pytest.raises(ValueError, match="eval_batch_size must be >= 1"):
         SirYesSirConfig(eval_batch_size=0)
     with pytest.raises(ValueError, match="eval_seed .* must differ from training seed"):
@@ -127,7 +128,7 @@ def test_json_round_trip():
         batch_size=24,
         lr=1e-3,
         seed=7,
-        eval_problems=50,
+        num_eval_problems=50,
         eval_batch_size=32,
         eval_seed=100,
     )

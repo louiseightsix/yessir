@@ -13,7 +13,7 @@ from yessir.batch import collate
 from yessir.dataset import LabelledExample
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
-from yessir.training import pack_multitask_targets
+from yessir.training import pack_multitask_labels
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,7 @@ def evaluate_sm_mh(
     for start in range(0, len(flat_items), batch_size):
         chunk = flat_items[start : start + batch_size]
         batch = collate([item.example for item in chunk])
-        targets = pack_multitask_targets(chunk)
+        labels = pack_multitask_labels(chunk)
 
         logits = model(
             batch.input_ids,
@@ -127,7 +127,7 @@ def evaluate_sm_mh(
             position_ids=batch.position_ids,
         )
         preds = torch.stack([head.argmax(dim=-1) for head in logits], dim=1)
-        matches = preds == targets
+        matches = preds == labels
 
         step_ok_list.extend(matches.all(dim=1).tolist())
         halt_ok_list.extend(matches[:, 2].tolist())

@@ -12,7 +12,8 @@ from yessir.artefacts import (
     default_run_dir,
     generate_run_name,
     get_git_info,
-    load_existing_run_params,
+    load_existing_run_configs,
+    read_config_dict,
     write_config_json,
     write_eval_json,
 )
@@ -97,13 +98,14 @@ def test_config_and_eval_writers(tmp_path: Path):
     cfg_payload = json.loads(cfg_path.read_text())
     assert cfg_payload == {
         "experiment": "sir_yes_sir",
-        "git_commit": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
+        "git_commit_sha": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         "git_short_sha": "953e4d9",
         "git_commit_date": "2026-11-12",
         "git_dirty": True,
-        "params": {"steps": 2, "lr": 5e-4},
+        "config": {"steps": 2, "lr": 5e-4},
     }
-    # Verify `--config` loads `config.json` directly by reading its `params` dict.
+    assert read_config_dict(cfg_path) == {"steps": 2, "lr": 5e-4}
+    # Verify `--config` loads `config.json` directly by reading its `config` dict.
     assert parse_config_cli(_SampleConfig, ["--config", str(cfg_path)]) == cfg
 
     eval_path = write_eval_json(
@@ -119,9 +121,9 @@ def test_config_and_eval_writers(tmp_path: Path):
     }
 
 
-def test_load_existing_run_params(tmp_path: Path):
+def test_load_existing_run_configs(tmp_path: Path):
     # Empty or non-existent experiment directory returns [].
-    assert load_existing_run_params("sir_yes_sir", results_root=tmp_path) == []
+    assert load_existing_run_configs("sir_yes_sir", results_root=tmp_path) == []
 
     exp_dir = tmp_path / "sir_yes_sir"
     cfg1 = _SampleConfig(steps=10, lr=1e-3)
@@ -137,7 +139,7 @@ def test_load_existing_run_params(tmp_path: Path):
         config=cfg2,
     )
 
-    loaded = load_existing_run_params("sir_yes_sir", results_root=tmp_path)
+    loaded = load_existing_run_configs("sir_yes_sir", results_root=tmp_path)
     assert loaded == [
         ("2026-11-12-953e4d9-amber-falcon", {"steps": 10, "lr": 1e-3}),
         ("2026-11-12-953e4d9-quiet-otter", {"steps": 20, "lr": 2e-3}),

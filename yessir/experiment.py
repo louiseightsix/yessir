@@ -2,7 +2,6 @@
 
 import argparse
 import dataclasses
-import json
 import sys
 import types
 from collections.abc import Callable, Mapping, Sequence
@@ -33,7 +32,7 @@ class ExperimentConfig:
         """Construct and validate an instance of `cls` from a mapping."""
         return cls(**data)
 
-    def summary_info(self) -> str:
+    def derived_summary(self) -> str:
         """Optional one-line summary of derived quantities for the interactive TUI."""
         return ""
 
@@ -140,13 +139,9 @@ def build_config_from_args[ConfigT: ExperimentConfig](
     merged: dict[str, Any] = {}
     config_path: Path | None = getattr(args, "config", None)
     if config_path is not None:
-        raw_json = json.loads(config_path.read_text(encoding="utf-8"))
-        if not isinstance(raw_json, dict):
-            raise ValueError(
-                f"expected a JSON object in {config_path}, got {type(raw_json).__name__}"
-            )
-        params = raw_json.get("params")
-        merged.update(params if isinstance(params, dict) else raw_json)
+        from yessir.artefacts import read_config_dict
+
+        merged.update(read_config_dict(config_path))
 
     arg_dict = vars(args)
     for field in dataclasses.fields(config_cls):

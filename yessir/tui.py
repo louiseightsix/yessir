@@ -165,12 +165,12 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         self.description = description
         self.specs = build_field_specs(config_cls)
         self._existing_runs: tuple[tuple[str, dict[str, Any]], ...] = tuple(
-            (name, dict(params)) for name, params in existing_runs
+            (name, dict(cfg_dict)) for name, cfg_dict in existing_runs
         )
 
         base = initial if initial is not None else config_cls()
         self.values: dict[str, Any] = base.to_dict()
-        # Rows 0 .. len(specs) - 1 are parameters; row len(specs) is "[ Run experiment ]".
+        # Rows 0 .. len(specs) - 1 are settings; row len(specs) is "[ Run experiment ]".
         self.cursor: int = 0
         self.edit_buffer: str | None = None
         self.message: str | None = None
@@ -189,12 +189,12 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             return None, str(exc)
 
     def matching_runs(self) -> list[str]:
-        """Return names of any previous runs with identical parameters."""
+        """Return names of any previous runs with an identical configuration."""
         cfg, _ = self.validate()
         if cfg is None:
             return []
         target = cfg.to_dict()
-        return [name for name, params in self._existing_runs if params == target]
+        return [name for name, cfg_dict in self._existing_runs if cfg_dict == target]
 
     def _try_run(self) -> EditorOutcome:
         """Validate and check for duplicate runs before returning `EditorOutcome.RUN`."""
@@ -319,9 +319,7 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             "[Type/Enter] edit inline  [r] run  [q/Esc] quit"
         )
         lines.append("")
-        header = (
-            f"  {'Parameter':<20} {'Value':<20} {'Default':<16} {'Allowed / Range'}"
-        )
+        header = f"  {'Setting':<20} {'Value':<20} {'Default':<16} {'Allowed / Range'}"
         lines.append(header)
         lines.append("  " + "-" * 78)
 
@@ -346,13 +344,13 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
 
         cfg, err = self.validate()
         if cfg is not None:
-            extra = cfg.summary_info()
+            extra = cfg.derived_summary()
             suffix = f" ({extra})" if extra else ""
             lines.append(f"  Status: VALID{suffix}")
             duplicates = self.matching_runs()
             if duplicates:
                 lines.append(
-                    f"  Alert:  Parameters match existing run(s): {', '.join(duplicates)}"
+                    f"  Alert:  Config matches existing run(s): {', '.join(duplicates)}"
                 )
         else:
             lines.append(f"  Status: INVALID - {err}")
@@ -401,14 +399,14 @@ def interactive_edit_config[ConfigT: ExperimentConfig](
     import termios
     import tty
 
-    from yessir.artefacts import load_existing_run_params
+    from yessir.artefacts import load_existing_run_configs
 
     state = ConfigEditorState(
         experiment.config_cls,
         title=experiment.name,
         description=experiment.description,
         initial=initial,
-        existing_runs=load_existing_run_params(experiment.name),
+        existing_runs=load_existing_run_configs(experiment.name),
     )
 
     fd = sys.stdin.fileno()

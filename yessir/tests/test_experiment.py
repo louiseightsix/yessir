@@ -120,7 +120,7 @@ def test_parse_config_cli_merges_json_file_with_cli_overrides(tmp_path: Path):
 def test_parse_config_cli_rejects_non_object_json(tmp_path: Path):
     bad_file = tmp_path / "bad.json"
     bad_file.write_text("[1, 2, 3]", encoding="utf-8")
-    with pytest.raises(ValueError, match="expected a JSON object"):
+    with pytest.raises(TypeError, match="expected a JSON object"):
         parse_config_cli(_DummyConfig, ["--config", str(bad_file)])
 
 

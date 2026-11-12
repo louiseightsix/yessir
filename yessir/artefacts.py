@@ -1,4 +1,4 @@
-"""Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), and JSON artefact writers (`write_config_json`, `write_eval_json`)."""
+"""Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), and JSON artefact writers/readers (`write_config_json`, `read_config_dict`, `write_eval_json`, `load_existing_run_configs`)."""
 
 import json
 import random
@@ -114,11 +114,11 @@ def write_config_json(
     info = git_info if git_info is not None else get_git_info()
     payload: dict[str, Any] = {
         "experiment": experiment_name,
-        "git_commit": info.commit_sha,
+        "git_commit_sha": info.commit_sha,
         "git_short_sha": info.short_sha,
         "git_commit_date": info.commit_date,
         "git_dirty": info.dirty,
-        "params": config.to_dict(),
+        "config": config.to_dict(),
     }
     path = out_dir / "config.json"
     path.write_text(
@@ -126,6 +126,15 @@ def write_config_json(
         encoding="utf-8",
     )
     return path
+
+
+def read_config_dict(path: Path) -> dict[str, Any]:
+    """Read a config dictionary from `path` (either a full `config.json` with a `'config'` key or a flat JSON object)."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise TypeError(f"expected a JSON object in {path}, got {type(raw).__name__}")
+    nested = raw.get("config")
+    return nested if isinstance(nested, dict) else raw
 
 
 def write_eval_json(
@@ -142,12 +151,12 @@ def write_eval_json(
     return path
 
 
-def load_existing_run_params(
+def load_existing_run_configs(
     experiment_name: str,
     *,
     results_root: Path | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Load `(run_name, params_dict)` for all recorded runs under `results/<experiment_name>/`."""
+    """Load `(run_name, config_dict)` for all recorded runs under `results/<experiment_name>/`."""
     root = results_root if results_root is not None else (_REPO_ROOT / "results")
     exp_results_dir = root / experiment_name
     if not exp_results_dir.is_dir():
@@ -156,12 +165,8 @@ def load_existing_run_params(
     runs: list[tuple[str, dict[str, Any]]] = []
     for config_path in sorted(exp_results_dir.glob("*/config.json")):
         try:
-            raw = json.loads(config_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            config_dict = read_config_dict(config_path)
+        except (OSError, json.JSONDecodeError, TypeError):
             continue
-        if not isinstance(raw, dict):
-            continue
-        params = raw.get("params")
-        params_dict = params if isinstance(params, dict) else raw
-        runs.append((config_path.parent.name, params_dict))
+        runs.append((config_path.parent.name, config_dict))
     return runs
