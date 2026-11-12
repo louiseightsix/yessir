@@ -2,15 +2,10 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
-from yessir.example import Example
+from yessir.example import Example, _is_int
 from yessir.vocab import VOCAB_SIZE, Token
-
-
-def _is_int(value: object) -> bool:
-    """Return True if `value` is an `int` and not a `bool` (`bool` subclasses `int`)."""
-    return isinstance(value, int) and not isinstance(value, bool)
 
 
 @dataclass(frozen=True)
@@ -47,7 +42,6 @@ class LabelledExample:
                 )
 
 
-@runtime_checkable
 class Dataset(Protocol):
     """Protocol implemented by each experiment's data generator."""
 

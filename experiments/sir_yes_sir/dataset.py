@@ -1,12 +1,14 @@
 """Data generator for the `sir_yes_sir` experiment (`SirYesSirDataset`)."""
 
+import argparse
 import random
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode, build_sm_example
 from experiments.sir_yes_sir.reference import reference_step
 from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.dataset import LabelledExample
+from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import Token
 
 
@@ -61,3 +63,56 @@ class SirYesSirDataset:
                     targets=(o_k, w_k, int(flag_k)),
                 )
                 output_history.append(o_k)
+
+
+def _add_cli_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-B",
+        "--alphabet-size",
+        type=int,
+        default=4,
+        help="Alphabet size B (default: 4)",
+    )
+    parser.add_argument(
+        "-L",
+        "--seq-length",
+        type=int,
+        default=3,
+        help="Input sequence length L (default: 3)",
+    )
+    parser.add_argument(
+        "--embedding-mode",
+        type=EmbeddingMode,
+        choices=tuple(EmbeddingMode),
+        default=EmbeddingMode.TOKEN_TYPE_PE,
+        help="Coordinate embedding mode (default: token_type_pe)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed (default: 42)",
+    )
+
+
+def _build_from_args(args: argparse.Namespace) -> SirYesSirDataset:
+    return SirYesSirDataset(
+        alphabet_size=args.alphabet_size,
+        seq_length=args.seq_length,
+        embedding_mode=args.embedding_mode,
+        seed=args.seed,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Generate, print, or dump `sir_yes_sir` training examples."""
+    run_inspect_cli(
+        description="Generate, print, or dump sir_yes_sir training examples.",
+        add_dataset_args=_add_cli_args,
+        build_dataset=_build_from_args,
+        argv=argv,
+    )
+
+
+if __name__ == "__main__":
+    main()

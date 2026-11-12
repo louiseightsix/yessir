@@ -1,11 +1,11 @@
-"""Command-line tool to inspect or dump `LabelledExample`s from any `yessir` `Dataset`."""
+"""Shared formatting, JSONL dumping, and CLI runner for `yessir` `Dataset`s."""
 
 import argparse
 import itertools
 import json
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from experiments.sir_yes_sir.dataset import SirYesSirDataset
 from yessir.dataset import Dataset, LabelledExample
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token
@@ -53,7 +53,7 @@ def format_labelled_example(item: LabelledExample, index: int) -> str:
     return "\n".join(lines)
 
 
-def _to_json_record(item: LabelledExample) -> dict[str, object]:
+def to_json_record(item: LabelledExample) -> dict[str, object]:
     """Serialise one `LabelledExample` to a JSON-compatible dict."""
     ex = item.example
     return {
@@ -68,53 +68,49 @@ def _to_json_record(item: LabelledExample) -> dict[str, object]:
     }
 
 
-def _build_dataset(args: argparse.Namespace) -> Dataset:
-    if args.experiment == "sir_yes_sir":
-        return SirYesSirDataset(
-            alphabet_size=args.alphabet_size,
-            seq_length=args.seq_length,
-            seed=args.seed,
-        )
-    raise ValueError(f"unknown experiment: {args.experiment!r}")
+def inspect_dataset(
+    dataset: Dataset,
+    *,
+    num_examples: int,
+    out: Path | None = None,
+    print_console: bool = False,
+) -> None:
+    """Take `num_examples` from `dataset` and print them and/or write them to `out`."""
+    if num_examples < 1:
+        raise ValueError(f"num_examples must be >= 1, got {num_examples}")
+
+    examples = list(itertools.islice(dataset, num_examples))
+
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w", encoding="utf-8") as f:
+            for item in examples:
+                f.write(json.dumps(to_json_record(item)) + "\n")
+        print(f"Wrote {len(examples)} examples to {out}")
+
+    if out is None or print_console:
+        for idx, item in enumerate(examples):
+            print(format_labelled_example(item, idx))
+            if idx < len(examples) - 1:
+                print()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate, print, or dump training examples from a yessir Dataset."
-    )
-    parser.add_argument(
-        "experiment",
-        choices=("sir_yes_sir",),
-        nargs="?",
-        default="sir_yes_sir",
-        help="Experiment dataset to run (default: sir_yes_sir)",
-    )
+def run_inspect_cli(
+    *,
+    description: str,
+    add_dataset_args: Callable[[argparse.ArgumentParser], None],
+    build_dataset: Callable[[argparse.Namespace], Dataset],
+    argv: Sequence[str] | None = None,
+) -> None:
+    """Parse shared + experiment CLI flags and run `inspect_dataset`."""
+    parser = argparse.ArgumentParser(description=description)
+    add_dataset_args(parser)
     parser.add_argument(
         "-n",
         "--num-examples",
         type=int,
         default=3,
         help="Number of LabelledExamples to generate (default: 3)",
-    )
-    parser.add_argument(
-        "-B",
-        "--alphabet-size",
-        type=int,
-        default=4,
-        help="Alphabet size B (default: 4)",
-    )
-    parser.add_argument(
-        "-L",
-        "--seq-length",
-        type=int,
-        default=3,
-        help="Input sequence length L (default: 3)",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed (default: 42)",
     )
     parser.add_argument(
         "--out",
@@ -128,24 +124,11 @@ def main() -> None:
         action="store_true",
         help="Also print examples to console when --out is given",
     )
-    args = parser.parse_args()
-
-    dataset = _build_dataset(args)
-    examples = list(itertools.islice(dataset, args.num_examples))
-
-    if args.out is not None:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        with args.out.open("w", encoding="utf-8") as f:
-            for item in examples:
-                f.write(json.dumps(_to_json_record(item)) + "\n")
-        print(f"Wrote {len(examples)} examples to {args.out}")
-
-    if args.out is None or args.print_console:
-        for idx, item in enumerate(examples):
-            print(format_labelled_example(item, idx))
-            if idx < len(examples) - 1:
-                print()
-
-
-if __name__ == "__main__":
-    main()
+    args = parser.parse_args(argv)
+    dataset = build_dataset(args)
+    inspect_dataset(
+        dataset,
+        num_examples=args.num_examples,
+        out=args.out,
+        print_console=args.print_console,
+    )
