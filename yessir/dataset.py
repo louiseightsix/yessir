@@ -16,7 +16,7 @@ class LabelledExample:
         example: The model input (`input_ids`, optional `token_type_ids`,
             optional `position_ids`).
         labels: Non-empty tuple of target `Token` ids (each in `0..255`).
-            For multi-head steps (`MultiTaskHead`), holds one target token per
+            For multitask steps (`MultiTaskHead`), holds one target token per
             head (e.g. `(o_k, w_k, flag_k)`).
     """
 

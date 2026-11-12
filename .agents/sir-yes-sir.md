@@ -60,7 +60,7 @@ Why this task:
    - Both output heads (`yessir/heads.py`): `MultiTaskHead` (parallel linear projections reading at `lengths - 1`) and parameter-free `TiedIdentityHead` (reading the `0..255` symbol subspace across all sequence positions).
 3. **Training utilities & loop**:
    - `seed_everything`, `build_optimizer` (AdamW with selective weight decay), `build_scheduler` (linear warm-up + cosine decay).
-   - Multi-head cross-entropy loss (for `MultiTaskHead`) and masked next-token cross-entropy loss (for `TiedIdentityHead`), gradient accumulation, `bfloat16` autocast, gradient clipping.
+   - Multitask cross-entropy loss (for `MultiTaskHead`) and masked next-token cross-entropy loss (for `TiedIdentityHead`), gradient accumulation, `bfloat16` autocast, gradient clipping.
 4. **Execution harnesses & evaluation**:
    - State-machine drivers (`sm_mh`, read through `MultiTaskHead`; `sm_seq`, read through `TiedIdentityHead`) and autonomous autoregressive (`ar`) rollout driver.
    - Teacher-forced vs. free-running evaluation, exact match, step/token accuracy, halting accuracy, and error taxonomy (prior intrusion, out-of-alphabet, procedural error, syntax malformation).

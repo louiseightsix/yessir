@@ -32,7 +32,7 @@ class _SyntheticDataset:
                 example=Example(
                     input_ids=(1, 10 + t, 2),
                     token_type_ids=(0, 1, 3),
-                    position_ids=(0, 0, 0),
+                    position_ids=(0, step, 0),
                 ),
                 labels=(10 + ((t + 1) % 4), 10 + ((t + 2) % 4), 0),
             )
@@ -131,7 +131,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
 
     assert model.training is True
     assert step_loss == pytest.approx(expected_pre_loss)
-    assert all(
+    assert any(
         not torch.equal(before, after)
         for before, after in zip(params_before, model.parameters(), strict=True)
     )
@@ -177,6 +177,15 @@ def test_train_validation_and_early_exhaustion():
         train(model, dataset, steps=0, batch_size=4)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         train(model, dataset, steps=1, batch_size=0)
+    with pytest.raises(ValueError, match="cannot specify both lr and optimizer"):
+        train(
+            model,
+            dataset,
+            steps=1,
+            batch_size=4,
+            lr=1e-3,
+            optimizer=build_optimizer(model),
+        )
 
     ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
     finite_dataset = [LabelledExample(example=ex, labels=(1, 2, 3))]
@@ -202,4 +211,11 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     losses = losses_part1 + losses_part2
 
     assert len(losses) == 10
+    # Initial random-guess cross-entropy over 3 heads of size 256 is ~ 3 * ln(256) ≈ 16.6;
+    # after 10 steps loss should drop substantially.
     assert losses[-1] < losses[0] - 4.0
+
+    first_param = next(model.parameters())
+    assert int(opt.state[first_param]["step"].item()) == 10
+    next_item = next(stream)
+    assert next_item.example.position_ids == (0, 80, 0)

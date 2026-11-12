@@ -140,14 +140,15 @@ def train(
     *,
     steps: int,
     batch_size: int,
-    lr: float = _DEFAULT_LR,
+    lr: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
 ) -> list[float]:
     """Train `model` on batches drawn from `dataset` for `steps` optimisation steps on CPU.
 
     Pass a persistent iterator `stream = iter(dataset)` and an existing `optimizer`
     to resume training across multiple `train(...)` calls (e.g. between evaluations)
-    without restarting the data stream or resetting Adam state.
+    without restarting the data stream or resetting Adam state. Cannot specify both
+    `lr` and `optimizer`.
 
     Returns:
         List of per-step scalar training losses of length `steps`.
@@ -156,9 +157,11 @@ def train(
         raise ValueError(f"steps must be >= 1, got {steps}")
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+    if optimizer is not None and lr is not None:
+        raise ValueError("cannot specify both lr and optimizer")
 
     if optimizer is None:
-        optimizer = build_optimizer(model, lr=lr)
+        optimizer = build_optimizer(model, lr=_DEFAULT_LR if lr is None else lr)
     stream = iter(dataset)
 
     losses: list[float] = []
