@@ -1,0 +1,7 @@
+// Deploys the built site as a static-assets-only Worker (no server code).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yessir",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./dist" }
+}
