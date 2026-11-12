@@ -9,6 +9,7 @@ import dataclasses
 import select
 import sys
 import types
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum, StrEnum, unique
 from typing import Any, Union, get_args, get_origin, get_type_hints
@@ -172,11 +173,15 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         title: str = "",
         description: str = "",
         initial: ConfigT | None = None,
+        existing_runs: Sequence[tuple[str, Mapping[str, Any]]] = (),
     ) -> None:
         self.config_cls = config_cls
         self.title = title or config_cls.__name__
         self.description = description
         self.specs = build_field_specs(config_cls)
+        self._existing_runs: tuple[tuple[str, dict[str, Any]], ...] = tuple(
+            (name, dict(params)) for name, params in existing_runs
+        )
 
         base = initial if initial is not None else config_cls()
         self.values: dict[str, Any] = base.to_dict()
@@ -184,6 +189,7 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         self.cursor: int = 0
         self.edit_buffer: str | None = None
         self.message: str | None = None
+        self.confirm_duplicate: bool = False
 
     @property
     def run_row_index(self) -> int:
@@ -196,6 +202,32 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             return self.config_cls.from_dict(self.values), None
         except (ValueError, TypeError) as exc:
             return None, str(exc)
+
+    def matching_runs(self) -> list[str]:
+        """Return names of any previous runs with identical parameters."""
+        cfg, _ = self.validate()
+        if cfg is None:
+            return []
+        target = cfg.to_dict()
+        return [name for name, params in self._existing_runs if params == target]
+
+    def _try_run(self) -> EditorOutcome:
+        """Validate and check for duplicate runs before returning `EditorOutcome.RUN`."""
+        cfg, err = self.validate()
+        if cfg is None:
+            self.message = f"Cannot run: {err}"
+            return EditorOutcome.CONTINUE
+
+        duplicates = self.matching_runs()
+        if duplicates and not self.confirm_duplicate:
+            self.confirm_duplicate = True
+            joined = ", ".join(duplicates)
+            self.message = (
+                f"Duplicate of {joined} — press [r] or [Enter] again to run anyway."
+            )
+            return EditorOutcome.CONTINUE
+
+        return EditorOutcome.RUN
 
     def _commit_inline_edit(self) -> bool:
         """Commit `self.edit_buffer` into `self.values`. Returns `True` on success."""
@@ -210,6 +242,7 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         self.values[spec.name] = parsed
         self.edit_buffer = None
         self.message = None
+        self.confirm_duplicate = False
         return True
 
     def handle_key(self, key: str) -> EditorOutcome:
@@ -245,26 +278,21 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         if key == "UP":
             self.cursor = (self.cursor - 1) % total_rows
             self.message = None
+            self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
         if key == "DOWN":
             self.cursor = (self.cursor + 1) % total_rows
             self.message = None
+            self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
         if key in ("r", "R"):
-            cfg, err = self.validate()
-            if cfg is not None:
-                return EditorOutcome.RUN
-            self.message = f"Cannot run: {err}"
-            return EditorOutcome.CONTINUE
+            return self._try_run()
 
         if self.cursor == self.run_row_index:
             if key == "ENTER":
-                cfg, err = self.validate()
-                if cfg is not None:
-                    return EditorOutcome.RUN
-                self.message = f"Cannot run: {err}"
+                return self._try_run()
             return EditorOutcome.CONTINUE
 
         spec = self.specs[self.cursor]
@@ -272,22 +300,26 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             delta = -1 if key == "LEFT" else 1
             self.values[spec.name] = _step_value(spec, self.values[spec.name], delta)
             self.message = None
+            self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
         if key == "ENTER":
             self.edit_buffer = _format_value(self.values[spec.name])
             self.message = None
+            self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
         if key == "BACKSPACE":
             self.edit_buffer = ""
             self.message = None
+            self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
         # Typing digits, '-', '.', or letters directly on a row starts inline editing.
         if len(key) == 1 and key.isprintable() and key not in (" ",):
             self.edit_buffer = key
             self.message = None
+            self.confirm_duplicate = False
             return EditorOutcome.CONTINUE
 
         return EditorOutcome.CONTINUE
@@ -332,6 +364,11 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
             extra = cfg.summary_info()
             suffix = f" ({extra})" if extra else ""
             lines.append(f"  Status: VALID{suffix}")
+            duplicates = self.matching_runs()
+            if duplicates:
+                lines.append(
+                    f"  Alert:  Parameters match existing run(s): {', '.join(duplicates)}"
+                )
         else:
             lines.append(f"  Status: INVALID - {err}")
 
@@ -379,11 +416,14 @@ def interactive_edit_config[ConfigT: ExperimentConfig](
     import termios
     import tty
 
+    from yessir.artefacts import load_existing_run_params
+
     state = ConfigEditorState(
         experiment.config_cls,
         title=experiment.name,
         description=experiment.description,
         initial=initial,
+        existing_runs=load_existing_run_params(experiment.name),
     )
 
     fd = sys.stdin.fileno()

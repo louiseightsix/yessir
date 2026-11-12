@@ -165,3 +165,36 @@ def test_quit_cancels_editor():
     state = ConfigEditorState(_SmallConfig)
     assert state.handle_key("q") == EditorOutcome.CANCEL
     assert state.handle_key("ESC") == EditorOutcome.CANCEL
+
+
+def test_duplicate_run_alert_and_confirmation():
+    default_params = _SmallConfig().to_dict()
+    state = ConfigEditorState(
+        _SmallConfig,
+        existing_runs=[("2026-11-12-953e4d9-amber-falcon", default_params)],
+    )
+
+    # Matching run is detected immediately and displayed in rendered lines.
+    assert state.matching_runs() == ["2026-11-12-953e4d9-amber-falcon"]
+    rendered = "\n".join(state.render_lines())
+    assert (
+        "Alert:  Parameters match existing run(s): 2026-11-12-953e4d9-amber-falcon"
+        in rendered
+    )
+
+    # First press of 'r' pauses to ask for confirmation instead of immediately running.
+    assert state.handle_key("r") == EditorOutcome.CONTINUE
+    assert state.confirm_duplicate is True
+    assert state.message is not None and "Duplicate of" in state.message
+
+    # Changing a parameter clears the duplicate alert and confirmation state.
+    state.handle_key("RIGHT")
+    assert state.matching_runs() == []
+    assert state.confirm_duplicate is False
+
+    # Stepping back to the matching parameter value re-triggers the alert,
+    # and pressing 'r' twice confirms and runs.
+    state.handle_key("LEFT")
+    assert state.matching_runs() == ["2026-11-12-953e4d9-amber-falcon"]
+    assert state.handle_key("r") == EditorOutcome.CONTINUE
+    assert state.handle_key("r") == EditorOutcome.RUN

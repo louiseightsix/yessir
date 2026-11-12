@@ -140,3 +140,28 @@ def write_eval_json(
         encoding="utf-8",
     )
     return path
+
+
+def load_existing_run_params(
+    experiment_name: str,
+    *,
+    results_root: Path | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Load `(run_name, params_dict)` for all recorded runs under `results/<experiment_name>/`."""
+    root = results_root if results_root is not None else (_REPO_ROOT / "results")
+    exp_results_dir = root / experiment_name
+    if not exp_results_dir.is_dir():
+        return []
+
+    runs: list[tuple[str, dict[str, Any]]] = []
+    for config_path in sorted(exp_results_dir.glob("*/config.json")):
+        try:
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        params = raw.get("params")
+        params_dict = params if isinstance(params, dict) else raw
+        runs.append((config_path.parent.name, params_dict))
+    return runs

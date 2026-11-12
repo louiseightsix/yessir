@@ -12,6 +12,7 @@ from yessir.artefacts import (
     default_run_dir,
     generate_run_name,
     get_git_info,
+    load_existing_run_params,
     write_config_json,
     write_eval_json,
 )
@@ -116,3 +117,28 @@ def test_config_and_eval_writers(tmp_path: Path):
         "step_accuracy": 1.0,
         "nan_val": None,
     }
+
+
+def test_load_existing_run_params(tmp_path: Path):
+    # Empty or non-existent experiment directory returns [].
+    assert load_existing_run_params("sir_yes_sir", results_root=tmp_path) == []
+
+    exp_dir = tmp_path / "sir_yes_sir"
+    cfg1 = _SampleConfig(steps=10, lr=1e-3)
+    cfg2 = _SampleConfig(steps=20, lr=2e-3)
+    write_config_json(
+        exp_dir / "2026-11-12-953e4d9-amber-falcon",
+        experiment_name="sir_yes_sir",
+        config=cfg1,
+    )
+    write_config_json(
+        exp_dir / "2026-11-12-953e4d9-quiet-otter",
+        experiment_name="sir_yes_sir",
+        config=cfg2,
+    )
+
+    loaded = load_existing_run_params("sir_yes_sir", results_root=tmp_path)
+    assert loaded == [
+        ("2026-11-12-953e4d9-amber-falcon", {"steps": 10, "lr": 1e-3}),
+        ("2026-11-12-953e4d9-quiet-otter", {"steps": 20, "lr": 2e-3}),
+    ]
