@@ -6,13 +6,15 @@ import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from yessir.dataset import IterableDataset, LabelledExample
+from yessir.dataset import IGNORE_INDEX, IterableDataset, LabelledExample
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token
 
 
 def format_token(token: Token) -> str:
-    """Format a byte token as `[SPECIAL_NAME]` or two-digit hex `0x..`."""
+    """Format a byte token as `[SPECIAL_NAME]`, `[-100]` (for `IGNORE_INDEX`), or two-digit hex `0x..`."""
+    if token == IGNORE_INDEX:
+        return "[-100]"
     try:
         return f"[{SpecialToken(token).name}]"
     except ValueError:

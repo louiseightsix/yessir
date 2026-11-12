@@ -8,7 +8,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from yessir.batch import collate
+from yessir.batch import IGNORE_INDEX, collate
 from yessir.dataset import LabelledExample
 from yessir.example import Example
 from yessir.model import Transformer
@@ -17,6 +17,7 @@ from yessir.training import (
     multitask_cross_entropy,
     pack_multitask_labels,
     seed_everything,
+    sequence_cross_entropy,
     train,
     train_step,
 )
@@ -258,3 +259,58 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     first_param = next(model.parameters())
     assert int(opt.state[first_param]["step"].item()) == 10
     assert dataset.yielded == 80
+
+
+def test_sequence_cross_entropy_and_tied_head_train_step():
+    seed_everything(0)
+    logits = torch.randn(2, 4, 16, requires_grad=True)
+    labels = torch.tensor(
+        [
+            [IGNORE_INDEX, 3, 5, IGNORE_INDEX],
+            [IGNORE_INDEX, 1, 2, 7],
+        ],
+        dtype=torch.long,
+    )
+    loss = sequence_cross_entropy(logits, labels)
+    valid_logits = torch.stack(
+        [logits[0, 1], logits[0, 2], logits[1, 1], logits[1, 2], logits[1, 3]]
+    )
+    valid_targets = torch.tensor([3, 5, 1, 2, 7], dtype=torch.long)
+    assert torch.allclose(loss, F.cross_entropy(valid_logits, valid_targets))
+
+    with pytest.raises(ValueError, match="logits must have 3 dimensions"):
+        sequence_cross_entropy(torch.randn(2, 16), torch.zeros(2, dtype=torch.long))
+    with pytest.raises(ValueError, match="labels shape"):
+        sequence_cross_entropy(logits, torch.zeros(2, 3, dtype=torch.long))
+
+    # Verify train_step dispatches to sequence_cross_entropy for TiedIdentityHead
+    model = Transformer(
+        num_classes=None,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    opt = build_optimizer(model, lr=1e-2)
+    items = [
+        LabelledExample(
+            example=Example(
+                input_ids=(1, 10, 11),
+                token_type_ids=(0, 2, 3),
+                position_ids=(0, 0, 0),
+            ),
+            labels=(IGNORE_INDEX, 11, 12),
+        ),
+        LabelledExample(
+            example=Example(
+                input_ids=(1, 10, 11, 12),
+                token_type_ids=(0, 2, 3, 3),
+                position_ids=(0, 0, 0, 1),
+            ),
+            labels=(IGNORE_INDEX, 11, 12, 13),
+        ),
+    ]
+    loss1 = train_step(model, opt, items)
+    loss2 = train_step(model, opt, items)
+    assert loss2 < loss1

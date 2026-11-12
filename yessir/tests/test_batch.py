@@ -3,7 +3,8 @@
 import pytest
 import torch
 
-from yessir.batch import Batch, collate
+from yessir.batch import IGNORE_INDEX, Batch, collate, collate_labelled
+from yessir.dataset import LabelledExample
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 
@@ -78,3 +79,38 @@ def test_collate_rejects_inconsistent_position_ids():
     for pair in ([ex_with, ex_without], [ex_without, ex_with]):
         with pytest.raises(ValueError, match="position_ids"):
             collate(pair)
+
+
+def test_collate_labelled_right_pads_labels_with_ignore_index():
+    item1 = LabelledExample(
+        example=Example(input_ids=(SpecialToken.BOS, 10)),
+        labels=(IGNORE_INDEX, 20),
+    )
+    item2 = LabelledExample(
+        example=Example(input_ids=(SpecialToken.BOS, 10, 20, 30)),
+        labels=(IGNORE_INDEX, 20, 30, int(SpecialToken.FLAG_FINISHED)),
+    )
+
+    batch, labels = collate_labelled([item1, item2])
+    assert batch.input_ids.shape == (2, 4)
+    assert labels.shape == (2, 4)
+    assert torch.equal(
+        labels,
+        torch.tensor(
+            [
+                [IGNORE_INDEX, 20, IGNORE_INDEX, IGNORE_INDEX],
+                [IGNORE_INDEX, 20, 30, int(SpecialToken.FLAG_FINISHED)],
+            ],
+            dtype=torch.long,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="cannot collate an empty sequence"):
+        collate_labelled([])
+
+    bad_item = LabelledExample(
+        example=Example(input_ids=(1, 2, 3)),
+        labels=(10, 20),
+    )
+    with pytest.raises(ValueError, match="has 2 labels for example of length 3"):
+        collate_labelled([bad_item])

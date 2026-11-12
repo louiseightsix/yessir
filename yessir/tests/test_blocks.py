@@ -28,10 +28,17 @@ def test_rmsnorm_unit_rms_zero_preservation_and_gain():
     assert out[0, 0, 3] == 0.0
 
     # Learned gain scales each coordinate independently
+    assert norm.weight is not None
     with torch.no_grad():
         norm.weight.copy_(torch.tensor([2.0, 5.0, 0.5, 1.0]))
     scaled = norm(x)
     assert torch.allclose(scaled, out * norm.weight)
+
+    # Gain-free RMSNorm has no learnable parameters and produces unit RMS
+    norm_no_gain = RMSNorm(d_model=4, gain=False)
+    assert norm_no_gain.weight is None
+    assert list(norm_no_gain.parameters()) == []
+    assert torch.allclose(norm_no_gain(x), out)
 
 
 def test_rmsnorm_preserves_bfloat16_dtype():

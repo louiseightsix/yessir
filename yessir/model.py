@@ -2,13 +2,14 @@
 
 import math
 from collections.abc import Sequence
+from typing import Any
 
 import torch
 from torch import nn
 
 from yessir.blocks import RMSNorm, TransformerBlock
 from yessir.embedding import SubspaceEmbedding
-from yessir.heads import MultiTaskHead
+from yessir.heads import MultiTaskHead, TiedIdentityHead
 
 _INIT_STD = 0.02
 
@@ -21,7 +22,13 @@ _DEFAULT_D_FF = 1376
 
 
 class Transformer(nn.Module):
-    """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and `MultiTaskHead`.
+    """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and an output head.
+
+    Output head selection:
+    - When `num_classes` is provided (e.g. `(256, 256, 256)`), builds a `MultiTaskHead`
+      that projects the final unpadded position `lengths - 1` into per-head logits.
+    - When `num_classes is None` (default), builds a parameter-free `TiedIdentityHead`
+      that reads the `0..255` symbol subspace across all sequence positions `(B, T, 256)`.
 
     Weight initialisation (`reset_parameters`):
     - Every `nn.Linear` weight is drawn from `N(0, 0.02^2)` (GPT-2 / LLaMA convention).
@@ -35,7 +42,7 @@ class Transformer(nn.Module):
     def __init__(
         self,
         *,
-        num_classes: Sequence[int],
+        num_classes: Sequence[int] | None = None,
         n_layers: int = 6,
         n_heads: int = 8,
         d_ff: int = _DEFAULT_D_FF,
@@ -64,7 +71,11 @@ class Transformer(nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        self.head = MultiTaskHead(d_model=self.d_model, num_classes=num_classes)
+        self.head: MultiTaskHead | TiedIdentityHead = (
+            MultiTaskHead(d_model=self.d_model, num_classes=num_classes)
+            if num_classes is not None
+            else TiedIdentityHead(d_model=self.d_model)
+        )
 
         self.reset_parameters()
 
@@ -74,7 +85,7 @@ class Transformer(nn.Module):
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.normal_(module.weight, mean=0.0, std=_INIT_STD)
-            elif isinstance(module, RMSNorm):
+            elif isinstance(module, RMSNorm) and module.weight is not None:
                 nn.init.ones_(module.weight)
 
         residual_scale = 1.0 / math.sqrt(2 * len(self.layers))
@@ -86,11 +97,11 @@ class Transformer(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        lengths: torch.Tensor,
+        lengths: torch.Tensor | None = None,
         token_type_ids: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, ...]:
-        """Run embedding, transformer blocks, and multi-task head on a padded batch."""
+    ) -> Any:
+        """Run embedding, transformer blocks, and output head on a padded batch."""
         x = self.embedding(
             input_ids,
             token_type_ids=token_type_ids,
@@ -98,4 +109,8 @@ class Transformer(nn.Module):
         )
         for layer in self.layers:
             x = layer(x)
+        if isinstance(self.head, MultiTaskHead):
+            if lengths is None:
+                raise ValueError("lengths is required when using MultiTaskHead")
+            return self.head(x, lengths)
         return self.head(x, lengths)

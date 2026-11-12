@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from yessir.dataset import LabelledExample
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.inspect_data import (
     format_labelled_example,
@@ -54,8 +54,12 @@ def test_labelled_example_rejects_invalid_label_token(bad_token):
 def test_format_token_special_and_hex():
     assert format_token(int(SpecialToken.BOS)) == "[BOS]"
     assert format_token(int(SpecialToken.FLAG_CONTINUE)) == "[FLAG_CONTINUE]"
+    assert format_token(IGNORE_INDEX) == "[-100]"
     assert format_token(0x06) == "0x06"
     assert format_token(0xBD) == "0xbd"
+    ex = Example(input_ids=(1, 2))
+    item = LabelledExample(example=ex, labels=(IGNORE_INDEX, 5))
+    assert item.labels == (IGNORE_INDEX, 5)
 
 
 def test_format_labelled_example_with_and_without_type_and_position_ids():

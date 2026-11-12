@@ -1,9 +1,9 @@
-"""Tests for `MultiTaskHead`."""
+"""Tests for `MultiTaskHead` and `TiedIdentityHead`."""
 
 import pytest
 import torch
 
-from yessir.heads import MultiTaskHead
+from yessir.heads import MultiTaskHead, TiedIdentityHead
 from yessir.vocab import VOCAB_SIZE
 
 
@@ -89,3 +89,25 @@ def test_multitask_head_rejects_mismatched_lengths_shape(bad_lengths):
     h = torch.randn(2, 5, 8)
     with pytest.raises(ValueError, match="lengths shape"):
         head(h, bad_lengths)
+
+
+def test_tied_identity_head_is_parameter_free_and_slices_symbol_subspace():
+    head = TiedIdentityHead(d_model=288)
+    assert list(head.parameters()) == []
+
+    h = torch.randn(2, 5, 288, requires_grad=True)
+    logits = head(h)
+    assert logits.shape == (2, 5, VOCAB_SIZE)
+
+    # Matches gain-free RMSNorm over full d_model sliced to :VOCAB_SIZE
+    rms = h.pow(2).mean(dim=-1, keepdim=True).add(1e-6).rsqrt()
+    expected = (h * rms)[:, :, :VOCAB_SIZE]
+    assert torch.allclose(logits, expected, atol=1e-5)
+
+    logits.sum().backward()
+    assert h.grad is not None
+
+
+def test_tied_identity_head_rejects_small_d_model():
+    with pytest.raises(ValueError, match="d_model must be >= VOCAB_SIZE"):
+        TiedIdentityHead(d_model=VOCAB_SIZE - 1)

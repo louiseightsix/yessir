@@ -107,6 +107,8 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
 
     # Perturb RMSNorm weights and verify reset_parameters restores them to 1.0
     # and re-initialises residual projections rather than scaling them a second time.
+    assert layer0.attn_norm.weight is not None
+    assert model.head.norm.weight is not None
     with torch.no_grad():
         layer0.attn_norm.weight.fill_(3.5)
         model.head.norm.weight.fill_(0.25)
@@ -116,6 +118,47 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     assert (
         abs(layer0.attn.out_proj.weight.std().item() - expected_residual_std) < 0.0005
     )
+
+
+def test_transformer_with_tied_identity_head_shapes_and_causal_invariance():
+    torch.manual_seed(0)
+    model = Transformer(
+        num_classes=None,
+        n_layers=2,
+        n_heads=4,
+        d_ff=64,
+        d_position=8,
+        d_scratch=16,
+    )
+    assert model.head.norm.weight is None
+
+    short_ex = Example(
+        input_ids=(10, 20, 30),
+        token_type_ids=(0, 1, 3),
+        position_ids=(0, 0, 0),
+    )
+    long_ex = Example(
+        input_ids=(10, 20, 30, 40, 50),
+        token_type_ids=(0, 1, 3, 3, 3),
+        position_ids=(0, 0, 0, 1, 2),
+    )
+    solo_batch = collate([short_ex])
+    padded_batch = collate([short_ex, long_ex])
+
+    solo_logits = model(
+        solo_batch.input_ids,
+        token_type_ids=solo_batch.token_type_ids,
+        position_ids=solo_batch.position_ids,
+    )
+    padded_logits = model(
+        padded_batch.input_ids,
+        padded_batch.lengths,
+        token_type_ids=padded_batch.token_type_ids,
+        position_ids=padded_batch.position_ids,
+    )
+    assert solo_logits.shape == (1, 3, VOCAB_SIZE)
+    assert padded_logits.shape == (2, 5, VOCAB_SIZE)
+    assert torch.allclose(solo_logits[0], padded_logits[0, :3], atol=1e-5)
 
 
 def test_transformer_gradient_flow_to_all_parameters():

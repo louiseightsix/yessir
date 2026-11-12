@@ -1,4 +1,4 @@
-"""Output heads for mapping final Transformer hidden states to task logits."""
+"""Output heads (`MultiTaskHead`, `TiedIdentityHead`) for mapping final Transformer hidden states to task logits."""
 
 from collections.abc import Sequence
 
@@ -6,6 +6,35 @@ import torch
 from torch import nn
 
 from yessir.blocks import RMSNorm
+from yessir.vocab import VOCAB_SIZE
+
+
+class TiedIdentityHead(nn.Module):
+    """Parameter-free tied output head reading the `0..255` symbol subspace at all positions.
+
+    Because `SubspaceEmbedding` places the 256-d one-hot token representation in
+    coordinates `0..255` of the residual stream, applying a gain-free `RMSNorm` and
+    slicing `[:, :, :VOCAB_SIZE]` computes the dot product of the normalised hidden
+    state with each token's unit-vector embedding (up to the shared `sqrt(d_model)`
+    RMS scale factor), with zero trainable parameters.
+    """
+
+    def __init__(self, d_model: int) -> None:
+        super().__init__()
+        if d_model < VOCAB_SIZE:
+            raise ValueError(
+                f"d_model must be >= VOCAB_SIZE ({VOCAB_SIZE}) for TiedIdentityHead, got {d_model}"
+            )
+        self.norm = RMSNorm(d_model, gain=False)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Normalise `hidden_states` `(B, T, d_model)` and slice `(B, T, VOCAB_SIZE)` logits."""
+        del lengths
+        return self.norm(hidden_states)[:, :, :VOCAB_SIZE]
 
 
 class MultiTaskHead(nn.Module):

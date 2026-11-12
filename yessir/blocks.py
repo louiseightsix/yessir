@@ -6,15 +6,22 @@ from torch import nn
 
 
 class RMSNorm(nn.Module):
-    """Root Mean Square Layer Normalisation with a learned per-dimension gain.
+    """Root Mean Square Layer Normalisation with an optional learned per-dimension gain.
 
-    Computes `x / sqrt(mean(x^2) + eps) * weight`. Unlike `LayerNorm`, `RMSNorm`
-    does not subtract the mean, preserving the zero origin of the residual stream.
-    The mean-square and reciprocal square root are computed in `float32` to avoid
-    low-precision rounding in `bfloat16` (and overflow/underflow in `float16`).
+    Computes `x / sqrt(mean(x^2) + eps)` (scaled by `weight` when `gain=True`).
+    Unlike `LayerNorm`, `RMSNorm` does not subtract the mean, preserving the zero
+    origin of the residual stream. The mean-square and reciprocal square root are
+    computed in `float32` to avoid low-precision rounding in `bfloat16` (and
+    overflow/underflow in `float16`).
     """
 
-    def __init__(self, d_model: int, *, eps: float = 1e-6) -> None:
+    def __init__(
+        self,
+        d_model: int,
+        *,
+        eps: float = 1e-6,
+        gain: bool = True,
+    ) -> None:
         super().__init__()
         if d_model <= 0:
             raise ValueError(f"d_model must be > 0, got {d_model}")
@@ -22,7 +29,11 @@ class RMSNorm(nn.Module):
             raise ValueError(f"eps must be > 0, got {eps}")
 
         self._eps = eps
-        self.weight = nn.Parameter(torch.ones(d_model))
+        self.weight: nn.Parameter | None
+        if gain:
+            self.weight = nn.Parameter(torch.ones(d_model))
+        else:
+            self.register_parameter("weight", None)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Normalise the last dimension of `x` of shape `(..., d_model)`."""
@@ -30,7 +41,9 @@ class RMSNorm(nn.Module):
         normed = x_fp32 * torch.rsqrt(
             x_fp32.pow(2).mean(dim=-1, keepdim=True) + self._eps
         )
-        return (normed * self.weight).to(dtype=x.dtype)
+        if self.weight is not None:
+            normed = normed * self.weight
+        return normed.to(dtype=x.dtype)
 
 
 class SwiGLUFeedForward(nn.Module):
