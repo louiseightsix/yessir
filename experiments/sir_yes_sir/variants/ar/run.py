@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
-from experiments.sir_yes_sir.variants.ar.config import SirYesSirArConfig
+from experiments.sir_yes_sir.variants.ar.config import (
+    AR_DESCRIPTION,
+    SirYesSirArConfig,
+)
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
 from yessir.experiment import ExperimentVariant
@@ -45,7 +48,7 @@ def run_sir_yes_sir_ar(
 
 AR_VARIANT = ExperimentVariant(
     name="ar",
-    description="Autoregressive trace harness read through TiedIdentityHead.",
+    description=AR_DESCRIPTION,
     config_cls=SirYesSirArConfig,
     run=run_sir_yes_sir_ar,
 )

@@ -5,8 +5,12 @@ import subprocess
 import sys
 
 from experiments.__main__ import EXPERIMENTS
-from experiments.sir_yes_sir.config import SirYesSirConfig
-from experiments.web_export import CONFIGS, DESCRIPTIONS
+from experiments.sir_yes_sir.config import SM_MH_DESCRIPTION, SirYesSirConfig
+from experiments.sir_yes_sir.variants.ar.config import (
+    AR_DESCRIPTION,
+    SirYesSirArConfig,
+)
+from experiments.web_export import DESCRIPTIONS, VARIANTS
 from yessir.tui import build_field_specs
 
 
@@ -26,12 +30,31 @@ def test_web_export_prints_schemas_with_stdlib_only():
     assert payload == {
         "sir_yes_sir": {
             "description": DESCRIPTIONS["sir_yes_sir"],
-            "default_config": SirYesSirConfig().to_dict(),
-            "fields": [spec.to_dict() for spec in build_field_specs(SirYesSirConfig)],
+            "variants": [
+                {
+                    "name": "sm_mh",
+                    "description": SM_MH_DESCRIPTION,
+                    "default_config": SirYesSirConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict() for spec in build_field_specs(SirYesSirConfig)
+                    ],
+                },
+                {
+                    "name": "ar",
+                    "description": AR_DESCRIPTION,
+                    "default_config": SirYesSirArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict() for spec in build_field_specs(SirYesSirArConfig)
+                    ],
+                },
+            ],
         }
     }
 
 
 def test_web_export_matches_experiment_registry():
-    assert CONFIGS == {exp.name: exp.config_cls for exp in EXPERIMENTS}
+    assert VARIANTS == {
+        exp.name: tuple((v.name, v.description, v.config_cls) for v in exp.variants)
+        for exp in EXPERIMENTS
+    }
     assert DESCRIPTIONS == {exp.name: exp.description for exp in EXPERIMENTS}

@@ -149,6 +149,7 @@ def test_config_import_does_not_load_torch():
     code = (
         "import sys\n"
         "import experiments.sir_yes_sir.config\n"
+        "import experiments.sir_yes_sir.variants.ar.config\n"
         "assert 'torch' not in sys.modules, 'importing the config loaded torch'\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)

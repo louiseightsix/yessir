@@ -39,7 +39,7 @@ class ExperimentConfig:
 
 @dataclass(frozen=True, kw_only=True)
 class ExperimentVariant[ConfigT: ExperimentConfig]:
-    """One execution/harness variant of an `Experiment` (e.g. `'sm_mh'`, `'sm_seq'`, `'ar'`)."""
+    """One execution/harness variant of an `Experiment` (e.g. `'sm_mh'`, `'ar'`)."""
 
     name: str
     description: str

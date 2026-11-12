@@ -10,14 +10,21 @@ export interface FieldSchema {
   choices: unknown[] | null;
 }
 
-export interface ExperimentSchema {
+export interface VariantSchema {
+  name: string;
   description: string;
   default_config: Record<string, unknown>;
   fields: FieldSchema[];
 }
 
+export interface ExperimentSchema {
+  description: string;
+  variants: VariantSchema[];
+}
+
 export interface ExistingRunConfig {
   name: string;
+  variant?: string;
   config: Record<string, unknown>;
 }
 
@@ -29,7 +36,7 @@ interface Props {
 const NONE_SENTINEL = "__NONE__";
 
 const SYMBOL_SET_LENGTHS: Record<string, number> = {
-  all: 250,
+  all: 240,
   decimal: 10,
   hex: 16,
 };
@@ -64,7 +71,7 @@ function validateConfig(
 
   if (expName === "sir_yes_sir") {
     const symbolSet = String(values.symbol_set ?? "all");
-    const fullPoolLen = SYMBOL_SET_LENGTHS[symbolSet] ?? 250;
+    const fullPoolLen = SYMBOL_SET_LENGTHS[symbolSet] ?? 240;
     const symbolPoolSize = values.symbol_pool_size as number | null;
     if (
       symbolPoolSize !== null &&
@@ -196,9 +203,17 @@ function configsEqual(
 export default function ConfigBuilder({ schemas, existingRuns }: Props) {
   const expNames = Object.keys(schemas);
   const [selectedExp, setSelectedExp] = useState<string>(expNames[0] ?? "");
+  const [selectedVariantByExp, setSelectedVariantByExp] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries(schemas).map(([name, schema]) => [name, schema.variants[0]?.name ?? ""]),
+    ),
+  );
   const [valuesByExp, setValuesByExp] = useState<Record<string, Record<string, unknown>>>(() =>
     Object.fromEntries(
-      Object.entries(schemas).map(([name, schema]) => [name, { ...schema.default_config }]),
+      Object.entries(schemas).map(([name, schema]) => [
+        name,
+        { ...(schema.variants[0]?.default_config ?? {}) },
+      ]),
     ),
   );
   // Holds raw text for any numeric input that is currently empty/mid-edit so
@@ -208,18 +223,39 @@ export default function ConfigBuilder({ schemas, existingRuns }: Props) {
   const [copied, setCopied] = useState(false);
 
   const schema = schemas[selectedExp];
-  if (!schema) {
+  if (!schema || schema.variants.length === 0) {
     return <p>No experiments registered.</p>;
   }
 
-  const values = valuesByExp[selectedExp] ?? schema.default_config;
+  const activeVariantName = selectedVariantByExp[selectedExp] ?? schema.variants[0].name;
+  const activeVariant =
+    schema.variants.find((v) => v.name === activeVariantName) ?? schema.variants[0];
+
+  const values = valuesByExp[selectedExp] ?? activeVariant.default_config;
   const drafts = draftsByExp[selectedExp] ?? {};
+
+  function selectVariant(variantName: string) {
+    const targetVariant =
+      schema.variants.find((v) => v.name === variantName) ?? schema.variants[0];
+    setSelectedVariantByExp((prev) => ({ ...prev, [selectedExp]: targetVariant.name }));
+    setValuesByExp((prev) => {
+      const current = prev[selectedExp] ?? {};
+      const next: Record<string, unknown> = { ...targetVariant.default_config };
+      for (const f of targetVariant.fields) {
+        if (f.name in current) {
+          next[f.name] = current[f.name];
+        }
+      }
+      return { ...prev, [selectedExp]: next };
+    });
+    setCopied(false);
+  }
 
   function setFieldValue(fieldName: string, value: unknown) {
     setValuesByExp((prev) => ({
       ...prev,
       [selectedExp]: {
-        ...(prev[selectedExp] ?? schema.default_config),
+        ...(prev[selectedExp] ?? activeVariant.default_config),
         [fieldName]: value,
       },
     }));
@@ -254,22 +290,26 @@ export default function ConfigBuilder({ schemas, existingRuns }: Props) {
   function resetToDefaults() {
     setValuesByExp((prev) => ({
       ...prev,
-      [selectedExp]: { ...schema.default_config },
+      [selectedExp]: { ...activeVariant.default_config },
     }));
     setDraftsByExp((prev) => ({ ...prev, [selectedExp]: {} }));
     setCopied(false);
   }
 
-  const validation = validateConfig(selectedExp, schema.fields, values, drafts);
+  const validation = validateConfig(selectedExp, activeVariant.fields, values, drafts);
 
-  const flags = schema.fields
+  const flags = activeVariant.fields
     .filter((f) => includeDefaults || values[f.name] !== f.default)
     .map((f) => formatCliFlag(f, values[f.name]));
-  const cliCommand = `./yessir.sh run ${selectedExp}${flags.length > 0 ? " " + flags.join(" ") : ""}`;
+  const cliCommand = `./yessir.sh run ${selectedExp} ${activeVariant.name}${flags.length > 0 ? " " + flags.join(" ") : ""}`;
 
   const matchingRuns = validation.valid
     ? (existingRuns[selectedExp] ?? [])
-        .filter((run) => configsEqual(schema.fields, values, run.config))
+        .filter(
+          (run) =>
+            run.variant === activeVariant.name &&
+            configsEqual(activeVariant.fields, values, run.config),
+        )
         .map((run) => run.name)
     : [];
 
@@ -298,12 +338,27 @@ export default function ConfigBuilder({ schemas, existingRuns }: Props) {
             ))}
           </select>
         </label>
+        <label>
+          <strong>Variant: </strong>
+          <select
+            value={activeVariant.name}
+            onChange={(e) => selectVariant(e.target.value)}
+          >
+            {schema.variants.map((v) => (
+              <option key={v.name} value={v.name}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button type="button" onClick={resetToDefaults}>
           Reset to defaults
         </button>
       </div>
 
-      <p className="meta">{schema.description}</p>
+      <p className="meta">
+        {schema.description} — <code>{activeVariant.name}</code>: {activeVariant.description}
+      </p>
 
       <table>
         <thead>
@@ -315,7 +370,7 @@ export default function ConfigBuilder({ schemas, existingRuns }: Props) {
           </tr>
         </thead>
         <tbody>
-          {schema.fields.map((field) => {
+          {activeVariant.fields.map((field) => {
             const val = values[field.name];
             const hasDraft = field.name in drafts;
             const isNonDefault = hasDraft || val !== field.default;

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from experiments.sir_yes_sir.config import SirYesSirConfig
+from experiments.sir_yes_sir.config import SM_MH_DESCRIPTION, SirYesSirConfig
 from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
 from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset
 from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
@@ -45,7 +45,7 @@ def run_sir_yes_sir_sm_mh(
 
 SM_MH_VARIANT = ExperimentVariant(
     name="sm_mh",
-    description="State-machine harness read through MultiTaskHead.",
+    description=SM_MH_DESCRIPTION,
     config_cls=SirYesSirConfig,
     run=run_sir_yes_sir_sm_mh,
 )

@@ -15,7 +15,10 @@ from yessir.vocab import VOCAB_SIZE
 
 def test_transformer_default_dimensions_and_forward_shapes():
     torch.manual_seed(0)
-    model = Transformer(num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE))
+    model = Transformer(
+        head_type=HeadType.MULTITASK,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+    )
     assert model.d_model == 512
     assert len(model.layers) == 6
 
@@ -45,6 +48,7 @@ def test_transformer_default_dimensions_and_forward_shapes():
 def test_transformer_end_to_end_right_padding_invariance():
     torch.manual_seed(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(16, 2),
         n_layers=2,
         n_heads=4,
@@ -88,6 +92,7 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     torch.manual_seed(0)
     n_layers = 8
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE,),
         n_layers=n_layers,
     )
@@ -165,6 +170,7 @@ def test_transformer_with_tied_identity_head_shapes_and_causal_invariance():
 def test_transformer_gradient_flow_to_all_parameters():
     torch.manual_seed(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(8, 2),
         n_layers=2,
         n_heads=4,
@@ -197,7 +203,9 @@ def test_transformer_gradient_flow_to_all_parameters():
 @pytest.mark.parametrize("bad_n_layers", [0, -2])
 def test_transformer_rejects_non_positive_n_layers(bad_n_layers):
     with pytest.raises(ValueError, match="n_layers must be > 0"):
-        Transformer(num_classes=(4,), n_layers=bad_n_layers)
+        Transformer(
+            head_type=HeadType.MULTITASK, num_classes=(4,), n_layers=bad_n_layers
+        )
 
 
 def test_transformer_validates_head_type_and_num_classes():

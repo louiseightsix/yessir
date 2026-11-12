@@ -35,6 +35,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
     x_length = 2
 
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
         n_heads=8,

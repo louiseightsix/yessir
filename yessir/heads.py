@@ -47,13 +47,8 @@ class TiedIdentityHead(nn.Module):
             )
         self.norm = RMSNorm(d_model, gain=False)
 
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        lengths: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """Normalise `hidden_states` `(B, T, d_model)` and slice `(B, T, VOCAB_SIZE)` logits."""
-        del lengths
         return self.norm(hidden_states)[:, :, :VOCAB_SIZE]
 
 

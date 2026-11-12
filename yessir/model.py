@@ -24,7 +24,7 @@ class Transformer(nn.Module):
     """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and an output head.
 
     Output head selection (`head_type`):
-    - `HeadType.MULTITASK` (default): requires `num_classes` (e.g. `(256, 256, 256)`) and
+    - `HeadType.MULTITASK`: requires `num_classes` (e.g. `(256, 256, 256)`) and
       builds a `MultiTaskHead` that projects the final unpadded position `lengths - 1`
       into per-head logits.
     - `HeadType.TIED_IDENTITY`: requires `num_classes=None` and builds a parameter-free
@@ -43,7 +43,7 @@ class Transformer(nn.Module):
     def __init__(
         self,
         *,
-        head_type: HeadType = HeadType.MULTITASK,
+        head_type: HeadType,
         num_classes: Sequence[int] | None = None,
         n_layers: int = 6,
         n_heads: int = 8,

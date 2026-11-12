@@ -134,6 +134,7 @@ def test_pack_multitask_labels_shapes_and_validation():
 def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -154,6 +155,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
+        assert isinstance(pre_logits, tuple)
         expected_pre_loss = multitask_cross_entropy(pre_logits, labels).item()
     params_before = [p.detach().clone() for p in model.parameters()]
 
@@ -170,6 +172,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
 def test_train_step_validation():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -194,6 +197,7 @@ def test_train_step_validation():
 def test_train_validation_and_early_exhaustion():
     seed_everything(0)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -226,6 +230,7 @@ def test_train_validation_and_early_exhaustion():
 def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     seed_everything(42)
     model = Transformer(
+        head_type=HeadType.MULTITASK,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
         n_heads=4,
