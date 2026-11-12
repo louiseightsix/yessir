@@ -20,7 +20,8 @@ yessir/                  shared code: vocabulary, alphabets, model, training, CL
 experiments/sir_yes_sir/ minimal smoke-test and reference experiment (see .agents/sir-yes-sir.md)
 experiments/addition/    the live addition experiment (see .agents/addition.md)
 results/                 results of live experiments, one directory per experiment
-web/                     static web interface (Astro, pnpm) for browsing results and configs
+studies/                 studies grouping runs around research questions (`studies/<experiment>/<slug>.json`)
+web/                     static web interface (Astro, pnpm) for browsing results, studies, and configs
 .prototypes/transformadder/  Louis's internal notes: the original, unreviewed exploration (code, tests, spec, notes, ~40 runs)
 ```
 

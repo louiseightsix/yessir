@@ -1,12 +1,14 @@
-"""Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), and JSON artefact writers/readers (`write_config_json`, `read_config_dict`, `write_eval_json`, `load_existing_run_configs`)."""
+"""Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), JSON artefact writers/readers (`write_config_json`, `read_config_dict`, `write_eval_json`, `load_existing_run_configs`), and study definitions (`StudyStatus`, `StudyKind`, `StudyRun`, `Study`, `write_study_json`, `read_study_json`, `load_studies`)."""
 
 import json
 import random
+import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import petname
 
@@ -14,6 +16,7 @@ from yessir.experiment import ExperimentConfig
 from yessir.metrics import json_safe
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -187,3 +190,202 @@ def load_existing_run_configs(
             continue
         runs.append((config_path.parent.name, config_dict))
     return runs
+
+
+class StudyStatus(StrEnum):
+    """Lifecycle stage of a study."""
+
+    DRAFT = "draft"
+    IN_PROGRESS = "in_progress"
+    CONCLUDED = "concluded"
+
+
+class StudyKind(StrEnum):
+    """Experimental design of a study.
+
+    - `exploratory`: baseline, pilot, or one-off run
+    - `ablation`: remove a component relative to a baseline
+    - `comparison`: A vs B where neither is a removal
+    - `sweep`: vary one setting over a range
+    """
+
+    EXPLORATORY = "exploratory"
+    ABLATION = "ablation"
+    COMPARISON = "comparison"
+    SWEEP = "sweep"
+
+
+@dataclass(frozen=True, kw_only=True)
+class StudyRun:
+    """Reference to a run directory within a study, with an optional label."""
+
+    run_name: str
+    label: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.run_name, str):
+            raise TypeError(
+                f"StudyRun.run_name must be a str, got {type(self.run_name).__name__}"
+            )
+        if not self.run_name.strip():
+            raise ValueError(
+                f"StudyRun.run_name must be a non-empty string, got {self.run_name!r}"
+            )
+        if self.label is not None and not isinstance(self.label, str):
+            raise TypeError(
+                f"StudyRun.label must be a str or None, got {type(self.label).__name__}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-compatible dictionary."""
+        return {"run_name": self.run_name, "label": self.label}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Self:
+        """Deserialise a `StudyRun` from a dictionary."""
+        if not isinstance(data, Mapping):
+            raise TypeError(
+                f"expected a mapping for StudyRun, got {type(data).__name__}"
+            )
+        run_name_val = data.get("run_name")
+        if not isinstance(run_name_val, str):
+            raise TypeError(
+                f"StudyRun requires a string 'run_name' field, got {run_name_val!r}"
+            )
+        label_val = data.get("label")
+        if label_val is not None and not isinstance(label_val, str):
+            raise TypeError(
+                f"StudyRun 'label' must be a string or null, got {type(label_val).__name__}"
+            )
+        return cls(run_name=run_name_val, label=label_val)
+
+
+# Keep the JSON schema in sync with `StudyFile` / `loadStudies` in `web/src/pages/index.astro`.
+@dataclass(frozen=True, kw_only=True)
+class Study:
+    """A many-to-many grouping of runs around a research question, ablation, comparison, or sweep."""
+
+    title: str
+    status: StudyStatus = StudyStatus.DRAFT
+    kind: StudyKind | None = None
+    question: str | None = None
+    runs: Sequence[StudyRun] = ()
+    conclusion: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.title, str):
+            raise TypeError(
+                f"Study.title must be a str, got {type(self.title).__name__}"
+            )
+        if not self.title.strip():
+            raise ValueError(
+                f"Study.title must be a non-empty string, got {self.title!r}"
+            )
+        object.__setattr__(self, "status", StudyStatus(self.status))
+        if self.kind is not None:
+            object.__setattr__(self, "kind", StudyKind(self.kind))
+        if self.question is not None and not isinstance(self.question, str):
+            raise TypeError(
+                f"Study.question must be a str or None, got {type(self.question).__name__}"
+            )
+        if self.conclusion is not None and not isinstance(self.conclusion, str):
+            raise TypeError(
+                f"Study.conclusion must be a str or None, got {type(self.conclusion).__name__}"
+            )
+        runs_tuple = tuple(self.runs)
+        for item in runs_tuple:
+            if not isinstance(item, StudyRun):
+                raise TypeError(
+                    f"Study.runs elements must be StudyRun instances, got {type(item).__name__}"
+                )
+        object.__setattr__(self, "runs", runs_tuple)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-compatible dictionary."""
+        return {
+            "title": self.title,
+            "status": self.status.value,
+            "kind": self.kind.value if self.kind is not None else None,
+            "question": self.question,
+            "runs": [r.to_dict() for r in self.runs],
+            "conclusion": self.conclusion,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Self:
+        """Deserialise a `Study` from a dictionary."""
+        if not isinstance(data, Mapping):
+            raise TypeError(f"expected a mapping for Study, got {type(data).__name__}")
+        title = data.get("title")
+        if not isinstance(title, str):
+            raise TypeError(f"Study requires a string 'title' field, got {title!r}")
+        raw_status = data.get("status", StudyStatus.DRAFT.value)
+        status = StudyStatus(raw_status)
+        raw_kind = data.get("kind")
+        kind = StudyKind(raw_kind) if raw_kind is not None else None
+        question = data.get("question")
+        conclusion = data.get("conclusion")
+        raw_runs = data.get("runs", [])
+        if not isinstance(raw_runs, Sequence) or isinstance(raw_runs, (str, bytes)):
+            raise TypeError("Study 'runs' field must be a list of StudyRun objects")
+        runs = tuple(StudyRun.from_dict(item) for item in raw_runs)
+        return cls(
+            title=title,
+            status=status,
+            kind=kind,
+            question=question,
+            runs=runs,
+            conclusion=conclusion,
+        )
+
+
+def _validate_study_slug(slug: str) -> None:
+    if not _SLUG_RE.fullmatch(slug):
+        raise ValueError(
+            f"study slug must match {_SLUG_RE.pattern!r} (lowercase alphanumeric, '-' or '_'), got {slug!r}"
+        )
+
+
+def write_study_json(
+    experiment_name: str,
+    slug: str,
+    study: Study,
+    *,
+    studies_root: Path | None = None,
+) -> Path:
+    """Write `study` to `studies/<experiment_name>/<slug>.json`."""
+    _validate_study_slug(slug)
+    root = studies_root if studies_root is not None else (_REPO_ROOT / "studies")
+    exp_studies_dir = root / experiment_name
+    exp_studies_dir.mkdir(parents=True, exist_ok=True)
+    path = exp_studies_dir / f"{slug}.json"
+    path.write_text(
+        json.dumps(study.to_dict(), indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def read_study_json(path: Path) -> Study:
+    """Read and validate a `Study` from a JSON file at `path`."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise TypeError(f"expected a JSON object in {path}, got {type(raw).__name__}")
+    return Study.from_dict(raw)
+
+
+def load_studies(
+    experiment_name: str,
+    *,
+    studies_root: Path | None = None,
+) -> list[tuple[str, Study]]:
+    """Load `(slug, Study)` pairs for all `studies/<experiment_name>/*.json` files, sorted by `slug`."""
+    root = studies_root if studies_root is not None else (_REPO_ROOT / "studies")
+    exp_studies_dir = root / experiment_name
+    if not exp_studies_dir.is_dir():
+        return []
+
+    studies: list[tuple[str, Study]] = []
+    for study_path in sorted(exp_studies_dir.glob("*.json")):
+        studies.append((study_path.stem, read_study_json(study_path)))
+    return studies
