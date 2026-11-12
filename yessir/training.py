@@ -3,7 +3,7 @@
 import itertools
 import os
 import random
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -144,6 +144,7 @@ def train(
     batch_size: int,
     lr: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
+    on_step: Callable[[int, float], None] | None = None,
 ) -> list[float]:
     """Train `model` on batches drawn from `dataset` for `steps` optimisation steps on CPU.
 
@@ -167,11 +168,14 @@ def train(
     stream = iter(dataset)
 
     losses: list[float] = []
-    for _ in range(steps):
+    for step_idx in range(1, steps + 1):
         items = list(itertools.islice(stream, batch_size))
         if len(items) < batch_size:
             raise ValueError(
                 f"dataset exhausted early: needed {batch_size} examples, got {len(items)}"
             )
-        losses.append(train_step(model, optimizer, items))
+        step_loss = train_step(model, optimizer, items)
+        losses.append(step_loss)
+        if on_step is not None:
+            on_step(step_idx, step_loss)
     return losses

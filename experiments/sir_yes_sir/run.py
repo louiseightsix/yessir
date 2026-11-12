@@ -20,6 +20,15 @@ def run_sir_yes_sir(
     out_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate a `sir_yes_sir` model according to `config`."""
+    dest = str(out_dir) if out_dir is not None else "no-save"
+    print(
+        f"[sir_yes_sir] Starting run: B={config.alphabet_size}, L={config.x_length}, "
+        f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
+        f"d_model={config.d_model}, steps={config.steps}, batch_size={config.batch_size}, "
+        f"lr={config.lr}, seed={config.seed} -> {dest}",
+        flush=True,
+    )
+
     logger: MetricsLogger | None = None
     if out_dir is not None:
         write_config_json(
@@ -56,16 +65,22 @@ def run_sir_yes_sir(
         seed=config.eval_seed,
     )
 
-    losses = train(
+    def _on_step(step_idx: int, step_loss: float) -> None:
+        if logger is not None:
+            logger.log(step_idx, {"loss": step_loss})
+        print(
+            f"[sir_yes_sir] step={step_idx}/{config.steps} loss={step_loss:.4f}",
+            flush=True,
+        )
+
+    train(
         model,
         train_dataset,
         steps=config.steps,
         batch_size=config.batch_size,
         lr=config.lr,
+        on_step=_on_step,
     )
-    if logger is not None:
-        for step_idx, step_loss in enumerate(losses, start=1):
-            logger.log(step_idx, {"loss": step_loss})
 
     metrics = evaluate_sm_mh(
         model,
@@ -83,14 +98,14 @@ def run_sir_yes_sir(
         write_eval_json(out_dir, eval_results)
 
     print(
-        f"[sir_yes_sir] step={config.steps} "
-        f"loss={losses[-1]:.4f} "
+        f"[sir_yes_sir] eval ({config.eval_problems} problems): "
         f"exact_match={metrics.exact_match:.2%} "
         f"step_acc={metrics.step_accuracy:.2%} "
-        f"halt_acc={metrics.halt_accuracy:.2%}"
+        f"halt_acc={metrics.halt_accuracy:.2%}",
+        flush=True,
     )
     if out_dir is not None:
-        print(f"[sir_yes_sir] artefacts written to {out_dir}")
+        print(f"[sir_yes_sir] artefacts written to {out_dir}", flush=True)
     return eval_results
 
 

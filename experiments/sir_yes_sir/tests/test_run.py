@@ -82,7 +82,10 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert loaded_eval == eval_results
 
     out = capsys.readouterr().out
-    assert "[sir_yes_sir] step=2" in out
+    assert "[sir_yes_sir] Starting run: B=4, L=3" in out
+    assert "[sir_yes_sir] step=1/2 loss=" in out
+    assert "[sir_yes_sir] step=2/2 loss=" in out
+    assert "[sir_yes_sir] eval (4 problems):" in out
     assert f"artefacts written to {run_dir}" in out
 
 

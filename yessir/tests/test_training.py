@@ -235,9 +235,20 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     stream = iter(dataset)
     opt = build_optimizer(model, lr=1e-3)
 
-    losses_part1 = train(model, stream, steps=5, batch_size=8, optimizer=opt)
+    recorded_steps: list[tuple[int, float]] = []
+    losses_part1 = train(
+        model,
+        stream,
+        steps=5,
+        batch_size=8,
+        optimizer=opt,
+        on_step=lambda s, loss: recorded_steps.append((s, loss)),
+    )
     losses_part2 = train(model, stream, steps=5, batch_size=8, optimizer=opt)
     losses = losses_part1 + losses_part2
+
+    assert [s for s, _ in recorded_steps] == [1, 2, 3, 4, 5]
+    assert [loss for _, loss in recorded_steps] == losses_part1
 
     assert len(losses) == 10
     # Initial random-guess cross-entropy over 3 heads of size 256 is ~ 3 * ln(256) ≈ 16.6;
