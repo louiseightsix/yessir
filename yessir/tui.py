@@ -42,6 +42,21 @@ class FieldSpec:
     step: int | float
     choices: tuple[Any, ...] | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise this field descriptor to JSON-compatible primitives."""
+        is_enum = isinstance(self.inner_type, type) and issubclass(
+            self.inner_type, Enum
+        )
+        return {
+            "name": self.name,
+            "type": "enum" if is_enum else self.inner_type.__name__,
+            "is_optional": self.is_optional,
+            "default": self.default,
+            "domain": self.domain,
+            "step": self.step,
+            "choices": list(self.choices) if self.choices is not None else None,
+        }
+
 
 def build_field_specs(config_cls: type[ExperimentConfig]) -> tuple[FieldSpec, ...]:
     """Introspect `config_cls` fields into `FieldSpec` descriptors for the TUI table."""

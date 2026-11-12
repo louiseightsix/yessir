@@ -11,7 +11,24 @@ const repoRoot = resolve(process.cwd(), "..");
 // so the build doesn't have to install torch. YESSIR_PYTHON overrides it.
 const python = process.env.YESSIR_PYTHON ?? "python3";
 const pythonVersion = execFileSync(python, ["--version"], { encoding: "utf8" }).trim();
-const configs: Record<string, Record<string, unknown>> = JSON.parse(
+
+interface FieldSchema {
+  name: string;
+  type: "int" | "float" | "bool" | "enum" | "str";
+  is_optional: boolean;
+  default: unknown;
+  domain: string;
+  step: number;
+  choices: unknown[] | null;
+}
+
+interface ExperimentSchema {
+  description: string;
+  default_config: Record<string, unknown>;
+  fields: FieldSchema[];
+}
+
+const schemas: Record<string, ExperimentSchema> = JSON.parse(
   execFileSync(python, ["-m", "experiments.web_export"], { cwd: repoRoot, encoding: "utf8" }),
 );
 
@@ -176,7 +193,7 @@ const experiments = readdirSync(resultsDir, { withFileTypes: true })
     <h2>Results</h2>
     {experiments.length === 0 && <p>No results yet.</p>}
     {experiments.map((exp) => {
-      const defaultConfig = configs[exp.name] ?? {};
+      const defaultConfig = schemas[exp.name]?.default_config ?? {};
       return (
         <section>
           <h3>{exp.name} ({exp.runs.length} {exp.runs.length === 1 ? "run" : "runs"})</h3>
@@ -309,12 +326,34 @@ const experiments = readdirSync(resultsDir, { withFileTypes: true })
       );
     })}
 
-    <h2>Default configs</h2>
-    {Object.entries(configs).map(([name, config]) => (
-      <>
+    <h2>Experiment schemas</h2>
+    {Object.entries(schemas).map(([name, schema]) => (
+      <section>
         <h3>{name}</h3>
-        <pre>{JSON.stringify(config, null, 2)}</pre>
-      </>
+        <p>{schema.description}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>Type</th>
+              <th>Default</th>
+              <th>Step</th>
+              <th>Allowed / Range</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schema.fields.map((f) => (
+              <tr>
+                <th><code>{f.name}</code></th>
+                <td><code>{f.type}{f.is_optional ? " | None" : ""}</code></td>
+                <td><code>{JSON.stringify(f.default)}</code></td>
+                <td><code>{f.step}</code></td>
+                <td><code>{f.domain}</code></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
     ))}
   </body>
 </html>

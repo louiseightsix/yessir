@@ -6,10 +6,11 @@ import sys
 
 from experiments.__main__ import EXPERIMENTS
 from experiments.sir_yes_sir.config import SirYesSirConfig
-from experiments.web_export import CONFIGS
+from experiments.web_export import CONFIGS, DESCRIPTIONS
+from yessir.tui import build_field_specs
 
 
-def test_web_export_prints_default_configs_with_stdlib_only():
+def test_web_export_prints_schemas_with_stdlib_only():
     # `-S` disables `site` so venv (`.venv-darwin` / `.venv-linux`) third-party
     # packages (torch, numpy, petname) are not on `sys.path`, matching the plain
     # `python3` Cloudflare build.
@@ -21,9 +22,17 @@ def test_web_export_prints_default_configs_with_stdlib_only():
     result = subprocess.run(
         [sys.executable, "-S", "-c", code], check=True, capture_output=True, text=True
     )
-    assert json.loads(result.stdout) == {"sir_yes_sir": SirYesSirConfig().to_dict()}
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "sir_yes_sir": {
+            "description": DESCRIPTIONS["sir_yes_sir"],
+            "default_config": SirYesSirConfig().to_dict(),
+            "fields": [spec.to_dict() for spec in build_field_specs(SirYesSirConfig)],
+        }
+    }
 
 
 def test_web_export_matches_experiment_registry():
     assert CONFIGS == {exp.name: exp.config_cls for exp in EXPERIMENTS}
+    assert DESCRIPTIONS == {exp.name: exp.description for exp in EXPERIMENTS}
 
