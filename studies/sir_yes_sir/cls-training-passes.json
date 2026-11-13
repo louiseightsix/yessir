@@ -1,0 +1,8 @@
+{
+  "title": "cls training: one pass per problem vs. one example per step",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "For the cls variant, how do sample efficiency, wall-clock cost, and final accuracy compare between one teacher-forced pass reading all L query positions (the default), L separate single-step examples per problem, and one randomly sampled step k per problem?",
+  "runs": [],
+  "conclusion": null
+}

@@ -110,9 +110,15 @@ In `cls` mode, at each step `k` (`0 <= k < L`) with previous outputs `o_0, ..., 
 
 During rollout (`rollout_cls`), `o_k` is appended to the output sequence after each step, and generation stops when `flag_k == FLAG_FINISHED` (or after `L` steps).
 
+**Training and teacher-forced evaluation (default: one pass per problem)**: the model reads the full teacher-forced sequence `prefix + (o_0, ..., o_{L-2})` (length `P + L - 1`) in a single forward pass, and `heads[0..1]` read the hidden states at every query position `P - 1, ..., P + L - 2` (the query for step `k` sits at index `P - 1 + k`). Because the attention mask is causal, the hidden state at the query for step `k` sees exactly the same prefix as the step-`k` input above, so this gives the same `L` predictions as `L` separate forward passes. The loss averages over all `L` steps of every problem, matching the one-pass supervision of `ar`.
+
 ### 2.3 Embedding modes (`EmbeddingMode`)
 
-In `SubspaceEmbedding`, token identities (`256`-d one-hot), `token_type_ids` (`16`-d one-hot), and `position_ids` (parameter-free unit-norm sinusoidal positional encodings) occupy orthogonal slices of the residual stream. All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SEP]` delimiters) so sequence length, attention distances, and the prompt-ending `[SEP]` that triggers `o_0` at `k = 0` are held constant across ablations:
+In `SubspaceEmbedding`, token identities (`256`-d one-hot), `token_type_ids` (`16`-d one-hot), `position_ids` (parameter-free unit-norm sinusoidal positional encodings, `d_position`-d), and a zero-initialised scratchpad (`d_scratch`-d) occupy orthogonal slices of the residual stream.
+
+**Residual width (default: held constant)**: `d_model` is the same in every mode. `TOKEN_TYPE_PE` uses `d_model = 256 + 16 + d_position + d_scratch`; when a mode drops the token-type slice (`16`) or the position slice (`d_position`), `d_scratch` grows by the same width, so the modes differ only in what the embedding encodes, not in model capacity.
+
+All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SEP]` delimiters) so sequence length, attention distances, and the prompt-ending `[SEP]` that triggers `o_0` at `k = 0` are held constant across ablations:
 
 - **`TOKEN_TYPE_PE`**: attaches both `token_type_ids` and section-coupled sinusoidal `position_ids`.
 - **`TOKEN_TYPE_NOPE`**: attaches `token_type_ids` only (`position_ids=None`).
