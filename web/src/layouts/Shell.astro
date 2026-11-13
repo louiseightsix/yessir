@@ -5,7 +5,7 @@ import { getExperiment, getSiteData } from "../lib/data";
 // Astro turns an imported SVG into a component that inlines it into the HTML.
 import Wordmark from "../../../wordmark/yessir-wordmark-light.svg";
 
-export type Section = "studies" | "runs" | "new";
+export type Section = "spec" | "studies" | "runs" | "new";
 
 interface Props {
   /** Page title, shown in the browser tab after "yessir — ". */
@@ -21,7 +21,7 @@ const exp = getExperiment(experiment);
 
 // Where each nav link goes, relative to the experiment prefix. The experiment
 // picker reuses this so switching experiment keeps you in the same section.
-const sectionPaths: Record<Section, string> = { studies: "", runs: "runs/", new: "new/" };
+const sectionPaths: Record<Section, string> = { spec: "spec/", studies: "", runs: "runs/", new: "new/" };
 const navLinks: Array<{ section: Section; label: string; count: number | null; icon: string }> = [
   { section: "studies", label: "Studies", count: exp.studies.length, icon: "M2.5 3h4.5v10H2.5zM9 3h4.5v10H9z" },
   { section: "runs", label: "Runs", count: exp.runs.length, icon: "M2.5 4h11M2.5 8h11M2.5 12h11" },

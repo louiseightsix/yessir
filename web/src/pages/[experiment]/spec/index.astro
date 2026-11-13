@@ -1,0 +1,110 @@
+---
+// Spec: the experiment's task.md and one file per variant, on one page.
+import Shell from "../../../layouts/Shell.astro";
+import { getExperiment, getSiteData } from "../../../lib/data";
+import { loadSpec } from "../../../lib/spec";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.map((e) => ({ params: { experiment: e.name } }));
+}
+
+const { experiment } = Astro.params;
+const exp = getExperiment(experiment);
+
+// Same variant list as the Runs page: from the schema, or else from the runs.
+const variants =
+  exp.schema?.variants.map((v) => v.name) ??
+  Array.from(new Set(exp.runs.map((r) => r.variant).filter((v): v is string => v !== null)));
+const sections = await loadSpec(experiment, variants);
+---
+
+<Shell title="Spec" experiment={experiment} section="spec">
+  <header class="page-header">
+    <div>
+      <h1>Spec</h1>
+      <p>What <code>{exp.name}</code> is: the task, then each variant.</p>
+    </div>
+    <span class="path-hint">experiments/{exp.name}/spec/</span>
+  </header>
+
+  {
+    sections.map((section) => (
+      <section id={section.anchor} class="panel spec-section">
+        <span class="path-hint">spec/{section.path}</span>
+        {section.html !== null ? (
+          <div class="spec-doc" set:html={section.html} />
+        ) : (
+          <p class="muted">
+            <code>experiments/{exp.name}/spec/{section.path}</code> is missing.
+          </p>
+        )}
+      </section>
+    ))
+  }
+</Shell>
+
+<style>
+  .spec-section {
+    padding: 20px 24px;
+    max-width: 860px;
+    /* Leave a gap above the section when a link jumps to it. */
+    scroll-margin-top: 20px;
+  }
+  .spec-section > p {
+    margin: 12px 0 0;
+  }
+
+  /* The rendered markdown comes from set:html, so Astro's scoped styles don't
+     reach it on their own: :global() is needed for each element inside. */
+  .spec-doc {
+    line-height: 1.6;
+  }
+  .spec-doc :global(h1) {
+    margin: 8px 0 12px;
+    font-size: var(--fs-section);
+    letter-spacing: normal;
+  }
+  .spec-doc :global(h2) {
+    margin: 24px 0 8px;
+    font-size: var(--fs-section);
+  }
+  .spec-doc :global(h3) {
+    margin: 20px 0 6px;
+    font-size: var(--fs-body);
+  }
+  .spec-doc :global(p),
+  .spec-doc :global(ul),
+  .spec-doc :global(ol) {
+    margin: 8px 0;
+  }
+  .spec-doc :global(li + li) {
+    margin-top: 4px;
+  }
+  .spec-doc :global(code) {
+    font-size: 0.92em;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--c-ground);
+  }
+  .spec-doc :global(pre) {
+    padding: 12px;
+    overflow-x: auto;
+    border-radius: 6px;
+    background: var(--c-ground);
+  }
+  .spec-doc :global(pre code) {
+    padding: 0;
+    background: none;
+  }
+  .spec-doc :global(table) {
+    border-collapse: collapse;
+    margin: 12px 0;
+  }
+  .spec-doc :global(th),
+  .spec-doc :global(td) {
+    padding: 6px 10px;
+    border: 1px solid var(--c-border);
+    text-align: left;
+    vertical-align: top;
+  }
+</style>
