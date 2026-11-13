@@ -26,15 +26,15 @@ At column `k` (`0 <= k <= K`), the shared problem prefix ([`task.md` §2](../tas
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Incoming carry | `c_k` | `TokenType.CARRY` (`4`) | `k` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Output so far | `o_0, ..., o_{k-1}` | `TokenType.OUTPUT` (`5`) | `1, 2, ..., k` |
+| Output history | `o_0, ..., o_{k-1}` | `TokenType.OUTPUT` (`5`) | `1, 2, ..., k` |
 
 Position coupling at column `k`:
 - Output `position_ids` start at `1` (`o_0` at `1`, `o_{k-1}` at `k`) while the fourth `[SEP]` sits at `position_id = 0`, and `c_k` in `TokenType.CARRY` is assigned `position_id = k`.
-- Consequently, at every step `k` in `0 .. K`, the final query token (`[SEP]` at `k == 0`, `o_{k-1}` at `k >= 1`), the incoming carry `c_k` (`TokenType.CARRY`), and the operand digits `a_k` (`TokenType.OPERAND_A`) and `b_k` (`TokenType.OPERAND_B`) all share `position_id = k` with zero offset.
+- Consequently, at every step `k` in `0 .. K`, the predicting position (the final token: `[SEP]` at `k == 0`, `o_{k-1}` at `k >= 1`), the incoming carry `c_k` (`TokenType.CARRY`), and the operand digits `a_k` (`TokenType.OPERAND_A`) and `b_k` (`TokenType.OPERAND_B`) all share `position_id = k` with zero offset.
 
 ## 2. Examples
 
-**Example 1 (`alphabet = ['0'..'9']`, `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `out = ['2', '1', '0', '1']` (`1012`)):**
+**Example 1 (`alphabet = ['0'..'9']`, `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `output = ['2', '1', '0', '1']` (`1012`)):**
 
 ```
 k = 0:  in:  [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP] 0 [SEP]
@@ -50,7 +50,7 @@ k = 3:  in:  [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP] 1 [SEP] 2 1 0
         out: ('1', '0', [FLAG_FINISHED])
 ```
 
-**Example 2 (`alphabet = ['q', '#', '7']`, `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `out = ['q', '7']` (`6`)):**
+**Example 2 (`alphabet = ['q', '#', '7']`, `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `output = ['q', '7']` (`6`)):**
 
 ```
 k = 0:  in:  [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] q [SEP]

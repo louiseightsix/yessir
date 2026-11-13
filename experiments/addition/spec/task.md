@@ -28,7 +28,7 @@ The ground-truth column transition (`reference_step`) defines:
 - **Outgoing carry (`c_{k+1}`)**: `alphabet[total // B]` (`s_0` if `total < B`, or `s_1` if `total >= B`).
 - **Halting (`flag_k`)**: `FLAG_FINISHED` if `k >= max(L_a, L_b) - 1` and `c_{k+1} == s_0`, else `FLAG_CONTINUE`.
 
-Let `N = max(L_a, L_b)` be the longer operand length. A problem executes `K + 1` column steps (`k = 0 .. K`), producing the `LSD -> MSD` sum `out = [o_0, ..., o_K]`:
+Let `N = max(L_a, L_b)` be the longer operand length. A problem executes `K + 1` column steps (`k = 0 .. K`), producing the `LSD -> MSD` sum `output = [o_0, ..., o_K]`:
 - **No final carry overflow (`c_N == s_0`)**: column `N - 1` emits `c_N = s_0` and `flag_{N-1} = FLAG_FINISHED`, so `K = N - 1` (`N` steps total).
 - **Final carry overflow (`c_N == s_1`)**: column `N - 1` emits `c_N = s_1` and `flag_{N-1} = FLAG_CONTINUE`; one additional column runs at `K = N` with `v_a = 0`, `v_b = 0`, and `v_c = 1`, emitting `o_K = s_1`, `c_{K+1} = s_0`, and `flag_K = FLAG_FINISHED` (`N + 1` steps total).
 
@@ -42,7 +42,7 @@ Solving one column transition in context decomposes into four sub-operations:
 
 Writing columns left-to-right from least-significant (`k = 0`) to most-significant (`k = K`, with `[C] = FLAG_CONTINUE` and `[F] = FLAG_FINISHED`):
 
-**Example 1 (`alphabet = ['0'..'9']` (`B = 10`), `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `out = ['2', '1', '0', '1']` (`1012`)):**
+**Example 1 (`alphabet = ['0'..'9']` (`B = 10`), `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `output = ['2', '1', '0', '1']` (`1012`)):**
 
 ```
   column k:    0    1    2    3   (LSD -> MSD)
@@ -55,7 +55,7 @@ Writing columns left-to-right from least-significant (`k = 0`) to most-significa
   halt flag:  [C]  [C]  [C]  [F]
 ```
 
-**Example 2 (`alphabet = ['q', '#', '7']` (`B = 3`: `q = 0`, `# = 1`, `7 = 2`), `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `out = ['q', '7']` (`6`)):**
+**Example 2 (`alphabet = ['q', '#', '7']` (`B = 3`: `q = 0`, `# = 1`, `7 = 2`), `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `output = ['q', '7']` (`6`)):**
 
 ```
   column k:    0    1   (LSD -> MSD)
@@ -134,4 +134,4 @@ For every evaluated problem that fails `exact_match`, the earliest column `k` (`
 1. **`out_of_alphabet`**: a predicted sum digit or outgoing carry at column `k` is not a member of the problem's `alphabet`.
 2. **`prior_intrusion`**: when evaluated on a permuted canonical alphabet, the predicted token at column `k` belongs to `alphabet` and is wrong under the prompt's alphabet, but equals the symbol that conventional canonical numeral order (`'0'..'9'`, `'A'..'F'`) would assign to that digit value (`total % B` or `total // B`).
 3. **`procedural_error`**: the predicted sum digit or outgoing carry belongs to `alphabet`, but has the wrong arithmetic value (and is not a `prior_intrusion`).
-4. **`syntax_malformation`**: the sum digit and outgoing carry at column `k` are valid, or a non-value token was expected, and the model emitted a premature or missing halting/step control token (`FLAG_FINISHED` / `FLAG_CONTINUE` / `[EOS]` / `[STEP]`) or an ill-formed column address `addr(k)`.
+4. **`syntax_malformation`**: the sum digit and outgoing carry at column `k` are valid, or a non-value token was expected, and the model emitted a premature or missing halting/step control token (`FLAG_FINISHED` / `FLAG_CONTINUE` / `[EOS]` / `[IDX]`) or an ill-formed column address `addr(k)`.

@@ -5,10 +5,10 @@ The `step_fork` variant (`experiments/addition/variants/step_fork/`) frames [the
 Why `step_fork` bridges [`cls`](cls.md) and [`step_ar`](step_ar.md):
 - Comparing [`cls`](cls.md) directly against [`step_ar`](step_ar.md) changes two things at once: the output head (`ParallelClassificationHead` vs. `SubspaceLMHead`) and the within-step factorisation (in `cls`, `o_k`, `c_{k+1}`, and `flag_k` are predicted conditionally independently in parallel; in `step_ar`, the second and third predictions condition autoregressively on the first).
 - `step_fork` isolates those two effects:
-  - **Against [`cls`](cls.md)**: `step_fork` keeps the exact same order-free factorisation (`o_k`, `c_{k+1}`, and `flag_k` are predicted independently from the step-`k` state without conditioning on one another), changing only the readout mechanism from learned linear heads (`ParallelClassificationHead`) to query-triggered next-token prediction (`SubspaceLMHead`).
+  - **Against [`cls`](cls.md)**: `step_fork` keeps the exact same order-free factorisation (`o_k`, `c_{k+1}`, and `flag_k` are predicted independently from the step-`k` state without conditioning on one another), changing only the readout mechanism from learned linear heads (`ParallelClassificationHead`) to query-token next-token prediction (`SubspaceLMHead`).
   - **Against [`step_ar`](step_ar.md)**: `step_fork` keeps `SubspaceLMHead`, isolating whether within-step autoregressive conditioning (`o_k -> c_{k+1}` or `c_{k+1} -> o_k`) helps compared to predicting `o_k` and `c_{k+1}` independently.
 
-## 1. Sequence Layout & Query Triggers
+## 1. Sequence Layout & Query Tokens
 
 At column `k` (`0 <= k <= K`), the base step prompt contains the shared problem prefix ([`task.md` §2](../task.md#2-shared-problem-prefix--embedding-modes-experimentsadditioninputspy)), the incoming carry `c_k`, and the sum digits `o_0, ..., o_{k-1}` emitted by earlier columns. From that shared prefix, `step_fork` forms three parallel query sequences by appending one of the three experiment-specific query tokens (`AdditionToken` in `vocab.EXPERIMENT_SPECIAL_RANGE`, `0xF8`–`0xFA`):
 
@@ -34,15 +34,15 @@ flag branch:   [BOS]  s_0 ... s_{B-1}  [SEP]  a_0 ... a_{L_a-1}  [SEP]  b_0 ... 
 | Incoming carry | `c_k` | `TokenType.CARRY` (`4`) | `k` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Output history | `o_0, ..., o_{k-1}` | `TokenType.OUTPUT` (`5`) | `0, 1, ..., k - 1` |
-| Query trigger | `[S]` / `[C]` / `[F]` | `TokenType.SPECIAL` (`0`) | `k` |
+| Query token | `[S]` / `[C]` / `[F]` | `TokenType.SPECIAL` (`0`) | `k` |
 
 Position coupling at column `k`:
 - Each historical sum digit `o_j` (`0 <= j < k`) sits at `position_id = j`.
-- The trailing query trigger (`[S]`, `[C]`, or `[F]`) sits at `position_id = k`, matching `a_k` (`TokenType.OPERAND_A`), `b_k` (`TokenType.OPERAND_B`), and `c_k` (`TokenType.CARRY`) at `position_id = k` with zero offset.
+- The trailing query token (`[S]`, `[C]`, or `[F]`) sits at `position_id = k`, matching `a_k` (`TokenType.OPERAND_A`), `b_k` (`TokenType.OPERAND_B`), and `c_k` (`TokenType.CARRY`) at `position_id = k` with zero offset.
 
 ## 2. Examples
 
-**Example 1 (`alphabet = ['0'..'9']`, `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `out = ['2', '1', '0', '1']` (`1012`)):**
+**Example 1 (`alphabet = ['0'..'9']`, `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `output = ['2', '1', '0', '1']` (`1012`)):**
 
 ```
 k = 0:  in ([S]):  [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP] 0 [SEP] [S]  ->  out: 2
@@ -62,7 +62,7 @@ k = 3:  in ([S]):  [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP] 1 [SEP]
         in ([F]):  [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP] 1 [SEP] 2 1 0 [F]  ->  out: [FLAG_FINISHED]
 ```
 
-**Example 2 (`alphabet = ['q', '#', '7']`, `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `out = ['q', '7']` (`6`)):**
+**Example 2 (`alphabet = ['q', '#', '7']`, `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `output = ['q', '7']` (`6`)):**
 
 ```
 k = 0:  in ([S]):  [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] q [SEP] [S]    ->  out: q
@@ -82,7 +82,7 @@ k = 1:  in ([S]):  [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] # [SEP] q [S]  ->  out: 7
   - Flag query (`[F]`): `labels = (IGNORE_INDEX,) * (P_k - 1) + (flag_k,)`
   Each branch supervises only the final query position (`P_k - 1`) via `SubspaceLMHead` + `next_token_cross_entropy`. During training, each column step is drawn by generating a fresh problem and sampling a single column index `k` with terminal-step oversampling `p_terminal` ([`task.md` §1](../task.md#alphabets-problem-sampling--generalisation-yessiralphabet)); during evaluation, all `K + 1` steps of each problem are evaluated.
 - **Rollout (`rollout_step_fork`)**: Free-running greedy execution starts at `k = 0` with `carry = s_0` and `output = ()`. At each step `k` (up to `max(L_a, L_b) + 1` steps):
-  1. The harness collates the 3 branched queries (`[S]`, `[C]`, `[F]`) into a 3-row batch, runs one batched forward pass through `SubspaceLMHead`, and takes the greedy `argmax` at the final token (`-1`) of each row to obtain `(o_k, c_{k+1}, flag_k)`.
+  1. The harness collates the 3 branched queries (`[S]`, `[C]`, `[F]`) into a 3-row batch, runs one batched forward pass through the model, and takes the greedy `argmax` of `SubspaceLMHead` at the final token (`-1`) of each row to obtain `(o_k, c_{k+1}, flag_k)`.
   2. If `flag_k == FLAG_FINISHED`, rollout stops and returns the emitted `(o_k, c_{k+1}, flag_k)` step tuples; otherwise the harness updates `carry = c_{k+1}`, appends `o_k` to `output`, and advances to `k + 1`.
 
 ## 4. Evaluation Metrics (`evaluate_step_fork`)

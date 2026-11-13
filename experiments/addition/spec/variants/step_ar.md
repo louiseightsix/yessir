@@ -10,8 +10,8 @@ Holding the per-step harness fixed (updating `c_k` and `o_0, ..., o_{k-1}` betwe
    - **`StepOrder.SUM_FIRST` (`"sum_first"`, default)**: emits `(o_k, c_{k+1}, flag_k)`. The model must compute the modular residue `o_k = alphabet[(v_a + v_b + v_c) % B]` directly on the first prediction, before emitting `c_{k+1}`.
    - **`StepOrder.CARRY_FIRST` (`"carry_first"`)**: emits `(c_{k+1}, o_k, flag_k)`. The model first predicts the monotone carry threshold (`c_{k+1} = s_1` if `v_a + v_b + v_c >= B` else `s_0`); once `c_{k+1}` is appended to the sequence, the second prediction `o_k` can condition on `c_{k+1}` (a conditional subtraction by `B`).
 2. **`use_query_tokens: bool`** (`False` default):
-   - **`False`**: after the step-trigger `[SEP]`, the model emits the 3 targets `(o_k, c_{k+1}, flag_k)` (or `(c_{k+1}, o_k, flag_k)`) directly in 3 consecutive positions.
-   - **`True`**: replaces the step-trigger `[SEP]` with explicit harness-inserted query triggers (`[S]`, `[C]`, `[F]`; see [`step_fork.md`](step_fork.md#1-sequence-layout--query-triggers)) before each of the 3 predictions (`[S] o_k [C] c_{k+1} [F] flag_k` under `sum_first`, or `[C] c_{k+1} [S] o_k [F] flag_k` under `carry_first`), supervising only the 3 target positions after `[S]`, `[C]`, and `[F]`.
+   - **`False`**: after the trailing `[SEP]`, the model emits the 3 targets `(o_k, c_{k+1}, flag_k)` (or `(c_{k+1}, o_k, flag_k)`) directly in 3 consecutive positions.
+   - **`True`**: replaces the trailing `[SEP]` with harness-inserted query tokens (`[S]`, `[C]`, `[F]`; see [`step_fork.md`](step_fork.md#1-sequence-layout--query-tokens)) before each of the 3 predictions (`[S] o_k [C] c_{k+1} [F] flag_k` under `sum_first`, or `[C] c_{k+1} [S] o_k [F] flag_k` under `carry_first`), supervising only the 3 target positions after `[S]`, `[C]`, and `[F]`.
 
 Between columns, the harness behaves identically under all settings: it discards the transient step tokens, updates `carry = c_{k+1}`, and appends `o_k` to `output`.
 
@@ -39,7 +39,7 @@ Why a `[SEP]` delimiter separates `o_0, ..., o_{k-1}` from the current step's to
 | Incoming carry | `c_k` | `TokenType.CARRY` (`4`) | `k` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Output history | `o_0, ..., o_{k-1}` | `TokenType.OUTPUT` (`5`) | `0, 1, ..., k - 1` |
-| Step trigger | `[SEP]` | `TokenType.SPECIAL` (`0`) | `k` |
+| Step delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `k` |
 | Step sum digit | `o_k` | `TokenType.OUTPUT` (`5`) | `k` |
 | Step outgoing carry | `c_{k+1}` | `TokenType.CARRY` (`4`) | `k + 1` |
 
@@ -47,12 +47,12 @@ Why a `[SEP]` delimiter separates `o_0, ..., o_{k-1}` from the current step's to
 
 Position coupling at column `k`:
 - Each historical sum digit `o_j` (`0 <= j < k`) sits at `position_id = j`.
-- The step-trigger `[SEP]` and `o_k` both sit at `position_id = k`, matching `a_k` (`TokenType.OPERAND_A`), `b_k` (`TokenType.OPERAND_B`), and `c_k` (`TokenType.CARRY`) at `position_id = k` with zero offset.
+- The trailing `[SEP]` and `o_k` both sit at `position_id = k`, matching `a_k` (`TokenType.OPERAND_A`), `b_k` (`TokenType.OPERAND_B`), and `c_k` (`TokenType.CARRY`) at `position_id = k` with zero offset.
 - The emitted outgoing carry `c_{k+1}` sits at `position_id = k + 1` (the index of the next column it feeds into, keeping `(TokenType.CARRY, k + 1)` distinct from the incoming carry `c_k` at `(TokenType.CARRY, k)`).
 
 ## 2. Examples
 
-**Example 1 (`alphabet = ['0'..'9']`, `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `out = ['2', '1', '0', '1']` (`1012`)):**
+**Example 1 (`alphabet = ['0'..'9']`, `a = ['7', '8', '9']` (`987`), `b = ['5', '2']` (`25`) -> `output = ['2', '1', '0', '1']` (`1012`)):**
 
 ```
 k = 0:  in:                [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP] 0 [SEP] [SEP]
@@ -72,7 +72,7 @@ k = 3:  in:                [BOS] 0 1 2 3 4 5 6 7 8 9 [SEP] 7 8 9 [SEP] 5 2 [SEP]
         out (carry_first): 0 1 [FLAG_FINISHED]
 ```
 
-**Example 2 (`alphabet = ['q', '#', '7']`, `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `out = ['q', '7']` (`6`)):**
+**Example 2 (`alphabet = ['q', '#', '7']`, `a = ['7', '#']` (`5`), `b = ['#']` (`1`) -> `output = ['q', '7']` (`6`)):**
 
 ```
 k = 0:  in:                [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] q [SEP] [SEP]
@@ -88,12 +88,12 @@ k = 1:  in:                [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] # [SEP] q [SEP]
 
 Let `(t_0, t_1, flag_k)` be `(o_k, c_{k+1}, flag_k)` when `step_order == SUM_FIRST`, or `(c_{k+1}, o_k, flag_k)` when `step_order == CARRY_FIRST`:
 
-- **Teacher-forced step examples**: at step `k` (`0 <= k <= K`), let `P_k` be the length of the step-`k` prompt ending at the step-trigger `[SEP]`:
+- **Teacher-forced step examples**: at step `k` (`0 <= k <= K`), let `P_k` be the length of the step-`k` prompt ending at the trailing `[SEP]`:
   - `example` appends `(t_0, t_1)` to the step-`k` prompt (length `P_k + 2`).
   - `labels` is `(IGNORE_INDEX,) * (P_k - 1) + (t_0, t_1, flag_k)` (length `P_k + 2`), so `SubspaceLMHead` + `next_token_cross_entropy` supervise the 3 step predictions (`[SEP] -> t_0`, `t_0 -> t_1`, `t_1 -> flag_k`) in one forward pass per step while masking all earlier prompt positions with `IGNORE_INDEX = -100`.
   During training, each batch item is drawn by generating a fresh problem and sampling a single column index `k` with terminal-step oversampling `p_terminal` ([`task.md` §1](../task.md#alphabets-problem-sampling--generalisation-yessiralphabet)); during evaluation, all `K + 1` steps of each problem are evaluated.
 - **Rollout (`rollout_step_ar`)**: Free-running greedy execution starts at `k = 0` with `carry = s_0` and `output = ()`. At each step `k` (up to `max(L_a, L_b) + 1` steps):
-  1. Starting from the step-`k` prompt ending at `[SEP]`, the harness runs 3 greedy `argmax` forward passes through `SubspaceLMHead` to emit `t_0`, `t_1`, and `flag_k` one token at a time, and unpacks `(o_k, c_{k+1})` according to `step_order`.
+  1. Starting from the step-`k` prompt ending at `[SEP]`, the harness runs 3 greedy `argmax` forward passes through the model, reading each next token from `SubspaceLMHead`, to emit `t_0`, `t_1`, and `flag_k` one token at a time, and unpacks `(o_k, c_{k+1})` according to `step_order`.
   2. If `flag_k == FLAG_FINISHED`, rollout stops and returns the emitted `(o_k, c_{k+1}, flag_k)` step tuples; otherwise the harness discards the transient step tokens, updates `carry = c_{k+1}`, appends `o_k` to `output`, and advances to `k + 1`.
 
 ## 4. Evaluation Metrics (`evaluate_step_ar`)
