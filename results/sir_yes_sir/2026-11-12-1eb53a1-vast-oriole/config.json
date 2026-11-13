@@ -1,0 +1,29 @@
+{
+  "experiment": "sir_yes_sir",
+  "variant": "ar",
+  "device": "cuda",
+  "git_commit_sha": "1eb53a1de69b17b8a95de3a2a2a4602214c36d81",
+  "git_short_sha": "1eb53a1",
+  "git_commit_date": "2026-11-12",
+  "git_dirty": false,
+  "config": {
+    "alphabet_size": 8,
+    "x_length": 6,
+    "symbol_set": "hex",
+    "symbol_pool_size": null,
+    "embedding_mode": "token_type_pe",
+    "n_layers": 6,
+    "n_heads": 8,
+    "d_ff": 1376,
+    "d_position": 32,
+    "d_scratch": 208,
+    "steps": 1500,
+    "batch_size": 64,
+    "lr": 0.001,
+    "seed": 42,
+    "num_eval_problems": 100,
+    "eval_batch_size": 64,
+    "eval_seed": 999,
+    "step_order": "out_first"
+  }
+}

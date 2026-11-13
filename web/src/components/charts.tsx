@@ -156,26 +156,28 @@ export function LossChart({
   markMin?: boolean;
 }) {
   const [scale, setScale] = useState<Scale>("log");
+  const withPoints = series.filter((s) => s.points.length > 0);
   const header = (
     <div className="chart-header">
       <h2 className="chart-title">
         {title}
         {titleNote && <span className="chart-title-note"> {titleNote}</span>}
       </h2>
-      <SegmentedControl
-        label="Y axis scale"
-        size="small"
-        options={[
-          { value: "log", label: "Log" },
-          { value: "linear", label: "Linear" },
-        ]}
-        selected={scale}
-        onSelect={setScale}
-      />
+      {withPoints.length > 0 && (
+        <SegmentedControl
+          label="Y axis scale"
+          size="small"
+          options={[
+            { value: "log", label: "Log" },
+            { value: "linear", label: "Linear" },
+          ]}
+          selected={scale}
+          onSelect={setScale}
+        />
+      )}
     </div>
   );
 
-  const withPoints = series.filter((s) => s.points.length > 0);
   if (withPoints.length === 0) {
     return (
       <div className="loss-chart">

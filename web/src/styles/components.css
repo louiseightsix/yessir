@@ -163,7 +163,7 @@
   gap: 8px;
   min-height: 36px;
   padding: 0 12px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-control);
   border: 1px solid var(--c-border-strong);
   background: var(--c-panel);
   color: var(--c-ink-3);

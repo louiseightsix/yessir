@@ -1,7 +1,7 @@
 // The Runs table: search, status/variant/study filters, row selection with a
 // compare bar, and "Load older runs" paging. Rows arrive already prepared by
 // the Astro page, so this component only filters and draws them.
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { Point } from "../lib/chart";
 import type { ChangedSetting, RunStatus } from "../lib/data";
 import { formatDuration, formatLoss, formatValue } from "../lib/format";
@@ -172,8 +172,19 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
               <th scope="col">Changed from default</th>
               <th scope="col">Studies</th>
               {metricNames.map((m) => (
-                <th key={m} scope="col" className="num">
-                  {m}
+                <th key={m} scope="col" className="num metric-th">
+                  {/* Allow a line break after each "_", so a long metric name
+                      doesn't make its column wider than its numbers need. */}
+                  {m.split("_").map((part, i) => (
+                    <Fragment key={i}>
+                      {i > 0 && (
+                        <>
+                          _<wbr />
+                        </>
+                      )}
+                      {part}
+                    </Fragment>
+                  ))}
                 </th>
               ))}
               <th scope="col">Loss</th>

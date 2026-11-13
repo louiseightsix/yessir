@@ -1,0 +1,5 @@
+{
+  "exact_match": 0.96,
+  "step_accuracy": 0.98,
+  "halt_accuracy": 1.0
+}

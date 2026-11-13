@@ -1,28 +1,106 @@
 ---
-// `/` redirects to the first experiment's Studies page. A meta refresh, because
-// the site is static HTML (Astro.redirect's static version waits 2 seconds).
+// Landing page: every experiment, each linking to its Studies page. No sidebar,
+// because the sidebar (picker, nav, "Running now") belongs to one experiment.
+import "../styles/global.css";
 import { getSiteData } from "../lib/data";
 
-const first = getSiteData().experiments[0];
-const target = first ? `/${first.name}/` : null;
+const site = getSiteData();
+
+/** "1 study", "3 studies". */
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>yessir</title>
-    {target && <meta http-equiv="refresh" content={`0;url=${target}`} />}
-    {target && <link rel="canonical" href={target} />}
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>yessir — Experiments</title>
   </head>
   <body>
-    {
-      target ? (
-        <p>
-          Redirecting to <a href={target}>{target}</a>…
-        </p>
-      ) : (
-        <p>No experiments found under <code>results/</code>, <code>studies/</code> or the schema export.</p>
-      )
-    }
+    <main class="landing">
+      <div class="wordmark">
+        <span class="wordmark-name">yessir</span>
+        <span class="muted">results &amp; runs</span>
+      </div>
+
+      <header class="page-header">
+        <div>
+          <h1>Experiments</h1>
+          <p>Each experiment has its own studies and runs.</p>
+        </div>
+      </header>
+
+      {
+        site.experiments.length === 0 ? (
+          <p class="muted">
+            No experiments found under <code>results/</code>, <code>studies/</code> or the schema export.
+          </p>
+        ) : (
+          <ul class="experiment-list">
+            {site.experiments.map((exp) => {
+              const running = exp.runs.filter((r) => r.status === "in_progress").length;
+              return (
+                <li>
+                  <a class="panel experiment-card" href={`/${exp.name}/`}>
+                    <span class="experiment-name mono">{exp.name}</span>
+                    {exp.schema?.description && <span class="muted">{exp.schema.description}</span>}
+                    <span class="experiment-counts muted">
+                      {count(exp.studies.length, "study", "studies")} · {count(exp.runs.length, "run", "runs")}
+                      {running > 0 && ` · ${running} running`}
+                    </span>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      }
+    </main>
   </body>
 </html>
+
+<style>
+  .landing {
+    max-width: 800px;
+    box-sizing: border-box;
+    padding: var(--content-pad);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .experiment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* The whole card is the link, so it reads as one block rather than underlined text. */
+  .experiment-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    color: var(--c-ink);
+  }
+  .experiment-card:hover {
+    color: var(--c-ink);
+    text-decoration: none;
+    border-color: var(--c-border-strong);
+  }
+
+  .experiment-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--c-accent-strong);
+  }
+
+  .experiment-counts {
+    font: 400 var(--fs-small) var(--font-mono);
+  }
+</style>

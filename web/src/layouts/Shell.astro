@@ -32,7 +32,7 @@ const running = exp.runs.filter((r) => r.status === "in_progress");
 const newest = running[0];
 const newestLast = newest?.trainPoints.at(-1);
 const newestProgress =
-  newest && newestLast && newest.totalSteps ? newestLast.step / newest.totalSteps : null;
+  newest && newest.totalSteps ? (newestLast?.step ?? 0) / newest.totalSteps : null;
 ---
 
 <html lang="en">
@@ -45,7 +45,7 @@ const newestProgress =
     <div class="shell">
       <nav aria-label="Primary" class="sidebar">
         <div class="wordmark">
-          <span class="wordmark-name">yessir</span>
+          <a class="wordmark-name" href="/">yessir</a>
           <span class="muted">results &amp; runs</span>
         </div>
 
@@ -143,6 +143,18 @@ const newestProgress =
     gap: 22px;
   }
 
+  /* Side by side (sidebar 232px + content 560px, plus a scrollbar), the sidebar
+     stays put while the page scrolls, so "Running now" is always in view. Below
+     that width it stacks on top, where sticking would cover the content. */
+  @media (min-width: 820px) {
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+  }
+
   .content {
     flex: 999 1 560px;
     min-width: 0;
@@ -157,15 +169,7 @@ const newestProgress =
   }
 
   .wordmark {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
     padding: 0 8px;
-    font-size: var(--fs-small);
-  }
-  .wordmark-name {
-    font: 600 18px var(--font-mono);
-    letter-spacing: -0.02em;
   }
 
   .experiment-picker {
@@ -179,12 +183,8 @@ const newestProgress =
   }
   .experiment-picker select {
     font: 500 14px var(--font-mono);
-    padding: 9px 10px;
-    border: 1px solid var(--c-border-strong);
-    border-radius: var(--r-control);
-    background: var(--c-field);
-    color: var(--c-ink);
     min-height: 44px;
+    background-color: var(--c-field);
   }
   .small {
     font-size: var(--fs-small);
