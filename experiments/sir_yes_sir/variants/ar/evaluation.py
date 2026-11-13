@@ -19,23 +19,19 @@ def _validate_ar_item(item: LabelledExample) -> int:
             f"expected sequence-length labels ({len(item.example)}), got {len(item.labels)}"
         )
     target_tokens = [t for t in item.labels if t != IGNORE_INDEX]
-    if not target_tokens or len(target_tokens) % 3 != 0:
+    if len(target_tokens) < 2:
         raise ValueError(
-            f"expected non-ignored AR target length to be a positive multiple of 3, got {len(target_tokens)}"
+            f"expected non-ignored AR target length >= 2 (L >= 1 symbols + EOS), got {len(target_tokens)}"
         )
-    if target_tokens[-1] != SpecialToken.FLAG_FINISHED:
+    if target_tokens[-1] != SpecialToken.EOS:
         raise ValueError(
-            f"expected final AR target token to be FLAG_FINISHED ({int(SpecialToken.FLAG_FINISHED)}), "
+            f"expected final AR target token to be EOS ({int(SpecialToken.EOS)}), "
             f"got {target_tokens[-1]!r}"
         )
-    for k in range(len(target_tokens) // 3 - 1):
-        flag = target_tokens[3 * k + 2]
-        if flag != SpecialToken.FLAG_CONTINUE:
-            raise ValueError(
-                f"expected intermediate step {k} flag to be FLAG_CONTINUE ({int(SpecialToken.FLAG_CONTINUE)}), "
-                f"got {flag!r}"
-            )
-    return len(target_tokens) // 3
+    for k, tok in enumerate(target_tokens[:-1]):
+        if tok == SpecialToken.EOS:
+            raise ValueError(f"unexpected EOS at non-final target step k={k}")
+    return len(target_tokens) - 1
 
 
 @torch.no_grad()
@@ -51,9 +47,15 @@ def evaluate_ar(
     Why teacher-forced next-token evaluation gives exact match (`exact_match`) for `ar`:
     Under causal masking and right-padding invariance, free-running greedy rollout
     (`rollout_ar`) feeds the exact same prefix into `model` as teacher forcing up to the
-    first token mismatch. Therefore `rollout_ar` emits the ground-truth `(o_k, w_k, flag_k)`
-    across all `k = 0 .. L - 1` if and only if every non-ignored position's greedy
-    argmax matches `labels`.
+    first token mismatch. Therefore `rollout_ar` emits `(o_0, ..., o_{L-1}, EOS)` if and
+    only if every non-ignored position's greedy `argmax` matches `labels`.
+
+    Metrics (`experiments/sir_yes_sir/spec/variants/ar.md` §3):
+    - `exact_match` (per problem): every prediction in `o_0, ..., o_{L-1}, EOS` matches.
+    - `step_accuracy` (per input step `k` in `0 .. L - 1`): fraction of the `L` symbol
+      steps where `preds[k] == o_k`.
+    - `halt_accuracy` (per problem): fraction of problems that halt at the exact right
+      step (`preds[k] != EOS` for all `k < L` and `preds[L] == EOS`).
 
     Args:
         model: `Transformer` configured with `SubspaceLMHead`.
@@ -102,27 +104,23 @@ def evaluate_ar(
             prob_preds = preds[b][valid_mask].tolist()
             prob_targets = labels[b][valid_mask].tolist()
 
-            n_steps = len(prob_targets) // 3
-            prob_all_ok = True
+            n_steps = len(prob_targets) - 1
+            total_steps += n_steps
             for k in range(n_steps):
-                pred_step = prob_preds[3 * k : 3 * k + 3]
-                targ_step = prob_targets[3 * k : 3 * k + 3]
-                step_ok = pred_step == targ_step
-                halt_ok = pred_step[2] == targ_step[2]
-
-                total_steps += 1
-                if step_ok:
+                if prob_preds[k] == prob_targets[k]:
                     step_ok_count += 1
-                else:
-                    prob_all_ok = False
-                if halt_ok:
-                    halt_ok_count += 1
 
-            if prob_all_ok:
+            halt_ok = (
+                all(prob_preds[k] != SpecialToken.EOS for k in range(n_steps))
+                and prob_preds[n_steps] == SpecialToken.EOS
+            )
+            if halt_ok:
+                halt_ok_count += 1
+            if prob_preds == prob_targets:
                 em_count += 1
 
     return EvalMetrics(
         exact_match=em_count / num_problems,
         step_accuracy=step_ok_count / total_steps,
-        halt_accuracy=halt_ok_count / total_steps,
+        halt_accuracy=halt_ok_count / num_problems,
     )

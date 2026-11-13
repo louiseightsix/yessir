@@ -7,6 +7,8 @@ from experiments.sir_yes_sir.inputs import (
     TokenType,
     build_example,
 )
+from experiments.sir_yes_sir.variants.ar.inputs import build_ar_labelled_example
+from yessir.dataset import IGNORE_INDEX
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import TOKEN_TYPE_RANGE
 
@@ -120,3 +122,24 @@ def test_rejects_input_symbol_not_in_alphabet():
 def test_rejects_unknown_embedding_mode():
     with pytest.raises(ValueError, match="unknown embedding_mode"):
         build_example(b"01", b"0", embedding_mode="invalid")  # ty: ignore[invalid-argument-type]
+
+
+def test_build_ar_labelled_example_layout():
+    """Verify `build_ar_labelled_example` for Example 1 (`alphabet = '0123'`, `x = '130'`)."""
+    alphabet = b"0123"
+    x = b"130"
+
+    labelled = build_ar_labelled_example(alphabet, x)
+    prefix_len = 1 + len(alphabet) + 1 + len(x) + 1  # [BOS] 0123 [SEP] 130 [SEP] = 10
+    expected_outputs = (ord("2"), ord("0"), ord("1"))
+    expected_targets = (*expected_outputs, int(SpecialToken.EOS))
+
+    assert len(labelled.example) == prefix_len + len(x)
+    assert len(labelled.labels) == len(labelled.example)
+    assert labelled.example.input_ids[prefix_len:] == expected_outputs
+    assert labelled.example.position_ids is not None
+    # Query at second [SEP] is position_id 0; o_0, o_1, o_2 sit at position_ids 1, 2, 3
+    assert labelled.example.position_ids[prefix_len - 1 :] == (0, 1, 2, 3)
+    # Prefix before the second [SEP] is masked with IGNORE_INDEX; from second [SEP] onward predicts (o_0..o_{L-1}, EOS)
+    assert labelled.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
+    assert labelled.labels[prefix_len - 1 :] == expected_targets

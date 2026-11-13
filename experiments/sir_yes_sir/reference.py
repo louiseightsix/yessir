@@ -1,6 +1,6 @@
 """Ground-truth reference implementation for `sir_yes_sir`.
 
-Task: In-context cyclic successor lookup (`experiments/sir_yes_sir/spec/README.md` §1).
+Task: In-context cyclic successor lookup (`experiments/sir_yes_sir/spec/task.md` §1).
 Given an ordered alphabet `[s_0, ..., s_{B-1}]` and an input sequence `x = [x_0, ..., x_{L-1}]`,
 at step `k` where `x_k = s_i`:
 - `o_k`: next symbol in the alphabet, `s_{(i + 1) mod B}` (wrapping around from `s_{B-1}` to `s_0`).

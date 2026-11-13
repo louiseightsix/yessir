@@ -9,7 +9,6 @@ from experiments.__main__ import EXPERIMENTS
 from experiments.__main__ import main as experiments_main
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.run import SIR_YES_SIR_EXPERIMENT
-from experiments.sir_yes_sir.variants.ar.config import SirYesSirArConfig
 from yessir.experiment import run_experiments_cli
 
 
@@ -112,8 +111,6 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
             "ar",
             "--out-dir",
             str(run_dir),
-            "--step-order",
-            "wrap_first",
             "--steps",
             "2",
             "--batch-size",
@@ -137,7 +134,7 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     assert config_payload["experiment"] == "sir_yes_sir"
     assert config_payload["variant"] == "ar"
     assert config_payload["device"] in ("cpu", "mps", "cuda")
-    loaded_cfg = SirYesSirArConfig.from_dict(config_payload["config"])
-    assert loaded_cfg.step_order.value == "wrap_first"
+    loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
+    assert loaded_cfg.steps == 2
     out = capsys.readouterr().out
     assert "[sir_yes_sir:ar] Starting run:" in out

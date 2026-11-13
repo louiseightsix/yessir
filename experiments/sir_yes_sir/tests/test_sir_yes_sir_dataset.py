@@ -12,7 +12,6 @@ from experiments.sir_yes_sir.variants.ar.dataset import (
 from experiments.sir_yes_sir.variants.ar.dataset import (
     main as ar_main,
 )
-from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_trace
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset, main
 from yessir.alphabet import SymbolSet
 from yessir.dataset import IGNORE_INDEX
@@ -138,7 +137,6 @@ def test_ar_dataset_yields_one_labelled_example_per_problem_and_cli(
     ds = SirYesSirArDataset(
         alphabet_size=alphabet_size,
         x_length=x_length,
-        step_order=StepOrder.WRAP_FIRST,
         seed=17,
     )
     item = next(iter(ds))
@@ -147,11 +145,12 @@ def test_ar_dataset_yields_one_labelled_example_per_problem_and_cli(
     alphabet = ids[1 : 1 + alphabet_size]
     x = ids[1 + alphabet_size + 1 : prefix_len - 1]
 
-    expected_trace = build_ar_trace(alphabet, x, step_order=StepOrder.WRAP_FIRST)
+    expected_outputs = tuple(reference_step(alphabet, x, k)[0] for k in range(x_length))
+    expected_targets = (*expected_outputs, int(SpecialToken.EOS))
     assert item.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
-    assert item.labels[prefix_len - 1 :] == expected_trace
+    assert item.labels[prefix_len - 1 :] == expected_targets
 
-    ar_main(["-n", "1", "-B", "3", "-L", "2", "--step-order", "wrap_first"])
+    ar_main(["-n", "1", "-B", "3", "-L", "2"])
     out = capsys.readouterr().out
     assert "Example 0:" in out
     assert "[-100]" in out

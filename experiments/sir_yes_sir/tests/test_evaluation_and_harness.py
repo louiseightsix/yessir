@@ -7,16 +7,16 @@ import pytest
 import torch
 
 from experiments.sir_yes_sir.evaluation import EvalMetrics
+from experiments.sir_yes_sir.inputs import build_example
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
-from experiments.sir_yes_sir.variants.ar.harness import parse_ar_trace, rollout_ar
-from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_example
+from experiments.sir_yes_sir.variants.ar.harness import rollout_ar
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
 from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
 from experiments.sir_yes_sir.variants.cls.harness import rollout_cls
 from experiments.sir_yes_sir.variants.cls.inputs import build_cls_example
-from yessir.dataset import LabelledExample
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.heads import HeadType
 from yessir.model import Transformer
@@ -405,53 +405,48 @@ class _ScriptedArModel:
         return logits
 
 
-def test_parse_ar_trace_and_rollout_ar():
+def test_rollout_ar_stops_on_eos_and_caps_at_len_x_plus_one():
     alphabet = b"0123"
     x = b"13"
 
-    # Script 2 steps in WRAP_FIRST order: (w_0='0', o_0='2', CONTINUE), (w_1='1', o_1='0', FINISHED)
-    scripted = [
-        ord("0"),
-        ord("2"),
-        int(SpecialToken.FLAG_CONTINUE),
-        ord("1"),
-        ord("0"),
-        int(SpecialToken.FLAG_FINISHED),
-    ]
+    # Script 2 successor symbols ('2', '0') followed by EOS
+    scripted = [ord("2"), ord("0"), int(SpecialToken.EOS)]
     model = _ScriptedArModel(scripted)
-    steps = rollout_ar(
+    emitted = rollout_ar(
         model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
-        step_order=StepOrder.WRAP_FIRST,
     )
     assert model.training is False
-    # Returned tuples are canonical (o_k, w_k, flag_k)
-    assert steps == [
-        (ord("2"), ord("0"), int(SpecialToken.FLAG_CONTINUE)),
-        (ord("0"), ord("1"), int(SpecialToken.FLAG_FINISHED)),
+    assert emitted == scripted
+    assert model.seen_examples == [
+        build_example(alphabet, x, ()),
+        build_example(alphabet, x, (ord("2"),)),
+        build_example(alphabet, x, (ord("2"), ord("0"))),
     ]
-    assert model.seen_examples[0] == build_ar_example(alphabet, x, ())
-    assert model.seen_examples[1] == build_ar_example(alphabet, x, (ord("0"),))
 
-    # Premature FLAG_FINISHED at the end of step 0 stops generation after 3 tokens
-    early_model = _ScriptedArModel(
-        [ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED), ord("0")]
-    )
-    early_steps = rollout_ar(
+    # Premature EOS at step 0 stops generation immediately
+    early_model = _ScriptedArModel([int(SpecialToken.EOS), ord("2")])
+    early_emitted = rollout_ar(
         early_model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
-        step_order=StepOrder.OUT_FIRST,
     )
-    assert early_steps == [(ord("2"), ord("0"), int(SpecialToken.FLAG_FINISHED))]
-    assert len(early_model.seen_examples) == 3
+    assert early_emitted == [int(SpecialToken.EOS)]
+    assert len(early_model.seen_examples) == 1
 
-    # Trailing incomplete step tokens are ignored by parse_ar_trace
-    assert parse_ar_trace([ord("2"), ord("0")]) == []
+    # When EOS is never emitted, stops after L + 1 tokens
+    never_halt_model = _ScriptedArModel([ord("2"), ord("0"), ord("1"), ord("3")])
+    never_halt_emitted = rollout_ar(
+        never_halt_model,  # ty: ignore[invalid-argument-type]
+        alphabet,
+        x,
+    )
+    assert never_halt_emitted == [ord("2"), ord("0"), ord("1")]
+    assert len(never_halt_model.seen_examples) == 3
 
 
-def test_evaluate_ar_end_to_end_and_validation():
+def test_evaluate_ar_metrics_and_validation():
     seed_everything(0)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
@@ -466,6 +461,49 @@ def test_evaluate_ar_end_to_end_and_validation():
     assert 0.0 <= metrics.exact_match <= 1.0
     assert 0.0 <= metrics.step_accuracy <= 1.0
     assert 0.0 <= metrics.halt_accuracy <= 1.0
+
+    # Verify exact_match, step_accuracy (per L step), and halt_accuracy (per problem)
+    # across 2 problems of L = 2 (targets of length L + 1 = 3):
+    # - Problem 0: perfect [o_0, o_1, EOS] -> EM=True, steps=2/2, halt=True
+    # - Problem 1: [o_0, wrong_non_eos, wrong_non_eos] -> EM=False, steps=1/2, halt=False
+    items = list(itertools.islice(dataset, 2))
+    t0 = [t for t in items[0].labels if t != IGNORE_INDEX]
+    t1 = [t for t in items[1].labels if t != IGNORE_INDEX]
+
+    class _BatchArModel:
+        training = True
+        device = torch.device("cpu")
+
+        def eval(self):
+            self.training = False
+            return self
+
+        def __call__(
+            self, input_ids, lengths=None, token_type_ids=None, position_ids=None
+        ):
+            b_sz, seq_len = input_ids.shape
+            logits = torch.zeros(b_sz, seq_len, VOCAB_SIZE)
+            # Supervised positions are the last 3 positions of each unpadded sequence
+            preds_per_prob = [
+                t0,
+                [t1[0], (t1[1] + 1) % 4, ord("0")],
+            ]
+            for b in range(b_sz):
+                for idx, tok in enumerate(preds_per_prob[b]):
+                    logits[b, seq_len - 3 + idx, tok] = 10.0
+            return logits
+
+    custom_metrics = evaluate_ar(
+        _BatchArModel(),  # ty: ignore[invalid-argument-type]
+        items,
+        num_problems=2,
+        batch_size=2,
+    )
+    assert custom_metrics == EvalMetrics(
+        exact_match=0.5,
+        step_accuracy=0.75,
+        halt_accuracy=0.5,
+    )
 
     with pytest.raises(ValueError, match="num_problems must be >= 1"):
         evaluate_ar(model, dataset, num_problems=0)

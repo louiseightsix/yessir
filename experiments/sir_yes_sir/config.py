@@ -15,6 +15,7 @@ SIR_YES_SIR_DESCRIPTION = (
 CLS_DESCRIPTION = (
     "Parallel classification harness read through ParallelClassificationHead."
 )
+AR_DESCRIPTION = "Autoregressive harness read through SubspaceLMHead."
 
 
 @unique

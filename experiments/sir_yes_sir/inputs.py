@@ -108,7 +108,7 @@ def build_example(
 ) -> Example:
     """Build the shared `sir_yes_sir` input `Example` for `(alphabet, x)` and `output`.
 
-    Both `ar` and `cls` use the same sequence layout (`experiments/sir_yes_sir/spec/README.md` §2):
+    Both `ar` and `cls` use the same sequence layout (`experiments/sir_yes_sir/spec/task.md` §2):
 
         input_ids:       [BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  o_0 ... o_{k-1}
         token_type_ids:    0     1  ...    1       0     2  ...    2       0     3  ...    3
