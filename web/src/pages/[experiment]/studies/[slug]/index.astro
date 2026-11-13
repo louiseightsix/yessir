@@ -1,0 +1,389 @@
+---
+// Study detail: one page per studies/<experiment>/<slug>.json.
+import { DiffChips, DirtyTag, FlawedTag, KindBadge, RunName, StatusBadge } from "../../../../components/badges";
+import { LossChart, MetricCell, SweepChart, type LossSeries, type SweepPoint } from "../../../../components/charts";
+import Shell from "../../../../layouts/Shell.astro";
+import { rampColours } from "../../../../lib/chart";
+import { getExperiment, getSiteData } from "../../../../lib/data";
+import { formatDuration, formatLoss, formatValue, splitRunName } from "../../../../lib/format";
+import { isValid, resolveStudyRuns, studyUpdated, sweptSetting } from "../../../../lib/studies";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.flatMap((e) =>
+    e.studies.map((s) => ({ params: { experiment: e.name, slug: s.slug } })),
+  );
+}
+
+const { experiment, slug } = Astro.params;
+const exp = getExperiment(experiment);
+const study = exp.studies.find((s) => s.slug === slug);
+if (!study) throw new Error(`unknown study: ${slug}`);
+
+const entries = resolveStudyRuns(exp, study);
+const found = entries.flatMap((e) => (e.run ? [e.run] : []));
+const valid = found.filter(isValid);
+const flawedCount = found.filter((r) => r.status === "flawed").length;
+const variants = [...new Set(found.map((r) => r.variant).filter((v): v is string => v !== null))];
+// Derived from valid runs only, so a flawed run with an accidental extra change doesn't hide it.
+const swept = sweptSetting(valid);
+const metric = exp.headlineMetric;
+
+// Metric columns: the experiment's metrics that at least one of these runs has.
+const metricNames = exp.metricNames.filter((m) => found.some((r) => r.evalMetrics && m in r.evalMetrics));
+
+// Best valid value per column: highest for eval metrics, lowest for final loss.
+const best: Record<string, number> = {};
+for (const m of metricNames) {
+  const values = valid.map((r) => r.evalMetrics?.[m]).filter((v): v is number => typeof v === "number");
+  if (values.length > 0) best[m] = Math.max(...values);
+}
+const validLosses = valid.map((r) => r.trainPoints.at(-1)?.loss).filter((v): v is number => typeof v === "number");
+const bestLoss = validLosses.length > 0 ? Math.min(...validLosses) : null;
+
+// Colours follow the run, in study order. Flawed and missing runs get grey and no curve.
+const charted = entries.filter((e) => e.run !== null && e.run.status !== "flawed");
+const colours = rampColours(charted.length);
+const colourOf = new Map(charted.map((e, i) => [e, colours[i]]));
+const labelOf = (e: (typeof entries)[number]) => e.label ?? splitRunName(e.runName).short;
+
+const lossSeries: LossSeries[] = charted.map((e) => ({
+  label: labelOf(e),
+  colour: colourOf.get(e)!,
+  points: e.run!.trainPoints.map((p) => ({ step: p.step, loss: p.loss })),
+}));
+const totalSteps = Math.max(0, ...found.map((r) => r.totalSteps ?? 0)) || null;
+
+// Sweep chart: headline metric against the swept setting, valid runs only, sorted by the setting.
+let sweepPoints: SweepPoint[] = [];
+if (study.kind === "sweep" && swept && metric) {
+  const withValues = valid.filter((r) => typeof r.evalMetrics?.[metric] === "number");
+  const allNumeric = withValues.every((r) => typeof r.config[swept] === "number");
+  sweepPoints = withValues
+    .map((r) => ({ raw: r.config[swept], value: r.evalMetrics![metric] }))
+    .sort((a, b) =>
+      allNumeric ? (a.raw as number) - (b.raw as number) : String(a.raw).localeCompare(String(b.raw)),
+    )
+    .map(({ raw, value }) => ({ x: typeof raw === "string" ? raw : formatValue(raw), value }));
+}
+---
+
+<Shell title={study.title} experiment={experiment} section="studies">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href={`/${experiment}/`}>Studies</a>
+    <span aria-hidden="true">/</span>
+    <span class="mono">{study.slug}</span>
+  </nav>
+
+  <header class="study-header">
+    <div class="study-meta">
+      <StatusBadge status={study.status} />
+      {study.kind && <KindBadge kind={study.kind} />}
+      <span class="muted small-text">
+        {
+          swept && (
+            <>
+              sweeps <code>{swept}</code> ·{" "}
+            </>
+          )
+        }
+        {entries.length} {entries.length === 1 ? "run" : "runs"}
+        {flawedCount > 0 && ` (${flawedCount} flawed)`}
+        {
+          variants.length > 0 && (
+            <>
+              {" "}
+              · {variants.length === 1 ? "variant" : "variants"} <code>{variants.join(", ")}</code>
+            </>
+          )
+        }
+        {" "}· updated {studyUpdated(entries, study)}
+      </span>
+    </div>
+    <h1>{study.title}</h1>
+  </header>
+
+  <div class="qa-cards">
+    <section class="panel question-card">
+      <h2 class="eyebrow">Question</h2>
+      <p>{study.question ?? "No question recorded."}</p>
+    </section>
+    {
+      study.conclusion ? (
+        <section class="conclusion-card">
+          <h2 class="eyebrow">Conclusion</h2>
+          <p>{study.conclusion}</p>
+        </section>
+      ) : (
+        <section class="conclusion-placeholder">
+          <h2 class="eyebrow">Conclusion</h2>
+          <p class="muted">No conclusion yet.</p>
+        </section>
+      )
+    }
+  </div>
+
+  <section class="panel study-runs" aria-labelledby="study-runs-heading">
+    <div class="study-runs-head">
+      <h2 id="study-runs-heading" class="section-heading">Runs</h2>
+      <span class="muted small-text">
+        Best valid value per column in <strong class="best-word">blue</strong> · flawed runs are excluded
+      </span>
+    </div>
+    {
+      entries.length === 0 ? (
+        <p class="muted empty-note">No runs yet.</p>
+      ) : (
+        <div class="table-scroll">
+          <table class="data-table study-table">
+            <thead>
+              <tr>
+                <th scope="col">Label</th>
+                <th scope="col">Run</th>
+                <th scope="col">Changed from default</th>
+                {metricNames.map((m) => (
+                  <th scope="col" class="num">
+                    {m}
+                  </th>
+                ))}
+                <th scope="col" class="num">
+                  final loss
+                </th>
+                <th scope="col" class="num">
+                  time
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => {
+                const run = e.run;
+                const isFlawed = run?.status === "flawed";
+                const ok = isValid(run);
+                const last = run?.trainPoints.at(-1);
+                return (
+                  <tr class:list={{ "row-flawed": isFlawed }}>
+                    <td>
+                      <div class="label-cell">
+                        <span class="swatch" style={`background: ${colourOf.get(e) ?? "var(--c-border-strong)"}`} aria-hidden="true" />
+                        <span class="label-text">{labelOf(e)}</span>
+                      </div>
+                    </td>
+                    <td>
+                      {run ? <RunName name={run.name} href={`/${experiment}/runs/${run.name}/`} /> : <RunName name={e.runName} />}
+                      {(!run || run.meta?.git_dirty || isFlawed || run.status === "in_progress") && (
+                        <div class="run-tags">
+                          {!run && <span class="muted small-text">run not found in results/</span>}
+                          {run?.status === "in_progress" && <span class="running-label">running</span>}
+                          {run?.meta?.git_dirty && <DirtyTag />}
+                          {isFlawed && <FlawedTag reason={run?.flawedReason ?? ""} />}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div class="cell-wrap">{run ? <DiffChips changed={run.changed} /> : "—"}</div>
+                    </td>
+                    {metricNames.map((m, i) => {
+                      const v = run?.evalMetrics?.[m];
+                      return (
+                        <td class="num">
+                          <MetricCell
+                            value={v}
+                            bar={i === 0}
+                            muted={!ok}
+                            best={ok && typeof v === "number" && v === best[m]}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td class="num">
+                      <span class:list={["final-loss", { "is-best": ok && last?.loss === bestLoss, "is-muted": !ok }]}>
+                        {last ? formatLoss(last.loss) : "—"}
+                      </span>
+                    </td>
+                    <td class="num muted-cell">{last ? formatDuration(last.elapsed_sec) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
+  </section>
+
+  {
+    (sweepPoints.length > 0 || lossSeries.length > 0) && (
+      <div class="study-charts">
+        {sweepPoints.length > 0 && (
+          <figure class="panel chart-figure sweep-figure">
+            <figcaption>
+              <span class="section-heading">
+                {metric} by {swept}
+              </span>
+              <span class="muted small-text">valid runs only</span>
+            </figcaption>
+            <SweepChart points={sweepPoints} metric={metric!} setting={swept!} />
+          </figure>
+        )}
+        {lossSeries.length > 0 && (
+          <figure class="panel chart-figure loss-figure">
+            <LossChart
+              client:load
+              title="Training loss"
+              titleNote="overlaid"
+              series={lossSeries}
+              totalSteps={totalSteps}
+              width={560}
+              height={240}
+              markMin={false}
+            />
+          </figure>
+        )}
+      </div>
+    )
+  }
+</Shell>
+
+<style>
+  .study-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .study-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .study-meta code {
+    color: var(--c-ink);
+  }
+
+  .qa-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .qa-cards section {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-radius: var(--r-panel);
+  }
+  .qa-cards p {
+    margin: 0;
+    font-size: var(--fs-section);
+    line-height: 1.55;
+  }
+  .question-card {
+    flex: 1 1 320px;
+  }
+  .conclusion-card,
+  .conclusion-placeholder {
+    flex: 1.4 1 420px;
+  }
+  .conclusion-card {
+    background: var(--c-conclusion-box);
+    border: 1px solid var(--c-conclusion-border);
+  }
+  .conclusion-card .eyebrow {
+    color: var(--c-concluded-fg);
+  }
+  .conclusion-card p {
+    color: var(--c-conclusion-text);
+  }
+  /* Not drawn in the mock: a dashed box where the conclusion will go. */
+  .conclusion-placeholder {
+    border: 1px dashed var(--c-border-strong);
+  }
+
+  .study-runs {
+    overflow: hidden;
+  }
+  .study-runs-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--c-divider);
+  }
+  .best-word {
+    color: var(--c-accent-strong);
+  }
+  .empty-note {
+    padding: 16px 18px;
+    margin: 0;
+  }
+  .study-table {
+    min-width: 980px;
+  }
+  .study-table th:first-child,
+  .study-table td:first-child {
+    padding-left: 18px;
+  }
+  .study-table thead tr {
+    border-bottom: 0;
+  }
+  .label-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+  .label-text {
+    font-weight: 600;
+  }
+  .study-table :global(.metric-bar) {
+    width: 72px;
+  }
+  .final-loss {
+    font-family: var(--font-mono);
+  }
+  .final-loss.is-best {
+    color: var(--c-accent-strong);
+    font-weight: 600;
+  }
+  .final-loss.is-muted {
+    color: var(--c-disabled);
+  }
+
+  .study-charts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .chart-figure {
+    margin: 0;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sweep-figure {
+    flex: 1 1 380px;
+  }
+  /* Capped so that on its own (no sweep chart) it doesn't blow up the chart text. */
+  .loss-figure {
+    flex: 1.3 1 460px;
+    max-width: 820px;
+  }
+  .chart-figure figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .chart-figure :global(.sweep-chart) {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+</style>

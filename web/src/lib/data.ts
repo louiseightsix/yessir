@@ -89,6 +89,8 @@ export interface StudyData {
   question: string | null;
   runs: Array<{ run_name: string; label: string | null }>;
   conclusion: string | null;
+  /** The study file's modification date (YYYY-MM-DD), for studies with no runs yet. */
+  fileModified: string;
 }
 
 export interface StudyRef {
@@ -202,6 +204,13 @@ export function loadRun(
   };
 }
 
+/** YYYY-MM-DD in local time, matching the dates in run names. */
+function localDate(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function fileMtimeMs(path: string): number {
   return existsSync(path) ? statSync(path).mtimeMs : 0;
 }
@@ -243,6 +252,7 @@ export function loadStudies(expStudiesDir: string): StudyData[] {
           question: typeof raw.question === "string" ? raw.question : null,
           runs,
           conclusion: typeof raw.conclusion === "string" ? raw.conclusion : null,
+          fileModified: localDate(fileMtimeMs(resolve(expStudiesDir, entry.name))),
         },
       ];
     });

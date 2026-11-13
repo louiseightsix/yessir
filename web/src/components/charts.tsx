@@ -257,9 +257,9 @@ export function LossChart({
           </g>
         ))}
         <line x1={left} x2={right} y1={bottom} y2={bottom} stroke="#C4C4C0" />
-        {withPoints.map((s) => (
+        {withPoints.map((s, i) => (
           <polyline
-            key={s.label}
+            key={i}
             points={downsample(s.points, 500)
               .map((p) => `${xOf(p.step)},${yOf(p.loss)}`)
               .join(" ")}
@@ -288,8 +288,8 @@ export function LossChart({
       </svg>
       {withPoints.length > 1 && (
         <div className="chart-legend">
-          {withPoints.map((s) => (
-            <span key={s.label}>
+          {withPoints.map((s, i) => (
+            <span key={i}>
               <span className="legend-swatch" style={{ background: s.colour }} aria-hidden="true" />
               {s.label}
             </span>
@@ -297,5 +297,86 @@ export function LossChart({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SweepChart
+// ---------------------------------------------------------------------------
+
+export interface SweepPoint {
+  /** The swept setting's value, as shown on the x axis. */
+  x: string;
+  value: number;
+}
+
+/**
+ * Headline metric against the swept setting: a line with dots and value labels.
+ * x positions are evenly spaced categories in the order given (the caller sorts),
+ * like the mock's 1, 2, 4, 6, 8. Metrics in 0–1 get a fixed 0–1 axis.
+ */
+export function SweepChart({
+  points,
+  metric,
+  setting,
+  width = 460,
+  height = 240,
+}: {
+  points: SweepPoint[];
+  metric: string;
+  setting: string;
+  width?: number;
+  height?: number;
+}) {
+  const left = 44;
+  const right = width - 20;
+  const top = 28; // room for the value label above a point at the top
+  const bottom = height - 40;
+
+  const categories = [...new Set(points.map((p) => p.x))];
+  const xOf = (x: string) => {
+    const i = categories.indexOf(x);
+    return round1(categories.length === 1 ? (left + right) / 2 : left + (i / (categories.length - 1)) * (right - left));
+  };
+
+  const values = points.map((p) => p.value);
+  const unit = values.every((v) => v >= 0 && v <= 1);
+  const maxValue = Math.max(...values, 1e-9);
+  const yStep = niceStep(maxValue, 2);
+  const yMax = unit ? 1 : Math.ceil(maxValue / yStep) * yStep;
+  const yTicks = unit ? [0, 0.5, 1] : linearTicks(yMax, 2);
+  const yOf = (v: number) => round1(bottom - (v / yMax) * (bottom - top));
+
+  const line = points.map((p) => `${xOf(p.x)},${yOf(p.value)}`).join(" ");
+  const ariaLabel = `${metric} by ${setting}: ${points.map((p) => `${p.x} → ${p.value.toFixed(2)}`).join(", ")}`;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel} className="sweep-chart">
+      {yTicks.map((t) => (
+        <g key={`y${t}`}>
+          <line x1={left} x2={right} y1={yOf(t)} y2={yOf(t)} stroke="#EEEEEA" />
+          <text x={left - 8} y={yOf(t) + 4} textAnchor="end" className="chart-tick">
+            {unit ? t.toFixed(1) : t}
+          </text>
+        </g>
+      ))}
+      {categories.map((c) => (
+        <text key={`x${c}`} x={xOf(c)} y={bottom + 22} textAnchor="middle" className="chart-tick">
+          {c}
+        </text>
+      ))}
+      <polyline points={line} fill="none" stroke="var(--c-accent)" strokeWidth={2} />
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={xOf(p.x)} cy={yOf(p.value)} r={4.5} fill="#FFFFFF" stroke="var(--c-accent)" strokeWidth={2} />
+          <text x={xOf(p.x)} y={yOf(p.value) - 10} textAnchor="middle" className="chart-tick chart-ink chart-halo">
+            {p.value.toFixed(2)}
+          </text>
+        </g>
+      ))}
+      <text x={(left + right) / 2} y={height - 2} textAnchor="middle" className="chart-axis-label">
+        {setting}
+      </text>
+    </svg>
   );
 }

@@ -251,7 +251,9 @@ const configCount = Object.keys(run.config).length;
           run.readmeBody ? (
             <div class="notes-body">{run.readmeBody}</div>
           ) : (
-            <p class="muted small-text">No README.md for this run.</p>
+            <p class="muted small-text">
+              {flawed ? "No notes beyond the FLAWED line." : "No README.md for this run."}
+            </p>
           )
         }
       </section>
@@ -276,16 +278,6 @@ const configCount = Object.keys(run.config).length;
 </script>
 
 <style>
-  .breadcrumb {
-    display: flex;
-    gap: 6px;
-    font-size: var(--fs-table);
-    color: var(--c-muted);
-  }
-  .breadcrumb .mono {
-    color: var(--c-ink);
-  }
-
   .run-header {
     display: flex;
     flex-wrap: wrap;
@@ -403,11 +395,6 @@ const configCount = Object.keys(run.config).length;
     text-transform: none;
     letter-spacing: 0;
     color: var(--c-muted);
-  }
-  .section-heading {
-    margin: 0;
-    font-size: var(--fs-section);
-    font-weight: 600;
   }
 
   .eval-section {
