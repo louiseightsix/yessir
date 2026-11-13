@@ -1,5 +1,7 @@
 """End-to-end CPU convergence smoke test for the `sir_yes_sir` experiment."""
 
+import pytest
+
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
@@ -12,6 +14,10 @@ from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.training import seed_everything, train
 from yessir.vocab import VOCAB_SIZE
+
+# Training outcomes depend on floating-point details that differ across CPU
+# architectures, so these tests are excluded from CI (see `pyproject.toml`).
+pytestmark = pytest.mark.convergence
 
 
 def test_sir_yes_sir_sm_mh_cpu_convergence():

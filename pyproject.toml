@@ -26,6 +26,9 @@ include = ["yessir*", "experiments*"]
 
 [tool.pytest.ini_options]
 testpaths = ["experiments", "yessir"]
+markers = [
+    "convergence: trains a model and checks it learns; hardware-sensitive, so skipped in CI",
+]
 
 [tool.ruff]
 include = ["experiments/**/*.py", "yessir/**/*.py", "pyproject.toml"]
