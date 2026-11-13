@@ -1,0 +1,18 @@
+{
+  "job_name": "projects/295887947850/locations/us-east4/customJobs/9198867633523392512",
+  "job_id": "9198867633523392512",
+  "display_name": "sir_yes_sir-2026-11-12-1eb53a1-vast-oriole",
+  "project": "north-shore-software-ca",
+  "region": "us-east4",
+  "experiment": "sir_yes_sir",
+  "variant": "ar",
+  "run_name": "2026-11-12-1eb53a1-vast-oriole",
+  "git_commit_sha": "1eb53a1de69b17b8a95de3a2a2a4602214c36d81",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-east4-docker.pkg.dev/north-shore-software-ca/yessir/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/sir_yes_sir/2026-11-12-1eb53a1-vast-oriole",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-13T05:12:15.685313Z"
+}
