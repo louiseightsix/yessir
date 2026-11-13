@@ -91,8 +91,8 @@ class Transformer(nn.Module):
 
     @property
     def device(self) -> torch.device:
-        """The `torch.device` this model's buffers and parameters reside on."""
-        return self.embedding._dtype_tracker.device
+        """The `torch.device` this model's parameters reside on."""
+        return next(self.parameters()).device
 
     @torch.no_grad()
     def reset_parameters(self) -> None:

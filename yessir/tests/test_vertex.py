@@ -35,8 +35,10 @@ class _SampleConfig(ExperimentConfig):
 
 
 def _make_sample_experiment() -> Experiment:
-    def _noop_run(cfg: _SampleConfig, out_dir: Path | None) -> dict[str, Any]:
-        return {"steps": cfg.steps, "out_dir": str(out_dir)}
+    def _noop_run(
+        cfg: _SampleConfig, out_dir: Path | None = None, *, device: str = "auto"
+    ) -> dict[str, Any]:
+        return {"steps": cfg.steps, "out_dir": str(out_dir), "device": device}
 
     return Experiment(
         name="sir_yes_sir",

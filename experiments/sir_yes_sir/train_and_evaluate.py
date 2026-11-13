@@ -47,6 +47,7 @@ def train_and_evaluate(
             experiment_name="sir_yes_sir",
             variant_name=variant_name,
             config=config,
+            device=str(resolved_device),
         )
         logger = MetricsLogger(out_dir / "train.jsonl")
 

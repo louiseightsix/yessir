@@ -345,3 +345,14 @@ def test_resolve_device_auto_and_explicit_validation(monkeypatch: pytest.MonkeyP
     assert resolve_device() == torch.device("cuda")
     assert resolve_device("auto") == torch.device("cuda")
     assert resolve_device("cuda:0") == torch.device("cuda:0")
+
+    with pytest.raises(
+        ValueError,
+        match="unknown device 'gpu'; expected one of 'auto', 'cpu', 'mps', 'cuda'",
+    ):
+        resolve_device("gpu")
+    with pytest.raises(
+        ValueError,
+        match="unknown device 'meta'; expected one of 'auto', 'cpu', 'mps', 'cuda'",
+    ):
+        resolve_device("meta")

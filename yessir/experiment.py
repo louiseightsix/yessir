@@ -2,14 +2,13 @@
 
 import argparse
 import dataclasses
-import inspect
 import sys
 import types
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Self, Union, get_args, get_origin, get_type_hints
+from typing import Any, Protocol, Self, Union, get_args, get_origin, get_type_hints
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -38,6 +37,19 @@ class ExperimentConfig:
         return ""
 
 
+class VariantRunFn[ConfigT: ExperimentConfig](Protocol):
+    """Callable contract for an `ExperimentVariant.run` entry point."""
+
+    def __call__(
+        self,
+        config: ConfigT,
+        out_dir: Path | None = None,
+        /,
+        *,
+        device: str = "auto",
+    ) -> dict[str, Any]: ...
+
+
 @dataclass(frozen=True, kw_only=True)
 class ExperimentVariant[ConfigT: ExperimentConfig]:
     """One execution/harness variant of an `Experiment` (e.g. `'sm_mh'`, `'ar'`)."""
@@ -45,7 +57,7 @@ class ExperimentVariant[ConfigT: ExperimentConfig]:
     name: str
     description: str
     config_cls: type[ConfigT]
-    run: Callable[[ConfigT, Path | None], dict[str, Any]]
+    run: VariantRunFn[ConfigT]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -273,17 +285,6 @@ class ResolvedExperimentRun:
     device: str = "auto"
 
 
-def _invoke_variant_run(resolved: ResolvedExperimentRun) -> dict[str, Any]:
-    """Invoke `resolved.variant.run`, forwarding `device` if the callable accepts it."""
-    params = inspect.signature(resolved.variant.run).parameters
-    if "device" in params or any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-    ):
-        call_fn: Any = resolved.variant.run
-        return call_fn(resolved.config, resolved.out_dir, device=resolved.device)
-    return resolved.variant.run(resolved.config, resolved.out_dir)
-
-
 def _resolve_experiment(
     experiment: Experiment,
     exp_parser: argparse.ArgumentParser,
@@ -389,7 +390,9 @@ def run_experiment_cli(
     )
     if resolved is None:
         return None
-    return _invoke_variant_run(resolved)
+    return resolved.variant.run(
+        resolved.config, resolved.out_dir, device=resolved.device
+    )
 
 
 def resolve_experiments_cli(
@@ -470,4 +473,6 @@ def run_experiments_cli(
     )
     if resolved is None:
         return None
-    return _invoke_variant_run(resolved)
+    return resolved.variant.run(
+        resolved.config, resolved.out_dir, device=resolved.device
+    )

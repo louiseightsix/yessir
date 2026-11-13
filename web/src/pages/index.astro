@@ -23,6 +23,7 @@ const schemas: Record<string, ExperimentSchema> = JSON.parse(
 interface ConfigFile {
   experiment?: string;
   variant?: string;
+  device?: string;
   git_commit_sha?: string;
   git_short_sha?: string;
   git_commit_date?: string;
@@ -519,6 +520,14 @@ const existingRuns: Record<string, ExistingRunConfig[]> = Object.fromEntries(
                     <>
                       <span>
                         variant <code>{runVariant}</code>
+                      </span>
+                      {" · "}
+                    </>
+                  )}
+                  {run.meta?.device && (
+                    <>
+                      <span>
+                        device <code>{run.meta.device}</code>
                       </span>
                       {" · "}
                     </>

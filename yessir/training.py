@@ -15,13 +15,16 @@ from yessir.defaults import DEFAULT_LR
 from yessir.heads import TiedIdentityHead
 from yessir.model import Transformer
 
+_VALID_DEVICES = ("auto", "cpu", "mps", "cuda")
+
 
 def resolve_device(device: str | torch.device | None = None) -> torch.device:
     """Resolve a target compute device (`'auto'` / `None` -> `'cuda'` -> `'mps'` -> `'cpu'`).
 
     When `device` is `None` or `'auto'`, selects CUDA if available, otherwise
     macOS Metal (`mps`) if available, otherwise `'cpu'`. When a specific device is
-    requested, validates that its backend is available before returning.
+    requested, validates that it is a supported choice (`'cpu'`, `'mps'`, `'cuda'`)
+    and that its backend is available before returning.
     """
     if device is None or (isinstance(device, str) and device.strip().lower() == "auto"):
         if torch.cuda.is_available():
@@ -30,11 +33,20 @@ def resolve_device(device: str | torch.device | None = None) -> torch.device:
             return torch.device("mps")
         return torch.device("cpu")
 
-    resolved = (
-        device
-        if isinstance(device, torch.device)
-        else torch.device(device.strip().lower())
-    )
+    if isinstance(device, torch.device):
+        resolved = device
+    else:
+        try:
+            resolved = torch.device(device.strip().lower())
+        except RuntimeError as exc:
+            choices = ", ".join(repr(d) for d in _VALID_DEVICES)
+            raise ValueError(
+                f"unknown device {device!r}; expected one of {choices}"
+            ) from exc
+
+    if resolved.type not in ("cpu", "mps", "cuda"):
+        choices = ", ".join(repr(d) for d in _VALID_DEVICES)
+        raise ValueError(f"unknown device {str(device)!r}; expected one of {choices}")
     if resolved.type == "cuda" and not torch.cuda.is_available():
         raise ValueError(
             f"CUDA device requested ({str(device)!r}), but torch.cuda.is_available() is False"
