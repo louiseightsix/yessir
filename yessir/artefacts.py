@@ -46,7 +46,7 @@ def get_git_info(repo_dir: Path = _REPO_ROOT) -> GitInfo:
         commit_date = _git("show", "-s", "--format=%cs", "HEAD")
         short_sha = _git("rev-parse", "--short=7", "HEAD")
         commit_sha = _git("rev-parse", "HEAD")
-        dirty = bool(_git("status", "--porcelain"))
+        dirty = bool(_git("status", "--porcelain", "--", ".", ":!results"))
         return GitInfo(
             commit_date=commit_date,
             short_sha=short_sha,

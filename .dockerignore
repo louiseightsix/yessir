@@ -1,0 +1,8 @@
+# Ignore everything by default; only include files needed by `cloud/vertex/Dockerfile`.
+*
+!/pyproject.toml
+!/uv.lock
+!/cloud/
+!/cloud/vertex/
+!/cloud/vertex/Dockerfile
+!/cloud/vertex/entrypoint.sh

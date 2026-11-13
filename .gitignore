@@ -220,3 +220,6 @@ __marimo__/
 /.idea/
 
 .claude/
+
+# Local Vertex AI settings
+/vertex.toml

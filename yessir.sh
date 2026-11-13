@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./yessir.sh run [experiment] [args]  # run a live experiment (or list experiments)
+#   ./yessir.sh vertex <subcommand>      # submit, list, pull, or build-image for Vertex AI jobs
 #   ./yessir.sh browser [astro args]     # open the results browser & config builder (astro dev)
 #   ./yessir.sh test [pytest args]       # run the live experiments' tests
 #   ./yessir.sh check                    # lint and typecheck live code (ruff check + ty check)
@@ -31,7 +32,7 @@ export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-.venv-$OS}"
 [ "$OS" = linux ] && export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
 usage() {
-    sed -n '4,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '4,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 cmd="${1:-}"
@@ -39,6 +40,7 @@ cmd="${1:-}"
 
 case "$cmd" in
     run)     exec uv run python -m experiments "$@" ;;
+    vertex)  exec uv run python -m yessir.vertex "$@" ;;
     browser)
         # In AI-agent shells Astro 7 auto-backgrounds `astro dev` and exits immediately;
         # manage it with `./yessir.sh browser stop | status | logs`, or pass `--ignore-lock`
