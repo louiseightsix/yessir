@@ -1,0 +1,18 @@
+{
+  "job_name": "projects/295887947850/locations/us-east4/customJobs/853697524005863424",
+  "job_id": "853697524005863424",
+  "display_name": "sir_yes_sir-2026-11-12-86e46ea-communal-pigeon",
+  "project": "north-shore-software-ca",
+  "region": "us-east4",
+  "experiment": "sir_yes_sir",
+  "variant": "sm_mh",
+  "run_name": "2026-11-12-86e46ea-communal-pigeon",
+  "git_commit_sha": "86e46ea99b000dd502c08806c2969ebc906fa824",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-east4-docker.pkg.dev/north-shore-software-ca/yessir/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/sir_yes_sir/2026-11-12-86e46ea-communal-pigeon",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-13T05:10:42.523662Z"
+}
