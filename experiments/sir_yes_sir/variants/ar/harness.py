@@ -62,7 +62,7 @@ def rollout_ar(
     soon as a 3-token step ends with `SpecialToken.FLAG_FINISHED`.
 
     Args:
-        model: `Transformer` configured with `TiedIdentityHead`.
+        model: `Transformer` configured with `SubspaceLMHead`.
         alphabet: Ordered problem alphabet of `B >= 2` distinct byte symbols.
         x: Input sequence of `L >= 1` symbols drawn from `alphabet`.
         step_order: Within-step emission order (`OUT_FIRST` or `WRAP_FIRST`).

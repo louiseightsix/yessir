@@ -56,7 +56,7 @@ def evaluate_ar(
     argmax matches `labels`.
 
     Args:
-        model: `Transformer` configured with `TiedIdentityHead`.
+        model: `Transformer` configured with `SubspaceLMHead`.
         dataset: Stream of sequence-labelled `LabelledExample`s (one per problem).
         num_problems: Number of problems to evaluate (`>= 1`).
         batch_size: Maximum number of problems per forward pass (`>= 1`).

@@ -31,7 +31,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
       of `('0', '1', '2')`, so for any `x_k` its successor `o_k` and wrap symbol
       `w_k` depend on the in-context alphabet order.
     - Restricting `symbols` to 3 byte tokens rather than all 240 bytes in
-      `SymbolSet.ALL` keeps the untied `MultiTaskHead` sample complexity small
+      `SymbolSet.ALL` keeps the untied `ParallelClassificationHead` sample complexity small
       enough to converge on CPU within a test run.
     """
     seed_everything(42)
@@ -41,7 +41,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
     x_length = 2
 
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
         n_heads=8,
@@ -82,7 +82,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
 
 
 def test_sir_yes_sir_ar_cpu_convergence():
-    """Train a tiny `TiedIdentityHead` `Transformer` on CPU under the `ar` variant and verify >99% exact match."""
+    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under the `ar` variant and verify >99% exact match."""
     seed_everything(42)
 
     symbols = SymbolSet.DECIMAL[:3]
@@ -90,7 +90,7 @@ def test_sir_yes_sir_ar_cpu_convergence():
     x_length = 2
 
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=2,
         n_heads=8,
         d_ff=64,

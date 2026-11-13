@@ -9,7 +9,7 @@ from yessir.batch import collate
 from yessir.dataset import LabelledExample
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
-from yessir.training import pack_multitask_labels
+from yessir.training import pack_classification_labels
 
 
 def _collect_problems(
@@ -80,7 +80,7 @@ def evaluate_sm_mh(
     execution.
 
     Args:
-        model: `Transformer` configured with `MultiTaskHead`.
+        model: `Transformer` configured with `ParallelClassificationHead`.
         dataset: Stream of step-level `LabelledExample`s starting at step `k = 0`.
         num_problems: Number of complete problems to evaluate (`>= 1`).
         batch_size: Maximum number of step examples per forward pass (`>= 1`).
@@ -104,7 +104,7 @@ def evaluate_sm_mh(
     for start in range(0, len(flat_items), batch_size):
         chunk = flat_items[start : start + batch_size]
         batch = collate([item.example for item in chunk]).to(device)
-        labels = pack_multitask_labels(chunk).to(device)
+        labels = pack_classification_labels(chunk).to(device)
 
         logits = model(
             batch.input_ids,

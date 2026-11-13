@@ -41,7 +41,7 @@ def run_sir_yes_sir_ar(
         variant_name="ar",
         config=config,
         out_dir=out_dir,
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_ar,

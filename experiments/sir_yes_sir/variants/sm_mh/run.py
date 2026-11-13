@@ -37,7 +37,7 @@ def run_sir_yes_sir_sm_mh(
         variant_name="sm_mh",
         config=config,
         out_dir=out_dir,
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,

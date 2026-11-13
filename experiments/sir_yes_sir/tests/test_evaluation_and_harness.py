@@ -278,7 +278,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
 def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -296,7 +296,7 @@ def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
 def test_evaluate_sm_mh_validation_errors():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -454,7 +454,7 @@ def test_parse_ar_trace_and_rollout_ar():
 def test_evaluate_ar_end_to_end_and_validation():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,

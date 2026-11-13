@@ -26,7 +26,7 @@ def rollout_sm_mh(
     At each step `k = 0 .. len(x) - 1`, builds the state-machine `Example` using
     the model's own previously emitted primary outputs `output_history = [o_0, ..., o_{k-1}]`,
     runs one forward pass through `model`, and decodes `(o_k, w_k, flag_k)` by
-    greedy `argmax` across the three heads of `MultiTaskHead`.
+    greedy `argmax` across the three heads of `ParallelClassificationHead`.
 
     Stops and returns the list of emitted `(o_k, w_k, flag_k)` step tuples as soon as:
     1. the model emits `flag_k == SpecialToken.FLAG_FINISHED`,
@@ -35,7 +35,7 @@ def rollout_sm_mh(
        (which cannot be fed into `build_sm_example` on the next step).
 
     Args:
-        model: `Transformer` configured with `MultiTaskHead`.
+        model: `Transformer` configured with `ParallelClassificationHead`.
         alphabet: Ordered problem alphabet of `B >= 2` distinct byte symbols.
         x: Input sequence of `L >= 1` symbols drawn from `alphabet`.
         embedding_mode: Which of `token_type_ids` and `position_ids` to attach.

@@ -12,7 +12,7 @@ from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 SIR_YES_SIR_DESCRIPTION = (
     "In-context successor (next symbol mod B, no carry) smoke-test experiment."
 )
-SM_MH_DESCRIPTION = "State-machine harness read through MultiTaskHead."
+SM_MH_DESCRIPTION = "State-machine harness read through ParallelClassificationHead."
 
 
 @unique

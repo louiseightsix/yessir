@@ -19,9 +19,9 @@ class LabelledExample:
             optional `position_ids`).
         labels: Non-empty tuple of target `Token` ids (each in `0..255` or
             `IGNORE_INDEX = -100` for masked sequence positions).
-            - For multitask steps (`MultiTaskHead`), holds one target token per
-              head (e.g. `(o_k, w_k, flag_k)`).
-            - For sequence-level next-token prediction (`TiedIdentityHead`), holds
+            - For parallel classification steps (`ParallelClassificationHead`), holds one
+              target token per head (e.g. `(o_k, w_k, flag_k)`).
+            - For sequence-level next-token prediction (`SubspaceLMHead`), holds
               one pre-shifted target per sequence position (`len(labels) == len(example)`),
               where `labels[t]` is already the target token predicted at position `t`
               (unlike Hugging Face causal LMs, which shift `labels` internally), with

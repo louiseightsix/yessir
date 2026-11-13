@@ -16,7 +16,7 @@ from yessir.vocab import VOCAB_SIZE
 def test_transformer_default_dimensions_and_forward_shapes():
     torch.manual_seed(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
     )
     assert model.d_model == 512
@@ -48,7 +48,7 @@ def test_transformer_default_dimensions_and_forward_shapes():
 def test_transformer_end_to_end_right_padding_invariance():
     torch.manual_seed(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(16, 2),
         n_layers=2,
         n_heads=4,
@@ -92,7 +92,7 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     torch.manual_seed(0)
     n_layers = 8
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE,),
         n_layers=n_layers,
     )
@@ -126,10 +126,10 @@ def test_transformer_reset_parameters_residual_scaling_and_norm_reset():
     )
 
 
-def test_transformer_with_tied_identity_head_shapes_and_causal_invariance():
+def test_transformer_with_subspace_lm_head_shapes_and_causal_invariance():
     torch.manual_seed(0)
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=2,
         n_heads=4,
         d_ff=64,
@@ -170,7 +170,7 @@ def test_transformer_with_tied_identity_head_shapes_and_causal_invariance():
 def test_transformer_gradient_flow_to_all_parameters():
     torch.manual_seed(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(8, 2),
         n_layers=2,
         n_heads=4,
@@ -204,25 +204,28 @@ def test_transformer_gradient_flow_to_all_parameters():
 def test_transformer_rejects_non_positive_n_layers(bad_n_layers):
     with pytest.raises(ValueError, match="n_layers must be > 0"):
         Transformer(
-            head_type=HeadType.MULTITASK, num_classes=(4,), n_layers=bad_n_layers
+            head_type=HeadType.PARALLEL_CLASSIFICATION,
+            num_classes=(4,),
+            n_layers=bad_n_layers,
         )
 
 
 def test_transformer_validates_head_type_and_num_classes():
     with pytest.raises(
-        ValueError, match="num_classes is required when head_type is 'multitask'"
+        ValueError,
+        match="num_classes is required when head_type is 'parallel_classification'",
     ):
-        Transformer(head_type=HeadType.MULTITASK, num_classes=None)
+        Transformer(head_type=HeadType.PARALLEL_CLASSIFICATION, num_classes=None)
 
     with pytest.raises(
-        ValueError, match="num_classes must be None when head_type is 'tied_identity'"
+        ValueError, match="num_classes must be None when head_type is 'subspace_lm'"
     ):
-        Transformer(head_type=HeadType.TIED_IDENTITY, num_classes=(4,))
+        Transformer(head_type=HeadType.SUBSPACE_LM, num_classes=(4,))
 
 
 def test_transformer_device_property_tracks_module_device():
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,

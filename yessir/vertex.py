@@ -354,10 +354,7 @@ def _check_no_disallowed_submit_flags(exp_argv: Sequence[str]) -> None:
             device_val = exp_argv[idx + 1]
         elif token.startswith("--device="):
             device_val = token.split("=", 1)[1]
-        if (
-            device_val is not None
-            and device_val.strip().lower() not in _VERTEX_DEVICES
-        ):
+        if device_val is not None and device_val.strip().lower() not in _VERTEX_DEVICES:
             choices = ", ".join(repr(d) for d in _VERTEX_DEVICES)
             raise ValueError(
                 f"Unsupported --device {device_val!r} for `vertex submit`; expected one of {choices}"

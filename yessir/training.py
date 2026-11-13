@@ -1,4 +1,4 @@
-"""Minimal training utilities (`resolve_device`, `seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `next_token_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
+"""Minimal training utilities (`resolve_device`, `seed_everything`, `build_optimizer`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
 
 import itertools
 import os
@@ -12,7 +12,7 @@ from torch import nn
 from yessir.batch import collate, collate_labelled
 from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.defaults import DEFAULT_LR
-from yessir.heads import TiedIdentityHead
+from yessir.heads import SubspaceLMHead
 from yessir.model import Transformer
 
 _CONCRETE_DEVICES = ("cpu", "mps", "cuda")
@@ -95,13 +95,13 @@ def build_optimizer(
     )
 
 
-def multitask_cross_entropy(
+def parallel_classification_cross_entropy(
     logits: Sequence[torch.Tensor],
     labels: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute the sum of cross-entropy losses across `MultiTaskHead` outputs.
+    """Compute the sum of cross-entropy losses across `ParallelClassificationHead` outputs.
 
-    When a `MultiTaskHead` predicts `H` conditionally independent labels
+    When a `ParallelClassificationHead` predicts `H` conditionally independent labels
     `(y_0, ..., y_{H-1})` from the final hidden state `h_last`, the joint
     log-probability is `sum_h log P(y_h | h_last)`. Minimising the negative
     joint log-likelihood is therefore the unweighted sum of each head's
@@ -170,7 +170,7 @@ def next_token_cross_entropy(
     )
 
 
-def pack_multitask_labels(items: Sequence[LabelledExample]) -> torch.Tensor:
+def pack_classification_labels(items: Sequence[LabelledExample]) -> torch.Tensor:
     """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_heads)` LongTensor."""
     if not items:
         raise ValueError("items must not be empty")
@@ -178,7 +178,7 @@ def pack_multitask_labels(items: Sequence[LabelledExample]) -> torch.Tensor:
     for idx, item in enumerate(items):
         if len(item.labels) != num_heads:
             raise ValueError(
-                f"all LabelledExamples in a multitask batch must have {num_heads} labels; "
+                f"all LabelledExamples in a parallel classification batch must have {num_heads} labels; "
                 f"item {idx} has {len(item.labels)}"
             )
     return torch.tensor([item.labels for item in items], dtype=torch.long)
@@ -193,10 +193,10 @@ def train_step(
 
     Moves the collated `Batch` and `labels` onto `model.device` and dispatches on
     `model.head`:
-    - `TiedIdentityHead`: collates sequence-level labels with `collate_labelled`
+    - `SubspaceLMHead`: collates sequence-level labels with `collate_labelled`
       and computes `next_token_cross_entropy`.
-    - `MultiTaskHead`: collates examples with `collate`, packs per-head labels with
-      `pack_multitask_labels`, and computes `multitask_cross_entropy`.
+    - `ParallelClassificationHead`: collates examples with `collate`, packs per-head labels with
+      `pack_classification_labels`, and computes `parallel_classification_cross_entropy`.
 
     Returns:
         The scalar loss value (`float`) for this step before the parameter update.
@@ -208,7 +208,7 @@ def train_step(
     optimizer.zero_grad()
     device = model.device
 
-    if isinstance(model.head, TiedIdentityHead):
+    if isinstance(model.head, SubspaceLMHead):
         batch, labels = collate_labelled(items)
         batch = batch.to(device)
         labels = labels.to(device)
@@ -222,7 +222,7 @@ def train_step(
         loss = next_token_cross_entropy(logits, labels)
     else:
         batch = collate([item.example for item in items]).to(device)
-        labels = pack_multitask_labels(items).to(device)
+        labels = pack_classification_labels(items).to(device)
         logits = model(
             batch.input_ids,
             batch.lengths,
@@ -230,7 +230,7 @@ def train_step(
             position_ids=batch.position_ids,
         )
         assert isinstance(logits, tuple)
-        loss = multitask_cross_entropy(logits, labels)
+        loss = parallel_classification_cross_entropy(logits, labels)
 
     loss.backward()
     optimizer.step()
