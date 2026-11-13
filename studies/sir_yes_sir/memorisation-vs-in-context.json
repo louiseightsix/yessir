@@ -1,0 +1,8 @@
+{
+  "title": "Memorisation vs. in-context lookup (canonical vs. random order)",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "When trained on a fixed canonical alphabet (e.g. '0'..'9' in order), does the model memorise static token-to-token transitions in its weights rather than attending to the prompt's alphabet section, and how does sample efficiency or minimum depth compare against per-problem shuffled and randomly sampled alphabets?",
+  "runs": [],
+  "conclusion": null
+}

@@ -1,0 +1,8 @@
+{
+  "title": "Impact of alphabet length B",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "How do convergence speed, overall step accuracy, and wrap-around accuracy (x_k == s_{B-1} -> s_0) scale as the in-context alphabet size B grows from 2 up to 240, both when the symbol pool is restricted to B symbols and when drawn from the full 240-byte pool?",
+  "runs": [],
+  "conclusion": null
+}
