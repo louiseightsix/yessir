@@ -32,7 +32,7 @@ const running = exp.runs.filter((r) => r.status === "in_progress");
 const newest = running[0];
 const newestLast = newest?.trainPoints.at(-1);
 const newestProgress =
-  newest && newestLast && newest.totalSteps ? newestLast.step / newest.totalSteps : null;
+  newest && newest.totalSteps ? (newestLast?.step ?? 0) / newest.totalSteps : null;
 ---
 
 <html lang="en">
@@ -169,16 +169,7 @@ const newestProgress =
   }
 
   .wordmark {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
     padding: 0 8px;
-    font-size: var(--fs-small);
-  }
-  .wordmark-name {
-    font: 600 18px var(--font-mono);
-    letter-spacing: -0.02em;
-    color: var(--c-ink);
   }
 
   .experiment-picker {

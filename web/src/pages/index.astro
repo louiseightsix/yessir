@@ -5,6 +5,11 @@ import "../styles/global.css";
 import { getSiteData } from "../lib/data";
 
 const site = getSiteData();
+
+/** "1 study", "3 studies". */
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 ---
 
 <html lang="en">
@@ -15,12 +20,16 @@ const site = getSiteData();
   </head>
   <body>
     <main class="landing">
+      <div class="wordmark">
+        <span class="wordmark-name">yessir</span>
+        <span class="muted">results &amp; runs</span>
+      </div>
+
       <header class="page-header">
         <div>
           <h1>Experiments</h1>
           <p>Each experiment has its own studies and runs.</p>
         </div>
-        <span class="path-hint">results/*/</span>
       </header>
 
       {
@@ -38,7 +47,7 @@ const site = getSiteData();
                     <span class="experiment-name mono">{exp.name}</span>
                     {exp.schema?.description && <span class="muted">{exp.schema.description}</span>}
                     <span class="experiment-counts muted">
-                      {exp.studies.length} studies · {exp.runs.length} runs
+                      {count(exp.studies.length, "study", "studies")} · {count(exp.runs.length, "run", "runs")}
                       {running > 0 && ` · ${running} running`}
                     </span>
                   </a>

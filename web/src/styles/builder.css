@@ -47,13 +47,19 @@
   min-width: 0;
   overflow-x: auto;
 }
+/* One grid for all rows; each row is a subgrid, so the "default" column is as
+   wide as its widest value and every row still lines up. */
 .builder-rows {
   min-width: 660px;
   padding: 6px 0 10px;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) max-content minmax(0, 0.9fr);
+  column-gap: 12px;
 }
 .field-row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr) 96px minmax(0, 0.9fr);
+  grid-template-columns: subgrid;
   gap: 12px;
   align-items: center;
   padding: 6px 16px;

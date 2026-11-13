@@ -214,13 +214,15 @@ const configCount = Object.keys(run.config).length;
               {run.changed.map((c) => (
                 <div class="config-changed-row">
                   <span class="config-name">{c.name}</span>
-                  <span>
-                    <span class="config-old">{formatValue(c.default)}</span>{" "}
-                    <span class="muted" aria-hidden="true">
-                      →
+                  <span class="config-value">
+                    <span class="config-old">{formatValue(c.default)}</span>
+                    <span>
+                      <span class="muted" aria-hidden="true">
+                        →
+                      </span>
+                      <span class="visually-hidden">changed to</span>{" "}
+                      <span class="config-new">{formatValue(c.value)}</span>
                     </span>
-                    <span class="visually-hidden">changed to</span>{" "}
-                    <span class="config-new">{formatValue(c.value)}</span>
                   </span>
                 </div>
               ))}
@@ -505,7 +507,20 @@ const configCount = Object.keys(run.config).length;
     font: var(--fs-table) var(--font-mono);
   }
   .config-name {
+    flex: none;
     font-weight: 600;
+  }
+  /* Old value, then "→ new" as one unit: if they don't fit on one line, the
+     whole "→ new" drops below, right-aligned, instead of splitting a value. */
+  .config-value {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    column-gap: 6px;
+    text-align: right;
+  }
+  .config-value > span {
+    white-space: nowrap;
   }
   .config-old {
     color: var(--c-muted);

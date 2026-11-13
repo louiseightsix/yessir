@@ -126,6 +126,19 @@ h1 {
   color: var(--c-ink);
 }
 
+/* "yessir  results & runs", top of the sidebar and the landing page. */
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-small);
+}
+.wordmark-name {
+  font: 600 18px var(--font-mono);
+  letter-spacing: -0.02em;
+  color: var(--c-ink);
+}
+
 /* Panel heading, 15/600. */
 .section-heading {
   margin: 0;
