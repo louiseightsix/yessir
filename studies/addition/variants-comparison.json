@@ -1,8 +1,8 @@
 {
-  "title": "Parallel classification (cls) vs. per-step autoregressive (step_ar) vs. full-trace autoregressive (ar)",
+  "title": "Comparison of addition variants (cls, step_ar, ar, addressed_ar)",
   "status": "draft",
   "kind": "comparison",
-  "question": "Across the two controlled steps from cls to ar—first replacing ParallelClassificationHead with sequential SubspaceLMHead predictions while keeping the per-step harness (cls vs. step_ar), then removing external state rewriting so the full trace stays in context (step_ar vs. ar)—how do convergence speed, in-domain accuracy, and zero-shot base and length transfer compare?",
+  "question": "Across the four addition variants—parallel classification per step (cls), sequential predictions per step with harness state updates (step_ar), unrolled full-trace autoregressive generation (ar), and full-trace autoregressive generation with explicit base-B column addresses (addressed_ar)—how do convergence speed, in-domain accuracy, and zero-shot base and length transfer compare?",
   "runs": [],
   "conclusion": null
 }
