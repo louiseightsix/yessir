@@ -156,6 +156,7 @@ def build_custom_job_spec(
     variant_name: str,
     run_name: str,
     git_commit_sha: str,
+    device: str = "auto",
 ) -> dict[str, Any]:
     """Build the Vertex AI `CustomJobSpec` payload (`workerPoolSpecs`) for `gcloud ai custom-jobs create`.
 
@@ -194,6 +195,8 @@ def build_custom_job_spec(
                         f"{fuse_run_dir}/config.json",
                         "--out-dir",
                         _CONTAINER_LOCAL_OUT_DIR,
+                        "--device",
+                        device,
                     ],
                 },
             }
@@ -432,6 +435,7 @@ def cmd_submit(
         variant_name=resolved.variant.name,
         run_name=run_name,
         git_commit_sha=info.commit_sha,
+        device=resolved.device,
     )
 
     with tempfile.TemporaryDirectory(prefix="yessir-vertex-stage-") as stage_str:
@@ -441,6 +445,7 @@ def cmd_submit(
             experiment_name=resolved.experiment.name,
             variant_name=resolved.variant.name,
             config=resolved.config,
+            device=resolved.device,
             git_info=info,
         )
         _run_checked(

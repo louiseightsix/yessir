@@ -15,7 +15,8 @@ from yessir.defaults import DEFAULT_LR
 from yessir.heads import TiedIdentityHead
 from yessir.model import Transformer
 
-_VALID_DEVICES = ("auto", "cpu", "mps", "cuda")
+_CONCRETE_DEVICES = ("cpu", "mps", "cuda")
+_VALID_DEVICES = ("auto", *_CONCRETE_DEVICES)
 
 
 def resolve_device(device: str | torch.device | None = None) -> torch.device:
@@ -44,7 +45,7 @@ def resolve_device(device: str | torch.device | None = None) -> torch.device:
                 f"unknown device {device!r}; expected one of {choices}"
             ) from exc
 
-    if resolved.type not in ("cpu", "mps", "cuda"):
+    if resolved.type not in _CONCRETE_DEVICES:
         choices = ", ".join(repr(d) for d in _VALID_DEVICES)
         raise ValueError(f"unknown device {str(device)!r}; expected one of {choices}")
     if resolved.type == "cuda" and not torch.cuda.is_available():

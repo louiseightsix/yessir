@@ -146,12 +146,14 @@ def test_load_existing_run_configs(tmp_path: Path):
         experiment_name="sir_yes_sir",
         variant_name="sm_mh",
         config=cfg1,
+        device="cpu",
     )
     write_config_json(
         exp_dir / "2026-11-12-953e4d9-quiet-otter",
         experiment_name="sir_yes_sir",
         variant_name="ar",
         config=cfg2,
+        device="cpu",
     )
 
     loaded_all = load_existing_run_configs("sir_yes_sir", results_root=tmp_path)

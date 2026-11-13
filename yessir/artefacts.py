@@ -111,7 +111,7 @@ def write_config_json(
     experiment_name: str,
     variant_name: str,
     config: ExperimentConfig,
-    device: str = "cpu",
+    device: str,
     git_info: GitInfo | None = None,
 ) -> Path:
     """Write experiment/variant names, device, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
