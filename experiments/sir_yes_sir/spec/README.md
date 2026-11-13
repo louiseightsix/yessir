@@ -91,7 +91,7 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Output | `o_0, ..., o_{k-1}` | `TokenType.OUTPUT` (`3`) | `1, 2, ..., k` |
 
-Output `position_ids` start at `1` (`o_0` at `1`, `o_{k-1}` at `k`) while the second `[SEP]` sits at `position_id = 0`. Consequently, at every step `k` in `0 .. L - 1`, the query token that predicts `o_k` (`[SEP]` at `k == 0`, `o_{k-1}` at `k >= 1`) has `position_id = k`—matching the `position_id = k` of `x_k` in `TokenType.INPUT` with zero offset (position coupling; Cho et al., 2024).
+Output `position_ids` start at `1` (`o_0` at `1`, `o_{k-1}` at `k`) while the second `[SEP]` sits at `position_id = 0`. Consequently, at every step `k` in `0 .. L - 1`, the query token that predicts `o_k` (`[SEP]` at `k == 0`, `o_{k-1}` at `k >= 1`) has `position_id = k`—matching the `position_id = k` of `x_k` in `TokenType.INPUT` with zero offset (position coupling).
 
 ### 2.1 Autoregressive (`ar`, `SubspaceLMHead`)
 
@@ -114,7 +114,7 @@ During rollout (`rollout_cls`), `o_k` is appended to the output sequence after e
 
 In `SubspaceEmbedding`, token identities (`256`-d one-hot), `token_type_ids` (`16`-d one-hot), and `position_ids` (parameter-free unit-norm sinusoidal positional encodings) occupy orthogonal slices of the residual stream. All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SEP]` delimiters) so sequence length, attention distances, and the prompt-ending `[SEP]` that triggers `o_0` at `k = 0` are held constant across ablations:
 
-- **`TOKEN_TYPE_PE`**: attaches both `token_type_ids` and section-coupled sinusoidal `position_ids` (Cho et al., 2024).
+- **`TOKEN_TYPE_PE`**: attaches both `token_type_ids` and section-coupled sinusoidal `position_ids`.
 - **`TOKEN_TYPE_NOPE`**: attaches `token_type_ids` only (`position_ids=None`).
 - **`NOPE`**: attaches neither (`token_type_ids=None`, `position_ids=None`; Kazemnejad et al., 2023).
 

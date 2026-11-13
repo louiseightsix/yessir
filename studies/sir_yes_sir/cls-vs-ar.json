@@ -1,5 +1,5 @@
 {
-  "title": "Multi-head classification (mh) vs. autoregressive rollout (ar)",
+  "title": "Parallel classification (cls) vs. autoregressive rollout (ar)",
   "status": "draft",
   "kind": "comparison",
   "question": "Holding the prompt and prefix format fixed, how does step-by-step prediction via a learned ParallelClassificationHead (predicting o_k and flag_k in parallel) compare in sample efficiency, halting reliability, and accuracy against full-sequence teacher forcing and free-running rollout via the parameter-free SubspaceLMHead?",
