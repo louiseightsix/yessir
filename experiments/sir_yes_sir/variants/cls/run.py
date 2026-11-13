@@ -7,7 +7,6 @@ from experiments.sir_yes_sir.config import (
     CLS_DESCRIPTION,
     ClsSupervision,
     SirYesSirClsConfig,
-    SirYesSirConfig,
 )
 from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
@@ -18,23 +17,18 @@ from yessir.vocab import VOCAB_SIZE
 
 
 def run_sir_yes_sir_cls(
-    config: SirYesSirConfig,
+    config: SirYesSirClsConfig,
     out_dir: Path | None = None,
     *,
     device: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the `cls` variant of `sir_yes_sir` according to `config`."""
-    supervision = (
-        config.supervision
-        if isinstance(config, SirYesSirClsConfig)
-        else ClsSupervision.SINGLE_PASS
-    )
     train_dataset = SirYesSirClsDataset(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
         resample_alphabet=config.resample_alphabet,
-        supervision=supervision,
+        supervision=config.supervision,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
