@@ -427,6 +427,18 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
             results_root=tmp_path,
             interactive=False,
         )
+    for bad_device in (["--device", "mps"], ["--device=gpu"]):
+        with pytest.raises(
+            ValueError,
+            match="Unsupported --device .* for `vertex submit`; expected one of 'auto', 'cpu', 'cuda'",
+        ):
+            cmd_submit(
+                [exp],
+                ["sir_yes_sir", "sm_mh", "--steps", "10", *bad_device],
+                settings=settings,
+                results_root=tmp_path,
+                interactive=False,
+            )
 
 
 def test_cmd_list_and_cmd_pull(
