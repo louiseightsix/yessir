@@ -143,6 +143,30 @@ def test_cls_dataset_all_steps_and_random_step_modes():
     assert len(rand_item.labels) == 2
     assert isinstance(rand_item.labels[0], int)
 
+    # Verify `step_rng` is decoupled from `iter_problems` on problem 0 (when B == L and
+    # permute_alphabet=False, sharing the same seed would force k == index(x[0]) for every seed).
+    decoupled = False
+    for s in range(20):
+        item_s = next(
+            iter(
+                SirYesSirClsDataset(
+                    alphabet_size=3,
+                    x_length=3,
+                    symbols=SymbolSet.DECIMAL[:3],
+                    permute_alphabet=False,
+                    training_mode=ClsTrainingMode.RANDOM_STEP,
+                    seed=s,
+                )
+            )
+        )
+        # Prefix length is 1 + 3 + 1 + 3 + 1 = 9; output history length is k.
+        k = len(item_s.example) - 9
+        x0_rank = SymbolSet.DECIMAL[:3].index(item_s.example.input_ids[5])
+        if k != x0_rank:
+            decoupled = True
+            break
+    assert decoupled
+
 
 @pytest.mark.parametrize(
     ("alphabet_size", "x_length", "symbols", "match"),

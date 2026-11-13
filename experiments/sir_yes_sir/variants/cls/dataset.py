@@ -55,7 +55,8 @@ class SirYesSirClsDataset:
 
     def __iter__(self) -> Iterator[LabelledExample]:
         """Yield `LabelledExample`s deterministically from `self._seed`."""
-        step_rng = random.Random(self._seed)
+        # Offset from `self._seed` so `step_rng` does not share initial PRNG state with `iter_problems`.
+        step_rng = random.Random(self._seed + 1)
         for alphabet, x in iter_problems(
             alphabet_size=self._alphabet_size,
             x_length=self._x_length,
