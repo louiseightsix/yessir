@@ -52,7 +52,7 @@ class VariantRunFn[ConfigT: ExperimentConfig](Protocol):
 
 @dataclass(frozen=True, kw_only=True)
 class ExperimentVariant[ConfigT: ExperimentConfig]:
-    """One execution/harness variant of an `Experiment` (e.g. `'sm_mh'`, `'ar'`)."""
+    """One execution/harness variant of an `Experiment` (e.g. `'cls'`, `'ar'`)."""
 
     name: str
     description: str

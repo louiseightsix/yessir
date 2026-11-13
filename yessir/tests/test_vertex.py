@@ -45,8 +45,8 @@ def _make_sample_experiment() -> Experiment:
         description="Sample experiment.",
         variants=(
             ExperimentVariant(
-                name="sm_mh",
-                description="State-machine multi-head.",
+                name="cls",
+                description="Parallel classification.",
                 config_cls=_SampleConfig,
                 run=_noop_run,
             ),
@@ -116,7 +116,7 @@ def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
     spec = build_custom_job_spec(
         settings=settings,
         experiment_name="sir_yes_sir",
-        variant_name="sm_mh",
+        variant_name="cls",
         run_name="2026-11-12-953e4d9-amber-falcon",
         git_commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
     )
@@ -151,7 +151,7 @@ def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
     ]
     assert container["args"] == [
         "sir_yes_sir",
-        "sm_mh",
+        "cls",
         "--config",
         f"{fuse_dir}/config.json",
         "--out-dir",
@@ -255,7 +255,7 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     record = cmd_submit(
         [exp],
-        ["sir_yes_sir", "sm_mh", "--steps", "42", "--lr", "0.005", "--device", "cuda"],
+        ["sir_yes_sir", "cls", "--steps", "42", "--lr", "0.005", "--device", "cuda"],
         settings=settings,
         results_root=tmp_path,
         git_info=fake_git,
@@ -264,7 +264,7 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     assert record is not None
     assert record.job_id == "987654321"
     assert record.experiment == "sir_yes_sir"
-    assert record.variant == "sm_mh"
+    assert record.variant == "cls"
     assert record.run_name.startswith("2026-11-12-953e4d9-")
 
     run_dir = tmp_path / "sir_yes_sir" / record.run_name
@@ -308,7 +308,7 @@ def test_cmd_submit_runs_git_checks_before_interactive_editor(
     with pytest.raises(RuntimeError, match="uncommitted code changes"):
         cmd_submit(
             [exp],
-            ["sir_yes_sir", "sm_mh", "-i"],
+            ["sir_yes_sir", "cls", "-i"],
             settings=settings,
             results_root=tmp_path,
             git_info=dirty_git,
@@ -389,7 +389,7 @@ def test_cmd_submit_leaves_no_local_files_and_surfaces_stderr_when_gcloud_fails(
     with pytest.raises(RuntimeError, match="PERMISSION_DENIED"):
         cmd_submit(
             [exp],
-            ["sir_yes_sir", "sm_mh", "--steps", "10"],
+            ["sir_yes_sir", "cls", "--steps", "10"],
             settings=settings,
             results_root=tmp_path,
             git_info=fake_git,
@@ -409,7 +409,7 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
             [exp],
             [
                 "sir_yes_sir",
-                "sm_mh",
+                "cls",
                 "--steps",
                 "10",
                 "--out-dir",
@@ -422,7 +422,7 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
     with pytest.raises(ValueError, match="Cannot submit a Vertex job with --no-save"):
         cmd_submit(
             [exp],
-            ["sir_yes_sir", "sm_mh", "--steps", "10", "--no-save"],
+            ["sir_yes_sir", "cls", "--steps", "10", "--no-save"],
             settings=settings,
             results_root=tmp_path,
             interactive=False,
@@ -434,7 +434,7 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
         ):
             cmd_submit(
                 [exp],
-                ["sir_yes_sir", "sm_mh", "--steps", "10", *bad_device],
+                ["sir_yes_sir", "cls", "--steps", "10", *bad_device],
                 settings=settings,
                 results_root=tmp_path,
                 interactive=False,
@@ -455,7 +455,7 @@ def test_cmd_list_and_cmd_pull(
         project=settings.project,
         region=settings.region,
         experiment="sir_yes_sir",
-        variant="sm_mh",
+        variant="cls",
         run_name="2026-11-12-953e4d9-amber-falcon",
         git_commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         repo_url=settings.repo_url,
