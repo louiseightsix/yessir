@@ -96,6 +96,28 @@ def test_parallel_classification_cross_entropy_matches_manual_sum():
     assert logits_1.grad is not None
     assert logits_2.grad is not None
 
+    # Also supports 3D (B, T, num_classes) per-position logits with IGNORE_INDEX
+    seq_logits_0 = torch.randn(2, 3, 8, requires_grad=True)
+    seq_logits_1 = torch.randn(2, 3, 4, requires_grad=True)
+    seq_labels = torch.tensor(
+        [
+            [[IGNORE_INDEX, IGNORE_INDEX], [2, 1], [IGNORE_INDEX, IGNORE_INDEX]],
+            [[IGNORE_INDEX, IGNORE_INDEX], [5, 0], [7, 3]],
+        ],
+        dtype=torch.long,
+    )
+    seq_loss = parallel_classification_cross_entropy(
+        (seq_logits_0, seq_logits_1), seq_labels
+    )
+    expected_seq = F.cross_entropy(
+        torch.stack([seq_logits_0[0, 1], seq_logits_0[1, 1], seq_logits_0[1, 2]]),
+        torch.tensor([2, 5, 7]),
+    ) + F.cross_entropy(
+        torch.stack([seq_logits_1[0, 1], seq_logits_1[1, 1], seq_logits_1[1, 2]]),
+        torch.tensor([1, 0, 3]),
+    )
+    assert torch.allclose(seq_loss, expected_seq)
+
 
 def test_parallel_classification_cross_entropy_rejects_invalid_shapes():
     with pytest.raises(ValueError, match="at least one head"):
@@ -108,9 +130,14 @@ def test_parallel_classification_cross_entropy_rejects_invalid_shapes():
         )
 
     mismatched_logits = (torch.randn(2, 8), torch.randn(3, 8))
-    with pytest.raises(ValueError, match="batch size"):
+    with pytest.raises(ValueError, match="leading shape"):
         parallel_classification_cross_entropy(
             mismatched_logits, torch.zeros(2, 2, dtype=torch.long)
+        )
+
+    with pytest.raises(ValueError, match="must have 2 or 3 dimensions"):
+        parallel_classification_cross_entropy(
+            (torch.randn(8),), torch.zeros(1, dtype=torch.long)
         )
 
 
@@ -220,15 +247,15 @@ def test_train_validation_and_early_exhaustion():
     )
     dataset = _SyntheticDataset()
 
-    with pytest.raises(ValueError, match="steps must be >= 1"):
-        train(model, dataset, steps=0, batch_size=4)
+    with pytest.raises(ValueError, match="max_steps must be >= 1"):
+        train(model, dataset, max_steps=0, batch_size=4)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
-        train(model, dataset, steps=1, batch_size=0)
+        train(model, dataset, max_steps=1, batch_size=0)
     with pytest.raises(ValueError, match="cannot specify both lr and optimizer"):
         train(
             model,
             dataset,
-            steps=1,
+            max_steps=1,
             batch_size=4,
             lr=1e-3,
             optimizer=build_optimizer(model),
@@ -237,7 +264,7 @@ def test_train_validation_and_early_exhaustion():
     ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
     finite_dataset = [LabelledExample(example=ex, labels=(1, 2, 3))]
     with pytest.raises(ValueError, match="dataset exhausted early"):
-        train(model, finite_dataset, steps=1, batch_size=2)
+        train(model, finite_dataset, max_steps=1, batch_size=2)
 
 
 def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
@@ -259,12 +286,12 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     losses_part1 = train(
         model,
         stream,
-        steps=5,
+        max_steps=5,
         batch_size=8,
         optimizer=opt,
         on_step=lambda s, loss: recorded_steps.append((s, loss)),
     )
-    losses_part2 = train(model, stream, steps=5, batch_size=8, optimizer=opt)
+    losses_part2 = train(model, stream, max_steps=5, batch_size=8, optimizer=opt)
     losses = losses_part1 + losses_part2
 
     assert [s for s, _ in recorded_steps] == [1, 2, 3, 4, 5]

@@ -24,9 +24,10 @@ class Transformer(nn.Module):
     """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and an output head.
 
     Output head selection (`head_type`):
-    - `HeadType.PARALLEL_CLASSIFICATION`: requires `num_classes` (e.g. `(256, 256, 256)`) and
-      builds a `ParallelClassificationHead` that projects the final unpadded position `lengths - 1`
-      into per-head logits.
+    - `HeadType.PARALLEL_CLASSIFICATION`: requires `num_classes` (e.g. `(256, 256)`) and
+      builds a `ParallelClassificationHead` that projects either the final unpadded
+      position `lengths - 1` (when `lengths` is passed) or all sequence positions
+      `(B, T, num_classes_i)` (when `lengths=None`) into per-head logits.
     - `HeadType.SUBSPACE_LM`: requires `num_classes=None` and builds a parameter-free
       `SubspaceLMHead` that reads the `0..255` symbol subspace across all sequence
       positions `(B, T, 256)`.
@@ -128,8 +129,4 @@ class Transformer(nn.Module):
             x = layer(x)
         if isinstance(self.head, SubspaceLMHead):
             return self.head(x)
-        if lengths is None:
-            raise ValueError(
-                "lengths is required when using ParallelClassificationHead"
-            )
         return self.head(x, lengths)

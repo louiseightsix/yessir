@@ -35,7 +35,7 @@ def train_and_evaluate(
     print(
         f"{tag} Starting run: B={config.alphabet_size}, L={config.x_length}, "
         f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
-        f"d_model={config.d_model}, steps={config.steps}, batch_size={config.batch_size}, "
+        f"d_model={config.d_model}, max_steps={config.max_steps}, batch_size={config.batch_size}, "
         f"lr={config.lr}, seed={config.seed}, device={resolved_device} -> {dest}",
         flush=True,
     )
@@ -60,22 +60,22 @@ def train_and_evaluate(
         n_heads=config.n_heads,
         d_ff=config.d_ff,
         use_token_type=config.use_token_type,
-        d_position=config.d_position,
-        d_scratch=config.d_scratch,
+        d_position=config.effective_d_position,
+        d_scratch=config.effective_d_scratch,
     ).to(resolved_device)
 
     def _on_step(step_idx: int, step_loss: float) -> None:
         if logger is not None:
             logger.log(step_idx, {"loss": step_loss})
         print(
-            f"{tag} step={step_idx}/{config.steps} loss={step_loss:.4f}",
+            f"{tag} step={step_idx}/{config.max_steps} loss={step_loss:.4f}",
             flush=True,
         )
 
     train(
         model,
         train_dataset,
-        steps=config.steps,
+        max_steps=config.max_steps,
         batch_size=config.batch_size,
         lr=config.lr,
         on_step=_on_step,

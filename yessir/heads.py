@@ -53,14 +53,17 @@ class SubspaceLMHead(nn.Module):
 
 
 class ParallelClassificationHead(nn.Module):
-    """Parallel linear classification heads reading at the last unpadded token (`lengths - 1`).
+    """Parallel linear classification heads reading across all positions or at `lengths - 1`.
 
-    In a right-padded `Batch`, example `b` has real tokens at indices
-    `0 .. lengths[b] - 1` and `PAD` tokens at `>= lengths[b]`. Rather than reading
-    `hidden_states[:, -1]` (which is a `PAD` position whenever examples in the batch
-    have different lengths), `ParallelClassificationHead` gathers `hidden_states[b, lengths[b] - 1]`
-    for each example, applies a final `RMSNorm`, and projects that single hidden state
-    through each head in `self.heads`.
+    Supports two operating modes from the same `RMSNorm` + `nn.Linear` parameters:
+    - **Per-position (`lengths=None`)**: normalises all `T` positions and projects
+      each head to `(B, T, num_classes_i)`, enabling single-pass teacher-forced
+      supervision across all query positions in a sequence (with non-query and
+      padded positions masked by `IGNORE_INDEX` in the loss).
+    - **Single-step (`lengths` provided)**: gathers `hidden_states[b, lengths[b] - 1]`
+      (the last unpadded position of each example in a right-padded `Batch`),
+      applies `RMSNorm`, and projects to `(B, num_classes_i)` at `1/T` the projection
+      cost (used during step-by-step greedy generation and single-step training).
     """
 
     def __init__(self, d_model: int, num_classes: Sequence[int]) -> None:
@@ -79,21 +82,23 @@ class ParallelClassificationHead(nn.Module):
         )
 
     def forward(
-        self, hidden_states: torch.Tensor, lengths: torch.Tensor
+        self, hidden_states: torch.Tensor, lengths: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, ...]:
-        """Project the last unpadded hidden state of each sequence into per-head logits.
-
-        Assumes `lengths` values lie in `1..T` (enforced by `Example` and `collate`;
-        `0` is not checked—that would force a device sync—and would read index `-1`,
-        the last position).
+        """Project hidden states into per-head logits at `lengths - 1` or across all `T` positions.
 
         Args:
             hidden_states: Hidden states of shape `(B, T, d_model)`.
-            lengths: Unpadded sequence lengths of shape `(B,)` with values in `1..T`.
+            lengths: Optional unpadded sequence lengths of shape `(B,)` with values
+                in `1..T`. When omitted (`None`), projects all `T` positions.
 
         Returns:
-            Tuple of `(B, num_classes_i)` logit tensors, one per head.
+            Tuple of `(B, num_classes_i)` logit tensors when `lengths` is given,
+            or `(B, T, num_classes_i)` logit tensors when `lengths` is `None`.
         """
+        if lengths is None:
+            h_norm = self.norm(hidden_states)
+            return tuple(head(h_norm) for head in self.heads)
+
         batch_size = hidden_states.size(0)
         if lengths.shape != (batch_size,):
             raise ValueError(

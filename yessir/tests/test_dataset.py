@@ -51,6 +51,30 @@ def test_labelled_example_rejects_invalid_label_token(bad_token):
         LabelledExample(example=ex, labels=(bad_token,))
 
 
+def test_labelled_example_per_position_tuple_labels_and_validation():
+    ex = Example(input_ids=(1, 2, 3))
+    item = LabelledExample(
+        example=ex,
+        labels=(
+            (IGNORE_INDEX, IGNORE_INDEX),
+            (10, int(SpecialToken.FLAG_CONTINUE)),
+            (20, int(SpecialToken.FLAG_FINISHED)),
+        ),
+    )
+    assert len(item.labels) == 3
+
+    with pytest.raises(ValueError, match="per-position label tuples must not be empty"):
+        LabelledExample(example=ex, labels=((),))
+
+    with pytest.raises(TypeError, match=r"labels\[1\] must be a tuple"):
+        LabelledExample(example=ex, labels=((1, 2), 3))  # ty: ignore[invalid-argument-type]
+
+    with pytest.raises(
+        ValueError, match="all per-position label tuples must have 2 elements"
+    ):
+        LabelledExample(example=ex, labels=((1, 2), (3,)))
+
+
 def test_format_token_special_and_hex():
     assert format_token(int(SpecialToken.BOS)) == "[BOS]"
     assert format_token(int(SpecialToken.FLAG_CONTINUE)) == "[FLAG_CONTINUE]"
@@ -64,7 +88,7 @@ def test_format_token_special_and_hex():
 
 def test_format_labelled_example_with_and_without_type_and_position_ids():
     ex_full = Example(
-        input_ids=(int(SpecialToken.BOS), 0x0A, int(SpecialToken.STEP)),
+        input_ids=(int(SpecialToken.BOS), 0x0A, int(SpecialToken.SEP)),
         token_type_ids=(0, 1, 3),
         position_ids=(0, 0, 0),
     )
@@ -74,9 +98,9 @@ def test_format_labelled_example_with_and_without_type_and_position_ids():
     )
     formatted_full = format_labelled_example(item_full, index=0)
     assert "Example 0:" in formatted_full
-    assert "input_ids:      [BOS]  0x0a  [STEP]" in formatted_full
-    assert "token_type_ids:     0     1       3" in formatted_full
-    assert "position_ids:       0     0       0" in formatted_full
+    assert "input_ids:      [BOS]  0x0a  [SEP]" in formatted_full
+    assert "token_type_ids:     0     1      3" in formatted_full
+    assert "position_ids:       0     0      0" in formatted_full
     assert "labels:         (0x0a, [FLAG_FINISHED])" in formatted_full
 
     ex_nope = Example(input_ids=(int(SpecialToken.BOS), 0x0A))

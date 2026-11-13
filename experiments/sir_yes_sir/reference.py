@@ -1,11 +1,10 @@
-"""Ground-truth reference implementation for sir_yes_sir.
+"""Ground-truth reference implementation for `sir_yes_sir`.
 
-Task: In-context successor (next symbol mod B, no carry).
-Given an ordered alphabet [s_0, ..., s_{B-1}] and an input sequence x,
-at step k where x_k = s_i:
-- o_k: next symbol in the alphabet, s_{(i+1) mod B}
-- w_k: s_1 if wrapped around (i == B - 1) else s_0
-- flag_k: FLAG_FINISHED if k == len(x) - 1 else FLAG_CONTINUE
+Task: In-context cyclic successor lookup (`experiments/sir_yes_sir/spec/task.md` §1).
+Given an ordered alphabet `[s_0, ..., s_{B-1}]` and an input sequence `x = [x_0, ..., x_{L-1}]`,
+at step `k` where `x_k = s_i`:
+- `o_k`: next symbol in the alphabet, `s_{(i + 1) mod B}` (wrapping around from `s_{B-1}` to `s_0`).
+- `flag_k`: `FLAG_FINISHED` if `k == len(x) - 1` else `FLAG_CONTINUE`.
 """
 
 from yessir.special_tokens import SpecialToken
@@ -16,19 +15,18 @@ def reference_step(
     alphabet: TokenSequence,
     x: TokenSequence,
     k: int,
-) -> tuple[Token, Token, SpecialToken]:
-    """Compute the ground-truth transition at step k.
+) -> tuple[Token, SpecialToken]:
+    """Compute the ground-truth `(o_k, flag_k)` transition at step `k`.
 
     Args:
-        alphabet: Ordered alphabet of B >= 2 distinct symbols [s_0, ..., s_{B-1}].
-        x: Input sequence of symbols drawn from the alphabet.
-        k: 0-indexed step index (0 <= k < len(x)).
+        alphabet: Ordered alphabet of `B >= 2` distinct symbols `[s_0, ..., s_{B-1}]`.
+        x: Input sequence of symbols drawn from `alphabet`.
+        k: 0-indexed step index (`0 <= k < len(x)`).
 
     Returns:
-        (o_k, w_k, flag_k):
-        - o_k: Successor symbol s_{(i+1) mod B}.
-        - w_k: Wrap indicator (s_1 if i == B - 1 else s_0).
-        - flag_k: Halting flag (FLAG_FINISHED if k == len(x) - 1 else FLAG_CONTINUE).
+        `(o_k, flag_k)`:
+        - `o_k`: Cyclic successor symbol `s_{(i + 1) mod B}`.
+        - `flag_k`: Halting flag (`FLAG_FINISHED` if `k == len(x) - 1` else `FLAG_CONTINUE`).
     """
     if not (0 <= k < len(x)):
         raise IndexError(
@@ -47,15 +45,12 @@ def reference_step(
             f"Input symbol 0x{current_symbol:02X} at step k={k} not found in alphabet"
         ) from None
 
-    # Primary output: next symbol mod B
+    # Cyclic successor in the prompt's alphabet (wrapping from s_{B-1} to s_0)
     o_k = alphabet[(i + 1) % base]
 
-    # Wrap output: s_1 if wrapped around from last symbol to first, else s_0
-    w_k = alphabet[1] if i == base - 1 else alphabet[0]
-
-    # Halting flag: finished if this is the final input element
+    # Halting flag: finished on the final input element, continue otherwise
     flag_k = (
         SpecialToken.FLAG_FINISHED if k == len(x) - 1 else SpecialToken.FLAG_CONTINUE
     )
 
-    return o_k, w_k, flag_k
+    return o_k, flag_k

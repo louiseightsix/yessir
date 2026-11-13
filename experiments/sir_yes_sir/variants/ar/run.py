@@ -3,11 +3,11 @@
 from pathlib import Path
 from typing import Any
 
-from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
-from experiments.sir_yes_sir.variants.ar.config import (
+from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
-    SirYesSirArConfig,
+    SirYesSirConfig,
 )
+from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
 from yessir.experiment import ExperimentVariant
@@ -15,7 +15,7 @@ from yessir.heads import HeadType
 
 
 def run_sir_yes_sir_ar(
-    config: SirYesSirArConfig,
+    config: SirYesSirConfig,
     out_dir: Path | None = None,
     *,
     device: str | None = None,
@@ -25,7 +25,7 @@ def run_sir_yes_sir_ar(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
-        step_order=config.step_order,
+        resample_alphabet=config.resample_alphabet,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
@@ -33,7 +33,7 @@ def run_sir_yes_sir_ar(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
-        step_order=config.step_order,
+        resample_alphabet=config.resample_alphabet,
         embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )
@@ -52,6 +52,6 @@ def run_sir_yes_sir_ar(
 AR_VARIANT = ExperimentVariant(
     name="ar",
     description=AR_DESCRIPTION,
-    config_cls=SirYesSirArConfig,
+    config_cls=SirYesSirConfig,
     run=run_sir_yes_sir_ar,
 )

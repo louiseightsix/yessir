@@ -49,15 +49,29 @@ def format_labelled_example(item: LabelledExample, index: int) -> str:
             str(p).rjust(w) for p, w in zip(ex.position_ids, col_widths, strict=True)
         )
         lines.append(f"  position_ids:   {pos_row}")
-    lines.append(
-        f"  labels:         ({', '.join(format_token(t) for t in item.labels)})"
-    )
+    if isinstance(item.labels[0], tuple):
+        formatted_labels = ", ".join(
+            f"({', '.join(format_token(t) for t in step)})"
+            for step in item.labels
+            if isinstance(step, tuple)
+        )
+    else:
+        formatted_labels = ", ".join(
+            format_token(t) for t in item.labels if isinstance(t, int)
+        )
+    lines.append(f"  labels:         ({formatted_labels})")
     return "\n".join(lines)
 
 
 def to_json_record(item: LabelledExample) -> dict[str, object]:
     """Serialise one `LabelledExample` to a JSON-compatible dict."""
     ex = item.example
+    if isinstance(item.labels[0], tuple):
+        serialised_labels: list[object] = [
+            list(step) for step in item.labels if isinstance(step, tuple)
+        ]
+    else:
+        serialised_labels = list(item.labels)
     return {
         "input_ids": list(ex.input_ids),
         "token_type_ids": (
@@ -66,7 +80,7 @@ def to_json_record(item: LabelledExample) -> dict[str, object]:
         "position_ids": (
             list(ex.position_ids) if ex.position_ids is not None else None
         ),
-        "labels": list(item.labels),
+        "labels": serialised_labels,
     }
 
 

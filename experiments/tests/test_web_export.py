@@ -5,10 +5,11 @@ import subprocess
 import sys
 
 from experiments.__main__ import EXPERIMENTS
-from experiments.sir_yes_sir.config import CLS_DESCRIPTION, SirYesSirConfig
-from experiments.sir_yes_sir.variants.ar.config import (
+from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
-    SirYesSirArConfig,
+    CLS_DESCRIPTION,
+    SirYesSirClsConfig,
+    SirYesSirConfig,
 )
 from experiments.web_export import DESCRIPTIONS, VARIANTS
 from yessir.tui import build_field_specs
@@ -34,17 +35,17 @@ def test_web_export_prints_schemas_with_stdlib_only():
                 {
                     "name": "cls",
                     "description": CLS_DESCRIPTION,
-                    "default_config": SirYesSirConfig().to_dict(),
+                    "default_config": SirYesSirClsConfig().to_dict(),
                     "fields": [
-                        spec.to_dict() for spec in build_field_specs(SirYesSirConfig)
+                        spec.to_dict() for spec in build_field_specs(SirYesSirClsConfig)
                     ],
                 },
                 {
                     "name": "ar",
                     "description": AR_DESCRIPTION,
-                    "default_config": SirYesSirArConfig().to_dict(),
+                    "default_config": SirYesSirConfig().to_dict(),
                     "fields": [
-                        spec.to_dict() for spec in build_field_specs(SirYesSirArConfig)
+                        spec.to_dict() for spec in build_field_specs(SirYesSirConfig)
                     ],
                 },
             ],

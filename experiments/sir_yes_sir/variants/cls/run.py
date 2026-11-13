@@ -3,7 +3,11 @@
 from pathlib import Path
 from typing import Any
 
-from experiments.sir_yes_sir.config import CLS_DESCRIPTION, SirYesSirConfig
+from experiments.sir_yes_sir.config import (
+    CLS_DESCRIPTION,
+    ClsSupervision,
+    SirYesSirClsConfig,
+)
 from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
 from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
@@ -13,7 +17,7 @@ from yessir.vocab import VOCAB_SIZE
 
 
 def run_sir_yes_sir_cls(
-    config: SirYesSirConfig,
+    config: SirYesSirClsConfig,
     out_dir: Path | None = None,
     *,
     device: str | None = None,
@@ -23,6 +27,8 @@ def run_sir_yes_sir_cls(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
+        resample_alphabet=config.resample_alphabet,
+        supervision=config.supervision,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
@@ -30,6 +36,8 @@ def run_sir_yes_sir_cls(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
+        resample_alphabet=config.resample_alphabet,
+        supervision=ClsSupervision.SINGLE_PASS,
         embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )
@@ -38,7 +46,7 @@ def run_sir_yes_sir_cls(
         config=config,
         out_dir=out_dir,
         head_type=HeadType.PARALLEL_CLASSIFICATION,
-        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_cls,
@@ -49,6 +57,6 @@ def run_sir_yes_sir_cls(
 CLS_VARIANT = ExperimentVariant(
     name="cls",
     description=CLS_DESCRIPTION,
-    config_cls=SirYesSirConfig,
+    config_cls=SirYesSirClsConfig,
     run=run_sir_yes_sir_cls,
 )

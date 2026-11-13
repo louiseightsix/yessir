@@ -1,60 +1,46 @@
 """Teacher-forced evaluation (`evaluate_cls`) for the `cls` variant of `sir_yes_sir`."""
 
+import itertools
 from collections.abc import Iterable
 
 import torch
 
 from experiments.sir_yes_sir.evaluation import EvalMetrics
-from yessir.batch import collate
-from yessir.dataset import LabelledExample
+from yessir.batch import collate_labelled
+from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
-from yessir.training import pack_classification_labels
 
 
-def _collect_problems(
-    dataset: Iterable[LabelledExample],
-    num_problems: int,
-) -> list[list[LabelledExample]]:
-    """Draw `num_problems` complete problems from `dataset`, grouped by `FLAG_FINISHED`."""
-    problems: list[list[LabelledExample]] = []
-    current: list[LabelledExample] = []
-
-    for item in dataset:
-        if len(item.labels) != 3:
+def _validate_cls_item(item: LabelledExample) -> int:
+    """Validate a single-pass `cls` `LabelledExample` and return its step count `L`."""
+    if len(item.labels) != len(item.example):
+        raise ValueError(
+            f"expected per-position labels ({len(item.example)}), got {len(item.labels)}"
+        )
+    if not isinstance(item.labels[0], tuple) or len(item.labels[0]) != 2:
+        raise ValueError(
+            "expected per-position 2-tuple labels (o_k, flag_k) for cls evaluation"
+        )
+    target_steps: list[tuple[int, int]] = [
+        (step[0], step[1])
+        for step in item.labels
+        if isinstance(step, tuple) and step[0] != IGNORE_INDEX
+    ]
+    if not target_steps:
+        raise ValueError("expected at least 1 non-ignored step in cls LabelledExample")
+    if target_steps[-1][1] != SpecialToken.FLAG_FINISHED:
+        raise ValueError(
+            f"expected final cls step flag to be FLAG_FINISHED ({int(SpecialToken.FLAG_FINISHED)}), "
+            f"got {target_steps[-1][1]!r}"
+        )
+    for k, (_, flag) in enumerate(target_steps[:-1]):
+        if flag != SpecialToken.FLAG_CONTINUE:
             raise ValueError(
-                f"expected 3 labels (o_k, w_k, flag_k), got {len(item.labels)}"
+                f"expected non-final cls step {k} flag to be FLAG_CONTINUE ({int(SpecialToken.FLAG_CONTINUE)}), "
+                f"got {flag!r}"
             )
-        if not current:
-            # At step k = 0 of a state-machine problem, output_history is empty,
-            # so the second [SEP] sits immediately before [STEP] at input_ids[-2].
-            input_ids = item.example.input_ids
-            if (
-                len(input_ids) < 2
-                or input_ids[-1] != SpecialToken.STEP
-                or input_ids[-2] != SpecialToken.SEP
-            ):
-                raise ValueError(
-                    "stream must start at step k=0 of a problem "
-                    "(expected [SEP] immediately before [STEP])"
-                )
-        flag = item.labels[2]
-        if flag not in (SpecialToken.FLAG_CONTINUE, SpecialToken.FLAG_FINISHED):
-            raise ValueError(
-                f"expected flag label to be FLAG_CONTINUE ({int(SpecialToken.FLAG_CONTINUE)}) "
-                f"or FLAG_FINISHED ({int(SpecialToken.FLAG_FINISHED)}), got {flag!r}"
-            )
-        current.append(item)
-        if flag == SpecialToken.FLAG_FINISHED:
-            problems.append(current)
-            current = []
-            if len(problems) == num_problems:
-                return problems
-
-    raise ValueError(
-        f"dataset exhausted early: needed {num_problems} complete problems, "
-        f"got {len(problems)} (with {len(current)} trailing unfinished steps)"
-    )
+    return len(target_steps)
 
 
 @torch.no_grad()
@@ -65,25 +51,26 @@ def evaluate_cls(
     num_problems: int,
     batch_size: int = 64,
 ) -> EvalMetrics:
-    """Evaluate `model` with teacher forcing on `num_problems` problems from `dataset`.
+    """Evaluate `model` with single-pass teacher forcing on `num_problems` problems from `dataset`.
 
-    `dataset` must start at a problem boundary (`k = 0`, e.g. a fresh `SirYesSirClsDataset`
-    with an evaluation seed disjoint from training); starting mid-problem raises a
-    `ValueError`.
+    Why single-pass teacher-forced evaluation gives exact match (`exact_match`) for `cls`:
+    Under causal masking and right-padding invariance, the hidden state at query index
+    `P - 1 + k` sees the exact same prefix `prefix + (o_0, ..., o_{k-1})` as step `k` of
+    `greedy_generate_cls` up to the first prediction mismatch.
 
-    Why teacher-forced step evaluation also gives exact match (`exact_match`) for `sir_yes_sir`:
-    Per `experiments/sir_yes_sir/spec/README.md` §3, an instance is an exact match if
-    and only if the model emits the ground-truth `(o_k, w_k, flag_k)` at every step
-    `k = 0 .. L - 1`. Until the first error on a problem, `rollout_cls`'s `output_history`
-    is identical to the teacher-forced `output_history` in `dataset`, and right-padding
-    invariance produces the same logits up to floating-point rounding as step-by-step
-    execution.
+    Metrics (`experiments/sir_yes_sir/spec/variants/cls.md` §3):
+    - `exact_match` (per problem): every step `k` in `0 .. L - 1` predicts both
+      `pred_o[k] == o_k` and `pred_flag[k] == flag_k`.
+    - `step_accuracy` (per input step `k` in `0 .. L - 1`): fraction of the `L` steps
+      across all evaluated problems where `pred_o[k] == o_k`.
+    - `halt_accuracy` (per problem): fraction of problems that halt at the exact right
+      step (`pred_flag[k] == FLAG_CONTINUE` for `k < L - 1` and `pred_flag[L - 1] == FLAG_FINISHED`).
 
     Args:
-        model: `Transformer` configured with `ParallelClassificationHead`.
-        dataset: Stream of step-level `LabelledExample`s starting at step `k = 0`.
-        num_problems: Number of complete problems to evaluate (`>= 1`).
-        batch_size: Maximum number of step examples per forward pass (`>= 1`).
+        model: `Transformer` configured with a 2-head `ParallelClassificationHead`.
+        dataset: Stream of single-pass `cls` `LabelledExample`s (one per problem).
+        num_problems: Number of problems to evaluate (`>= 1`).
+        batch_size: Maximum number of problems per forward pass (`>= 1`).
 
     Returns:
         `EvalMetrics` with `exact_match`, `step_accuracy`, and `halt_accuracy`.
@@ -93,42 +80,56 @@ def evaluate_cls(
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
 
+    items = list(itertools.islice(dataset, num_problems))
+    if len(items) < num_problems:
+        raise ValueError(
+            f"dataset exhausted early: needed {num_problems} problems, got {len(items)}"
+        )
+    for item in items:
+        _validate_cls_item(item)
+
     model.eval()
     device = model.device
-    problems = _collect_problems(dataset, num_problems)
-    flat_items = [item for problem in problems for item in problem]
+    em_count = 0
+    total_steps = 0
+    step_ok_count = 0
+    halt_ok_count = 0
 
-    step_ok_list: list[bool] = []
-    halt_ok_list: list[bool] = []
+    for start in range(0, len(items), batch_size):
+        chunk = items[start : start + batch_size]
+        batch, labels = collate_labelled(chunk)
+        batch = batch.to(device)
 
-    for start in range(0, len(flat_items), batch_size):
-        chunk = flat_items[start : start + batch_size]
-        batch = collate([item.example for item in chunk]).to(device)
-        labels = pack_classification_labels(chunk).to(device)
-
-        logits = model(
+        logits_o, logits_flag = model(
             batch.input_ids,
-            batch.lengths,
+            lengths=None,
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
-        preds = torch.stack([head.argmax(dim=-1) for head in logits], dim=1)
-        matches = preds == labels
+        batch_pred_o = logits_o.argmax(dim=-1).cpu()
+        batch_pred_flag = logits_flag.argmax(dim=-1).cpu()
 
-        step_ok_list.extend(matches.all(dim=1).tolist())
-        halt_ok_list.extend(matches[:, 2].tolist())
+        for b in range(len(chunk)):
+            valid_mask = labels[b, :, 0] != IGNORE_INDEX
+            pred_o = batch_pred_o[b][valid_mask].tolist()
+            pred_flag = batch_pred_flag[b][valid_mask].tolist()
+            target_o = labels[b, :, 0][valid_mask].tolist()
+            target_flag = labels[b, :, 1][valid_mask].tolist()
 
-    em_count = 0
-    cursor = 0
-    for problem in problems:
-        n_steps = len(problem)
-        if all(step_ok_list[cursor : cursor + n_steps]):
-            em_count += 1
-        cursor += n_steps
+            n_steps = len(target_o)
+            total_steps += n_steps
+            for k in range(n_steps):
+                if pred_o[k] == target_o[k]:
+                    step_ok_count += 1
 
-    total_steps = len(flat_items)
+            halt_ok = pred_flag == target_flag
+            if halt_ok:
+                halt_ok_count += 1
+            if pred_o == target_o and halt_ok:
+                em_count += 1
+
     return EvalMetrics(
         exact_match=em_count / num_problems,
-        step_accuracy=sum(step_ok_list) / total_steps,
-        halt_accuracy=sum(halt_ok_list) / total_steps,
+        step_accuracy=step_ok_count / total_steps,
+        halt_accuracy=halt_ok_count / num_problems,
     )

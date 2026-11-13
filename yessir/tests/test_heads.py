@@ -24,6 +24,16 @@ def test_parallel_classification_head_shapes_and_bias_free():
     assert logits_b.shape == (4, VOCAB_SIZE)
     assert logits_c.shape == (4, VOCAB_SIZE)
 
+    # Per-position mode (lengths=None) projects all T positions
+    seq_a, seq_b, seq_c = head(hidden_states)
+    assert seq_a.shape == (4, 7, VOCAB_SIZE)
+    assert seq_b.shape == (4, 7, VOCAB_SIZE)
+    assert seq_c.shape == (4, 7, VOCAB_SIZE)
+    for b, n in enumerate(lengths.tolist()):
+        assert torch.allclose(seq_a[b, n - 1], logits_a[b], atol=1e-5)
+        assert torch.allclose(seq_b[b, n - 1], logits_b[b], atol=1e-5)
+        assert torch.allclose(seq_c[b, n - 1], logits_c[b], atol=1e-5)
+
 
 def test_parallel_classification_head_reads_at_lengths_minus_one_and_ignores_padding():
     torch.manual_seed(0)
