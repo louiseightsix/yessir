@@ -9,9 +9,6 @@
   border-collapse: collapse;
   font-size: var(--fs-table);
 }
-.runs-table {
-  min-width: 1120px;
-}
 .data-table thead tr {
   text-align: left;
   color: var(--c-muted);
@@ -19,12 +16,12 @@
   border-bottom: 1px solid var(--c-border);
 }
 .data-table th {
-  padding: 10px 12px;
+  padding: 10px 8px;
   font-weight: 600;
   white-space: nowrap;
 }
 .data-table td {
-  padding: 12px;
+  padding: 12px 8px;
   vertical-align: top;
 }
 .data-table tbody tr {
@@ -41,6 +38,9 @@
 .data-table .run-name {
   white-space: nowrap;
   overflow-wrap: normal;
+}
+.data-table th.metric-th {
+  white-space: normal;
 }
 .th-note {
   font-weight: 400;

@@ -102,11 +102,23 @@
 .is-changed .field-control input {
   border-color: var(--c-diff-input-border);
 }
+/* Enum fields: separate buttons with a gap rather than one joined bar, so when
+   the options wrap onto a second line each keeps its own border instead of
+   leaving a lopsided box. */
 .field-control .segmented {
   flex-wrap: wrap;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 .field-control .segmented button {
   padding: 0 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+}
+.field-control .segmented button[aria-pressed="true"] {
+  border-color: var(--c-ink);
 }
 .field-reset {
   min-height: 32px;

@@ -15,7 +15,7 @@ export function KindBadge({ kind }: { kind: string }) {
 
 const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   evaluated: "evaluated",
-  in_progress: "in progress",
+  in_progress: "running",
   flawed: "flawed",
 };
 

@@ -143,6 +143,18 @@ const newestProgress =
     gap: 22px;
   }
 
+  /* Side by side (sidebar 232px + content 560px, plus a scrollbar), the sidebar
+     stays put while the page scrolls, so "Running now" is always in view. Below
+     that width it stacks on top, where sticking would cover the content. */
+  @media (min-width: 820px) {
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+  }
+
   .content {
     flex: 999 1 560px;
     min-width: 0;
