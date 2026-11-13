@@ -210,6 +210,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.3.0
         version: 19.3.0(@types/react@19.3.0)
+      astro-agent-annotate:
+        specifier: ^0.0.2
+        version: 0.0.2(astro@7.4.11(esbuild@0.28.2)(yaml@2.9.1))
       wrangler:
         specifier: ^4.161.0
         version: 4.161.0
@@ -1050,6 +1053,11 @@ packages:
   aria-query@5.3.2:
     resolution: {integrity: sha512-COROpnaoap1E2F000S62r6A60uHZnmlvomhfyT2DlTcrY1OrBKn2UhH7qn5wTC9zMvD0AY7csdPSNwKP+7WiQw==}
     engines: {node: '>= 0.4'}
+
+  astro-agent-annotate@0.0.2:
+    resolution: {integrity: sha512-t/qymOQRlF9B0w/MNObNJBl+zU6Mt8sHxMGjw67y6Lj8q+mTqUTdm1TL+qR7/72fil8n4WovEQDU3WhGic3QTg==}
+    peerDependencies:
+      astro: ^4.0.0 || ^5.0.0
 
   astro@7.4.11:
     resolution: {integrity: sha512-c8gibLFCnzuXCXqsvTiMXbjCnuIjxGhWw6TO5n11cXzNrw36P3ZgBzsOoRUR4raG1r6cKWeE5oXQu4F3GCBofg==}
@@ -2478,6 +2486,10 @@ snapshots:
       picomatch: 2.3.2
 
   aria-query@5.3.2: {}
+
+  astro-agent-annotate@0.0.2(astro@7.4.11(esbuild@0.28.2)(yaml@2.9.1)):
+    dependencies:
+      astro: 7.4.11(esbuild@0.28.2)(yaml@2.9.1)
 
   astro@7.4.11(esbuild@0.28.2)(yaml@2.9.1):
     dependencies:

@@ -1,0 +1,269 @@
+---
+// App shell: sidebar (experiment picker, nav, "Running now", footer) and content area.
+import "../styles/global.css";
+import { ProgressBar } from "../components/controls";
+import { getExperiment, getSiteData } from "../lib/data";
+
+export type Section = "studies" | "runs" | "new";
+
+interface Props {
+  /** Page title, shown in the browser tab after "yessir — ". */
+  title: string;
+  experiment: string;
+  /** Which nav link is active. Detail pages pass their parent section. */
+  section: Section;
+}
+
+const { title, experiment, section } = Astro.props;
+const site = getSiteData();
+const exp = getExperiment(experiment);
+
+// Where each nav link goes, relative to the experiment prefix. The experiment
+// picker reuses this so switching experiment keeps you in the same section.
+const sectionPaths: Record<Section, string> = { studies: "", runs: "runs/", new: "new/" };
+const navLinks: Array<{ section: Section; label: string; count: number | null; icon: string }> = [
+  { section: "studies", label: "Studies", count: exp.studies.length, icon: "M2.5 3h4.5v10H2.5zM9 3h4.5v10H9z" },
+  { section: "runs", label: "Runs", count: exp.runs.length, icon: "M2.5 4h11M2.5 8h11M2.5 12h11" },
+  { section: "new", label: "New run", count: null, icon: "M8 3v10M3 8h10" },
+];
+
+// "Running now": runs without eval.json (and not flawed), newest first.
+const running = exp.runs.filter((r) => r.status === "in_progress");
+const newest = running[0];
+const newestLast = newest?.trainPoints.at(-1);
+const newestProgress =
+  newest && newestLast && newest.totalSteps ? newestLast.step / newest.totalSteps : null;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>yessir — {title}</title>
+  </head>
+  <body>
+    <div class="shell">
+      <nav aria-label="Primary" class="sidebar">
+        <div class="wordmark">
+          <span class="wordmark-name">yessir</span>
+          <span class="muted">results &amp; runs</span>
+        </div>
+
+        <div class="experiment-picker">
+          <label for="experiment-select" class="eyebrow">Experiment</label>
+          <select id="experiment-select" data-suffix={sectionPaths[section]}>
+            {
+              site.experiments.map((e) => (
+                <option value={e.name} selected={e.name === experiment}>
+                  {e.name}
+                </option>
+              ))
+            }
+          </select>
+          {exp.schema?.description && <span class="muted small">{exp.schema.description}</span>}
+        </div>
+
+        <div class="nav-links">
+          {
+            navLinks.map((link) => (
+              <a
+                href={`/${experiment}/${sectionPaths[link.section]}`}
+                aria-current={link.section === section ? "page" : undefined}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                  <path d={link.icon} />
+                </svg>
+                <span class="nav-label">{link.label}</span>
+                {link.count !== null && <span class="nav-count">{link.count}</span>}
+              </a>
+            ))
+          }
+        </div>
+
+        {
+          newest && (
+            <div class="running-card">
+              <div class="running-title">
+                <span class="running-dot" aria-hidden="true" />
+                Running now · {running.length}
+              </div>
+              <a class="mono" href={`/${experiment}/runs/${newest.name}/`}>
+                {newest.name}
+              </a>
+              {newestProgress !== null && <ProgressBar fraction={newestProgress} />}
+              <div class="running-stats muted">
+                <span>
+                  {newestLast ? newestLast.step : 0}
+                  {newest.totalSteps !== null && ` / ${newest.totalSteps}`}
+                </span>
+                {newestLast && <span>loss {newestLast.loss.toFixed(2)}</span>}
+              </div>
+            </div>
+          )
+        }
+
+        <div class="footer mono muted">
+          {site.headShortSha && `HEAD ${site.headShortSha} · `}py {site.pythonVersion}
+        </div>
+      </nav>
+
+      <main class="content">
+        <div class="content-inner">
+          <slot />
+        </div>
+      </main>
+    </div>
+
+    <script>
+      // Switching experiment keeps you in the same section of the new experiment.
+      const select = document.getElementById("experiment-select") as HTMLSelectElement | null;
+      select?.addEventListener("change", () => {
+        window.location.href = `/${select.value}/${select.dataset.suffix ?? ""}`;
+      });
+    </script>
+  </body>
+</html>
+
+<style>
+  /* Sidebar and content wrap: on a narrow screen the sidebar stacks on top, no media query. */
+  .shell {
+    min-height: 100vh;
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .sidebar {
+    flex: 1 1 var(--sidebar-w);
+    box-sizing: border-box;
+    padding: 20px 14px;
+    background: var(--c-panel);
+    border-right: 1px solid var(--c-border);
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .content {
+    flex: 999 1 560px;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: var(--content-pad);
+  }
+  .content-inner {
+    max-width: 1200px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .wordmark {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 8px;
+    font-size: var(--fs-small);
+  }
+  .wordmark-name {
+    font: 600 18px var(--font-mono);
+    letter-spacing: -0.02em;
+  }
+
+  .experiment-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 8px;
+  }
+  .experiment-picker .eyebrow {
+    font-size: var(--fs-tiny);
+  }
+  .experiment-picker select {
+    font: 500 14px var(--font-mono);
+    padding: 9px 10px;
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--r-control);
+    background: var(--c-field);
+    color: var(--c-ink);
+    min-height: 44px;
+  }
+  .small {
+    font-size: var(--fs-small);
+    line-height: 1.4;
+  }
+
+  .nav-links {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .nav-links a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px;
+    min-height: var(--row-min-h);
+    border-radius: var(--r-control);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--c-ink-3);
+    text-decoration: none;
+  }
+  .nav-links a[aria-current="page"] {
+    font-weight: 600;
+    color: var(--c-accent-strong);
+    background: var(--c-accent-tint);
+  }
+  .nav-label {
+    flex: 1;
+  }
+  .nav-count {
+    font: 500 var(--fs-small) var(--font-mono);
+    color: var(--c-muted);
+  }
+  .nav-links a[aria-current="page"] .nav-count {
+    color: inherit;
+  }
+
+  .running-card {
+    margin-top: auto;
+    padding: 12px;
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: var(--fs-small);
+  }
+  .running-card a {
+    font-size: var(--fs-small);
+    font-weight: 500;
+    color: var(--c-ink);
+    overflow-wrap: anywhere;
+  }
+  .running-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--c-progress-fg);
+  }
+  .running-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--c-accent);
+  }
+  .running-stats {
+    display: flex;
+    justify-content: space-between;
+  }
+  /* With no running card the footer still sits at the bottom. */
+  .footer {
+    margin-top: auto;
+    padding: 0 8px;
+    font-size: var(--fs-tiny);
+  }
+  .running-card + .footer {
+    margin-top: 0;
+  }
+</style>

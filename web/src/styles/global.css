@@ -1,0 +1,134 @@
+/* Base styles shared by every page. Astro components keep scoped styles; React component styles are in components.css. */
+@import "./tokens.css";
+@import "./components.css";
+@import "./tables.css";
+@import "./studies.css";
+@import "./builder.css";
+
+body {
+  margin: 0;
+  background: var(--c-ground);
+  color: var(--c-ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+}
+
+a {
+  color: var(--c-accent-strong);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--c-accent-hover);
+  text-decoration: underline;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+h1 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Small uppercase label above a section ("IN PROGRESS · 3"). */
+.eyebrow {
+  margin: 0;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+
+.muted {
+  color: var(--c-muted);
+}
+
+.panel {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-panel);
+}
+
+/* Page header: title and subtitle on the left, a hint or action on the right. */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.page-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.page-header p {
+  margin: 0;
+  color: var(--c-muted);
+}
+.path-hint {
+  font: 400 var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+}
+
+/* Hidden on screen, still read by screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-control);
+  font: 600 14px var(--font-ui);
+  text-decoration: none;
+  cursor: pointer;
+}
+.button-primary {
+  background: var(--c-ink);
+  color: #fff;
+  border: 1px solid var(--c-ink);
+}
+.button-primary:hover {
+  color: #fff;
+  text-decoration: none;
+}
+.button-secondary {
+  background: var(--c-panel);
+  color: var(--c-ink);
+  border: 1px solid var(--c-border-strong);
+  font-weight: 500;
+}
+
+/* "Runs / closing-filly" above a detail page's title. */
+.breadcrumb {
+  display: flex;
+  gap: 6px;
+  font-size: var(--fs-table);
+  color: var(--c-muted);
+}
+.breadcrumb .mono {
+  color: var(--c-ink);
+}
+
+/* Panel heading, 15/600. */
+.section-heading {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+}

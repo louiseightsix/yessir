@@ -1,0 +1,126 @@
+/* Studies landing page (src/components/StudiesList.tsx). */
+
+.studies-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bars-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-small);
+  color: var(--c-muted);
+}
+.bars-legend-key {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+.bars-legend-key > span {
+  width: 5px;
+  border-radius: 1px;
+}
+
+.study-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.study-section .eyebrow {
+  margin-top: 8px;
+}
+.study-rows {
+  min-width: 820px;
+}
+.study-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 150px 84px;
+  gap: 20px;
+  align-items: start;
+  padding: 16px 20px;
+}
+.study-row + .study-row {
+  border-top: 1px solid var(--c-divider);
+}
+.study-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.study-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.study-title-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.study-title {
+  font-size: var(--fs-section);
+  font-weight: 600;
+  color: var(--c-ink);
+}
+.study-slug {
+  font: var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+}
+.study-question {
+  margin: 0;
+  font-size: var(--fs-table);
+  line-height: 1.5;
+  color: var(--c-ink-3);
+}
+.study-conclusion {
+  margin: 6px 0 0;
+  font-size: var(--fs-table);
+  line-height: 1.5;
+  color: var(--c-conclusion-text);
+  background: var(--c-conclusion-box);
+  padding: 8px 10px;
+  border-radius: var(--r-control);
+}
+.study-conclusion strong {
+  font-weight: 600;
+}
+.study-bars-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.study-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+}
+.study-bars > span {
+  width: 9px;
+  border-radius: 2px;
+}
+.study-best {
+  color: var(--c-ink);
+}
+.study-updated {
+  font: var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+  text-align: right;
+}
+
+.empty-panel {
+  padding: 20px;
+}
+.empty-panel p {
+  margin: 0;
+}
+.empty-panel p + p {
+  margin-top: 4px;
+}

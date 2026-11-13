@@ -1,0 +1,55 @@
+---
+// Studies (landing page for an experiment).
+import StudiesList, { type RunBar, type StudySummary } from "../../components/StudiesList";
+import Shell from "../../layouts/Shell.astro";
+import { getExperiment, getSiteData } from "../../lib/data";
+import { isValid, resolveStudyRuns, studyUpdated } from "../../lib/studies";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.map((e) => ({ params: { experiment: e.name } }));
+}
+
+const { experiment } = Astro.params;
+const exp = getExperiment(experiment);
+const metric = exp.headlineMetric;
+
+const studies: StudySummary[] = exp.studies.map((study) => {
+  const entries = resolveStudyRuns(exp, study);
+  const bars: RunBar[] = entries.map(({ runName, label, run }) => {
+    const name = label ?? runName;
+    if (run === null) return { value: null, state: "missing", title: `${name}: run not found` };
+    const value = metric !== null ? (run.evalMetrics?.[metric] ?? null) : null;
+    if (run.status === "in_progress") return { value: null, state: "in_progress", title: `${name}: running` };
+    if (run.status === "flawed") return { value: null, state: "flawed", title: `${name}: flawed` };
+    return { value, state: "evaluated", title: `${name}: ${value !== null ? value.toFixed(2) : "—"}` };
+  });
+  const validValues = entries
+    .filter((e) => isValid(e.run))
+    .map((e) => (metric !== null ? e.run?.evalMetrics?.[metric] : undefined))
+    .filter((v): v is number => typeof v === "number");
+  return {
+    slug: study.slug,
+    href: `/${experiment}/studies/${study.slug}/`,
+    title: study.title,
+    status: study.status,
+    kind: study.kind,
+    question: study.question,
+    conclusion: study.conclusion,
+    bars,
+    best: validValues.length > 0 ? Math.max(...validValues) : null,
+    updated: studyUpdated(entries, study),
+  };
+});
+---
+
+<Shell title="Studies" experiment={experiment} section="studies">
+  <header class="page-header">
+    <div>
+      <h1>Studies</h1>
+      <p>Research questions for <code>{exp.name}</code> — each groups the runs that answer it.</p>
+    </div>
+    <span class="path-hint">studies/{exp.name}/*.json</span>
+  </header>
+
+  <StudiesList client:load studies={studies} headlineMetric={metric} experiment={experiment} />
+</Shell>

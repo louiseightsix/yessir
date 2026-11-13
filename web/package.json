@@ -17,6 +17,7 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "astro-agent-annotate": "^0.0.2",
     "wrangler": "^4.161.0"
   }
 }

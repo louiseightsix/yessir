@@ -1,0 +1,71 @@
+---
+// Runs table for an experiment.
+import RunsTable, { type RunRow } from "../../../components/RunsTable";
+import Shell from "../../../layouts/Shell.astro";
+import { downsample } from "../../../lib/chart";
+import { getExperiment, getSiteData } from "../../../lib/data";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.map((e) => ({ params: { experiment: e.name } }));
+}
+
+const { experiment } = Astro.params;
+const exp = getExperiment(experiment);
+
+// Only what the table needs goes to the browser: e.g. ~60 loss points per run
+// for the sparkline, not the whole train.jsonl.
+const rows: RunRow[] = exp.runs.map((run) => {
+  const last = run.trainPoints.at(-1);
+  return {
+    name: run.name,
+    href: `/${experiment}/runs/${run.name}/`,
+    variant: run.variant,
+    status: run.status,
+    flawedReason: run.flawedReason,
+    dirty: run.meta?.git_dirty === true,
+    changed: run.changed,
+    studies: (exp.studiesByRun.get(run.name) ?? []).map((s) => ({
+      slug: s.slug,
+      href: `/${experiment}/studies/${s.slug}/`,
+    })),
+    metrics: run.evalMetrics,
+    spark: downsample(run.trainPoints, 60).map((p) => ({ step: p.step, loss: p.loss })),
+    lastStep: last?.step ?? null,
+    lastLoss: last?.loss ?? null,
+    totalSteps: run.totalSteps,
+    elapsedSec: last?.elapsed_sec ?? null,
+    notes: run.readmeBody ?? "",
+  };
+});
+
+const variants =
+  exp.schema?.variants.map((v) => v.name) ??
+  Array.from(new Set(exp.runs.map((r) => r.variant).filter((v): v is string => v !== null)));
+---
+
+<Shell title="Runs" experiment={experiment} section="runs">
+  <header class="page-header">
+    <div>
+      <h1>Runs</h1>
+      <p>
+        Every training run of <code>{exp.name}</code>, newest first. Settings are shown only where
+        they differ from the variant default.
+      </p>
+    </div>
+    <a class="button-primary" href={`/${experiment}/new/`}>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M8 3v10M3 8h10"></path>
+      </svg>
+      New run
+    </a>
+  </header>
+
+  <RunsTable
+    client:load
+    rows={rows}
+    metricNames={exp.metricNames}
+    headlineMetric={exp.headlineMetric}
+    variants={variants}
+    studySlugs={exp.studies.map((s) => s.slug)}
+  />
+</Shell>

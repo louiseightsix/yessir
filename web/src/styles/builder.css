@@ -1,0 +1,272 @@
+/* New run page (src/components/ConfigBuilder.tsx). */
+
+.builder {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---- Toolbar ------------------------------------------------------------- */
+
+.builder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+}
+.toolbar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-table);
+  color: var(--c-ink-3);
+}
+.builder .segmented button {
+  font-family: var(--font-mono);
+}
+.variant-description {
+  flex: 1 1 200px;
+  font-size: var(--fs-table);
+}
+.small-button {
+  min-height: 36px;
+  font-size: var(--fs-table);
+}
+
+/* ---- Form ---------------------------------------------------------------- */
+
+.builder-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-start;
+}
+.builder-form {
+  flex: 999 1 560px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.builder-rows {
+  min-width: 660px;
+  padding: 6px 0 10px;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) 96px minmax(0, 0.9fr);
+  gap: 12px;
+  align-items: center;
+  padding: 6px 16px;
+  min-height: var(--row-min-h);
+}
+.field-row.is-changed {
+  background: var(--c-selected-row);
+}
+.field-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 var(--fs-table) var(--font-mono);
+  color: var(--c-ink-2);
+}
+.field-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.is-changed .field-name {
+  font-weight: 600;
+  color: var(--c-diff-fg);
+}
+.is-changed .field-dot {
+  background: var(--c-diff-fg);
+}
+.field-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.field-control input {
+  width: 130px;
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  background: var(--c-panel);
+  color: var(--c-ink);
+  font: 500 var(--fs-table) var(--font-mono);
+}
+.is-changed .field-control input {
+  border-color: var(--c-diff-input-border);
+}
+.field-control .segmented {
+  flex-wrap: wrap;
+}
+.field-control .segmented button {
+  padding: 0 10px;
+}
+.field-reset {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--c-diff-fg);
+  font: 500 var(--fs-small) var(--font-ui);
+  cursor: pointer;
+}
+.field-meta {
+  font: var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Side panel ---------------------------------------------------------- */
+
+.builder-side {
+  flex: 1 1 340px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.side-card {
+  border-radius: var(--r-panel);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.side-card p {
+  margin: 0;
+  font-size: var(--fs-table);
+  line-height: 1.5;
+}
+
+.validity {
+  gap: 8px;
+}
+.validity.is-valid {
+  background: var(--c-conclusion-box);
+  border: 1px solid var(--c-conclusion-border);
+}
+.validity.is-valid .section-heading {
+  color: var(--c-concluded-fg);
+}
+.validity.is-invalid {
+  background: var(--c-flawed-banner-bg);
+  border: 1px solid var(--c-flawed-banner-border);
+}
+.validity.is-invalid .section-heading {
+  color: var(--c-flawed-badge-fg);
+}
+.validity-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.validity-summary {
+  font: var(--fs-small) var(--font-mono);
+  color: var(--c-ink-3);
+}
+.checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.checklist li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: var(--fs-table);
+  color: var(--c-ink-2);
+}
+.check-pass,
+.check-fail {
+  flex: none;
+  width: 12px;
+  font-weight: 700;
+}
+.check-pass {
+  color: var(--c-pass);
+}
+.check-fail {
+  color: var(--c-fail);
+}
+
+.duplicate-card {
+  gap: 6px;
+  background: var(--c-dup-bg);
+  border: 1px solid var(--c-dup-border);
+  color: var(--c-dup-fg);
+}
+.duplicate-card a {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--c-dup-fg);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.new-config-card {
+  display: block;
+  padding: 12px 16px;
+  font-size: var(--fs-table);
+  color: var(--c-ink-3);
+}
+.new-config-card strong {
+  font-weight: 600;
+  color: var(--c-concluded-fg);
+}
+
+.command-card {
+  background: var(--c-code-bg);
+  color: #fff;
+}
+.command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.command-head button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--r-control);
+  border: 0;
+  background: #fff;
+  color: var(--c-ink);
+  font: 600 var(--fs-table) var(--font-ui);
+  cursor: pointer;
+}
+.command-head button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.command-card pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font: 400 var(--fs-table) / 1.6 var(--font-mono);
+  color: var(--c-code-fg);
+}
+.command-defaults {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-table);
+  color: #c9cbd1;
+  min-height: 32px;
+  cursor: pointer;
+}
+.command-defaults input {
+  width: 16px;
+  height: 16px;
+  accent-color: #fff;
+}

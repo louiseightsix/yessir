@@ -1,0 +1,309 @@
+/* Styles for the shared React components in src/components/{badges,controls,charts}.tsx.
+   React components can't use Astro's scoped <style>, so their classes live here. */
+
+.small-text {
+  font-size: var(--fs-small);
+}
+
+/* ---- Pills: study status and run status ---------------------------------- */
+
+.pill {
+  display: inline-block;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.study-draft { background: var(--c-draft-bg); color: var(--c-draft-fg); }
+.study-in_progress { background: var(--c-progress-bg); color: var(--c-progress-fg); }
+.study-concluded { background: var(--c-concluded-bg); color: var(--c-concluded-fg); }
+.run-evaluated { background: var(--c-concluded-bg); color: var(--c-concluded-fg); }
+.run-in_progress { background: var(--c-progress-bg); color: var(--c-progress-fg); }
+.run-flawed { background: var(--c-flawed-badge-bg); color: var(--c-flawed-badge-fg); }
+
+.kind-badge {
+  display: inline-block;
+  font: 500 var(--fs-small) var(--font-mono);
+  color: var(--c-ink-3);
+  padding: 1px 7px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-chip);
+}
+
+/* ---- Settings changed from default --------------------------------------- */
+
+.chip-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.diff-chip {
+  font: 500 var(--fs-small) var(--font-mono);
+  color: var(--c-diff-fg);
+  background: var(--c-diff-bg);
+  padding: 1px 6px;
+  border-radius: var(--r-chip);
+  white-space: nowrap;
+}
+
+/* ---- Dirty and flawed ---------------------------------------------------- */
+
+.dirty-tag {
+  font: 600 var(--fs-tiny) var(--font-mono);
+  color: var(--c-dirty-fg);
+  border: 1px solid var(--c-dirty-border);
+  background: var(--c-dirty-bg);
+  padding: 0 5px;
+  border-radius: var(--r-chip);
+}
+
+.flawed-pill {
+  flex: none;
+  font: 700 var(--fs-tiny) var(--font-ui);
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--c-flawed);
+  padding: 1px 6px;
+  border-radius: var(--r-chip);
+}
+.flawed-tag {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.flawed-reason {
+  font-size: var(--fs-small);
+  color: var(--c-flawed-text);
+}
+
+.flawed-banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--c-flawed-banner-bg);
+  border: 1px solid var(--c-flawed-banner-border);
+  color: var(--c-flawed-banner-text);
+}
+.flawed-banner .flawed-pill {
+  font-size: var(--fs-small);
+  padding: 3px 8px;
+}
+.flawed-banner > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.flawed-banner strong {
+  font-weight: 600;
+}
+
+/* ---- Run name and study chip --------------------------------------------- */
+
+.run-name {
+  font: 500 var(--fs-small) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.run-name-prefix {
+  color: var(--c-muted);
+}
+.run-name-short {
+  color: var(--c-ink);
+  font-weight: 600;
+}
+
+.study-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-tiny);
+  color: var(--c-ink-3);
+  border: 1px solid var(--c-border-strong);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--c-panel);
+  white-space: nowrap;
+}
+.study-chip .mono {
+  font-weight: 500;
+}
+.study-chip-label {
+  font-weight: 600;
+  color: var(--c-ink);
+}
+
+/* ---- Controls ------------------------------------------------------------ */
+
+.progress-track {
+  display: block;
+  height: 4px;
+  background: var(--c-accent-track);
+  border-radius: 2px;
+}
+.progress-fill {
+  display: block;
+  height: 4px;
+  background: var(--c-accent);
+  border-radius: 2px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.filter-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-panel);
+  color: var(--c-ink-3);
+  font: 500 13px var(--font-ui);
+  cursor: pointer;
+}
+.filter-chips button[aria-pressed="true"] {
+  background: var(--c-ink);
+  border-color: var(--c-ink);
+  color: #fff;
+}
+.chip-count {
+  font: var(--fs-small) var(--font-mono);
+  opacity: 0.8;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  overflow: hidden;
+}
+.segmented button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  background: var(--c-panel);
+  color: var(--c-ink-3);
+  font: 500 13px var(--font-ui);
+  cursor: pointer;
+}
+.segmented button + button {
+  border-left: 1px solid var(--c-border-strong);
+}
+.segmented button[aria-pressed="true"] {
+  background: var(--c-ink);
+  color: #fff;
+}
+.segmented-small button {
+  min-height: 32px;
+  font-size: var(--fs-small);
+}
+
+/* ---- Metrics and charts -------------------------------------------------- */
+
+.metric-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  color: var(--c-ink);
+}
+.metric-cell.is-muted {
+  color: var(--c-disabled);
+}
+.metric-cell.is-best {
+  color: var(--c-accent-strong);
+  font-weight: 600;
+}
+.metric-bar {
+  display: block;
+  width: 64px;
+  height: 3px;
+  margin-top: 4px;
+  background: var(--c-divider);
+  border-radius: 2px;
+}
+.metric-bar > span {
+  display: block;
+  height: 3px;
+  background: var(--c-accent);
+  border-radius: 2px;
+}
+.metric-cell.is-muted .metric-bar > span {
+  background: var(--c-border-strong);
+}
+
+.sparkline {
+  flex: none;
+  display: block;
+}
+
+.loss-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.loss-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chart-title {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+}
+.chart-title-note {
+  font: 400 var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+}
+.chart-tick {
+  font: 11px var(--font-mono);
+  fill: var(--c-muted);
+}
+.chart-ink {
+  fill: var(--c-ink);
+}
+/* White outline behind a label drawn over the curve, so it stays readable. */
+.chart-halo {
+  paint-order: stroke;
+  stroke: var(--c-panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.chart-axis-label {
+  font: 11px var(--font-ui);
+  fill: var(--c-muted);
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: var(--fs-small);
+  color: var(--c-ink-3);
+}
+.chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
