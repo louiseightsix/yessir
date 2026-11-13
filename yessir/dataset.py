@@ -29,11 +29,11 @@ class LabelledExample:
             tuple of per-position head-target tuples:
             - For single-step parallel classification (`ParallelClassificationHead`
               with `lengths`), holds one target token per head (e.g. `(o_k, flag_k)`).
-            - For sequence-level parallel classification (`ParallelClassificationHead`
+            - For per-position parallel classification (`ParallelClassificationHead`
               with `lengths=None`), holds one `H`-tuple of target tokens per sequence
               position (`len(labels) == len(example)`), with `(IGNORE_INDEX,) * H` at
               positions excluded from the loss.
-            - For sequence-level next-token prediction (`SubspaceLMHead`), holds
+            - For per-position next-token prediction (`SubspaceLMHead`), holds
               one pre-shifted target per sequence position (`len(labels) == len(example)`),
               where `labels[t]` is already the target token predicted at position `t`
               (unlike Hugging Face causal LMs, which shift `labels` internally), with
@@ -54,17 +54,17 @@ class LabelledExample:
             raise ValueError("labels must not be empty")
 
         if isinstance(self.labels[0], tuple):
-            num_heads = len(self.labels[0])
-            if num_heads == 0:
+            num_targets = len(self.labels[0])
+            if num_targets == 0:
                 raise ValueError("per-position label tuples must not be empty")
             for pos_idx, step_labels in enumerate(self.labels):
                 if not isinstance(step_labels, tuple):
                     raise TypeError(
                         f"labels[{pos_idx}] must be a tuple, got {type(step_labels).__name__}"
                     )
-                if len(step_labels) != num_heads:
+                if len(step_labels) != num_targets:
                     raise ValueError(
-                        f"all per-position label tuples must have {num_heads} elements; "
+                        f"all per-position label tuples must have {num_targets} elements; "
                         f"labels[{pos_idx}] has {len(step_labels)}"
                     )
                 for token in step_labels:

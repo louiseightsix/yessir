@@ -132,12 +132,12 @@ def test_build_ar_labelled_example_layout():
 
     labelled = build_ar_labelled_example(alphabet, x)
     prefix_len = 1 + len(alphabet) + 1 + len(x) + 1  # [BOS] 0123 [SEP] 130 [SEP] = 10
-    expected_outputs = (ord("2"), ord("0"), ord("1"))
-    expected_targets = (*expected_outputs, int(SpecialToken.EOS))
+    expected_output = (ord("2"), ord("0"), ord("1"))
+    expected_targets = (*expected_output, int(SpecialToken.EOS))
 
     assert len(labelled.example) == prefix_len + len(x)
     assert len(labelled.labels) == len(labelled.example)
-    assert labelled.example.input_ids[prefix_len:] == expected_outputs
+    assert labelled.example.input_ids[prefix_len:] == expected_output
     assert labelled.example.position_ids is not None
     # Query at second [SEP] is position_id 0; o_0, o_1, o_2 sit at position_ids 1, 2, 3
     assert labelled.example.position_ids[prefix_len - 1 :] == (0, 1, 2, 3)

@@ -96,7 +96,7 @@ def test_parallel_classification_cross_entropy_matches_manual_sum():
     assert logits_1.grad is not None
     assert logits_2.grad is not None
 
-    # Also supports 3D (B, T, num_classes) sequence-level logits with IGNORE_INDEX
+    # Also supports 3D (B, T, num_classes) per-position logits with IGNORE_INDEX
     seq_logits_0 = torch.randn(2, 3, 8, requires_grad=True)
     seq_logits_1 = torch.randn(2, 3, 4, requires_grad=True)
     seq_labels = torch.tensor(
@@ -247,15 +247,15 @@ def test_train_validation_and_early_exhaustion():
     )
     dataset = _SyntheticDataset()
 
-    with pytest.raises(ValueError, match="steps must be >= 1"):
-        train(model, dataset, steps=0, batch_size=4)
+    with pytest.raises(ValueError, match="max_steps must be >= 1"):
+        train(model, dataset, max_steps=0, batch_size=4)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
-        train(model, dataset, steps=1, batch_size=0)
+        train(model, dataset, max_steps=1, batch_size=0)
     with pytest.raises(ValueError, match="cannot specify both lr and optimizer"):
         train(
             model,
             dataset,
-            steps=1,
+            max_steps=1,
             batch_size=4,
             lr=1e-3,
             optimizer=build_optimizer(model),
@@ -264,7 +264,7 @@ def test_train_validation_and_early_exhaustion():
     ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
     finite_dataset = [LabelledExample(example=ex, labels=(1, 2, 3))]
     with pytest.raises(ValueError, match="dataset exhausted early"):
-        train(model, finite_dataset, steps=1, batch_size=2)
+        train(model, finite_dataset, max_steps=1, batch_size=2)
 
 
 def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
@@ -286,12 +286,12 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     losses_part1 = train(
         model,
         stream,
-        steps=5,
+        max_steps=5,
         batch_size=8,
         optimizer=opt,
         on_step=lambda s, loss: recorded_steps.append((s, loss)),
     )
-    losses_part2 = train(model, stream, steps=5, batch_size=8, optimizer=opt)
+    losses_part2 = train(model, stream, max_steps=5, batch_size=8, optimizer=opt)
     losses = losses_part1 + losses_part2
 
     assert [s for s, _ in recorded_steps] == [1, 2, 3, 4, 5]

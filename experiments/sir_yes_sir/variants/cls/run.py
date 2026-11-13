@@ -5,7 +5,7 @@ from typing import Any
 
 from experiments.sir_yes_sir.config import (
     CLS_DESCRIPTION,
-    ClsTrainingMode,
+    ClsSupervision,
     SirYesSirClsConfig,
     SirYesSirConfig,
 )
@@ -24,17 +24,17 @@ def run_sir_yes_sir_cls(
     device: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the `cls` variant of `sir_yes_sir` according to `config`."""
-    training_mode = (
-        config.training_mode
+    supervision = (
+        config.supervision
         if isinstance(config, SirYesSirClsConfig)
-        else ClsTrainingMode.SINGLE_PASS
+        else ClsSupervision.SINGLE_PASS
     )
     train_dataset = SirYesSirClsDataset(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
-        permute_alphabet=config.permute_alphabet,
-        training_mode=training_mode,
+        resample_alphabet=config.resample_alphabet,
+        supervision=supervision,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
@@ -42,8 +42,8 @@ def run_sir_yes_sir_cls(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
-        permute_alphabet=config.permute_alphabet,
-        training_mode=ClsTrainingMode.SINGLE_PASS,
+        resample_alphabet=config.resample_alphabet,
+        supervision=ClsSupervision.SINGLE_PASS,
         embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )

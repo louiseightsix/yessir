@@ -56,14 +56,14 @@ class ParallelClassificationHead(nn.Module):
     """Parallel linear classification heads reading across all positions or at `lengths - 1`.
 
     Supports two operating modes from the same `RMSNorm` + `nn.Linear` parameters:
-    - **Sequence-level (`lengths=None`)**: normalises all `T` positions and projects
+    - **Per-position (`lengths=None`)**: normalises all `T` positions and projects
       each head to `(B, T, num_classes_i)`, enabling single-pass teacher-forced
       supervision across all query positions in a sequence (with non-query and
       padded positions masked by `IGNORE_INDEX` in the loss).
     - **Single-step (`lengths` provided)**: gathers `hidden_states[b, lengths[b] - 1]`
       (the last unpadded position of each example in a right-padded `Batch`),
       applies `RMSNorm`, and projects to `(B, num_classes_i)` at `1/T` the projection
-      cost (used during step-by-step greedy rollout and single-step training).
+      cost (used during step-by-step greedy generation and single-step training).
     """
 
     def __init__(self, d_model: int, num_classes: Sequence[int]) -> None:

@@ -1,4 +1,4 @@
-"""Autoregressive sequence-label construction (`build_ar_labelled_example`) for the `ar` variant of `sir_yes_sir`."""
+"""Autoregressive per-position label construction (`build_ar_labelled_example`) for the `ar` variant of `sir_yes_sir`."""
 
 from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
@@ -30,14 +30,14 @@ def build_ar_labelled_example(
       earlier prompt positions with `IGNORE_INDEX = -100`.
     """
     alphabet_tokens, x_tokens = validate_problem(alphabet, x)
-    outputs = tuple(
+    output = tuple(
         reference_step(alphabet_tokens, x_tokens, k)[0] for k in range(len(x_tokens))
     )
-    targets = (*outputs, int(SpecialToken.EOS))
+    targets = (*output, int(SpecialToken.EOS))
     example = build_example(
         alphabet_tokens,
         x_tokens,
-        output=outputs,
+        output=output,
         embedding_mode=embedding_mode,
     )
     labels = (IGNORE_INDEX,) * (len(example) - len(targets)) + targets

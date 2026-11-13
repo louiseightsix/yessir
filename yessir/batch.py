@@ -99,19 +99,19 @@ def collate(examples: Sequence[Example]) -> Batch:
 
 
 def collate_labelled(items: Sequence[LabelledExample]) -> tuple[Batch, torch.Tensor]:
-    """Right-pad sequence-labelled `LabelledExample`s into `(Batch, labels)`.
+    """Right-pad per-position `LabelledExample`s into `(Batch, labels)`.
 
     Each `item` must have one label entry per sequence position
     (`len(item.labels) == len(item.example)`):
     - 1D per-example labels (`tuple[int, ...]`, for `SubspaceLMHead`) produce a
       `labels` LongTensor of shape `(batch_size, max_seq_len)`.
-    - 2D per-example labels (`tuple[tuple[int, ...], ...]`, for multi-position
+    - 2D per-example labels (`tuple[tuple[int, ...], ...]`, for per-position
       `ParallelClassificationHead`) produce a `labels` LongTensor of shape
-      `(batch_size, max_seq_len, num_heads)`.
+      `(batch_size, max_seq_len, num_targets)`.
     Positions at `>= length` are right-padded with `IGNORE_INDEX = -100`.
 
     Args:
-        items: Non-empty sequence of sequence-labelled `LabelledExample`s.
+        items: Non-empty sequence of per-position `LabelledExample`s.
 
     Returns:
         Tuple `(batch, labels)` where `batch` is a right-padded `Batch` and
@@ -123,7 +123,7 @@ def collate_labelled(items: Sequence[LabelledExample]) -> tuple[Batch, torch.Ten
     for idx, item in enumerate(items):
         if len(item.labels) != len(item.example):
             raise ValueError(
-                f"sequence-labelled item {idx} has {len(item.labels)} labels "
+                f"per-position item {idx} has {len(item.labels)} labels "
                 f"for example of length {len(item.example)}"
             )
 
@@ -136,13 +136,13 @@ def collate_labelled(items: Sequence[LabelledExample]) -> tuple[Batch, torch.Ten
     ]
     if len(set(label_shapes)) > 1:
         raise ValueError(
-            "all sequence-labelled items in a batch must share the same label dimensionality"
+            "all per-position items in a batch must share the same label dimensionality"
         )
 
-    num_heads = label_shapes[0]
-    if num_heads > 0:
+    num_targets = label_shapes[0]
+    if num_targets > 0:
         labels = torch.full(
-            (len(items), max_len, num_heads), IGNORE_INDEX, dtype=torch.long
+            (len(items), max_len, num_targets), IGNORE_INDEX, dtype=torch.long
         )
         for i, item in enumerate(items):
             labels[i, : len(item.labels)] = torch.tensor(item.labels, dtype=torch.long)

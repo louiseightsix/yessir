@@ -27,7 +27,7 @@ class _DummyMode(StrEnum):
 
 @dataclass(frozen=True, kw_only=True)
 class _DummyConfig(ExperimentConfig):
-    steps: int = 100
+    max_steps: int = 100
     lr: float = 1e-3
     mode: _DummyMode = _DummyMode.FAST
     limit: int | None = None
@@ -35,15 +35,15 @@ class _DummyConfig(ExperimentConfig):
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", _DummyMode(self.mode))
-        if self.steps < 1:
-            raise ValueError("steps must be >= 1")
+        if self.max_steps < 1:
+            raise ValueError("max_steps must be >= 1")
 
 
 def test_experiment_config_to_and_from_dict():
-    cfg = _DummyConfig(steps=50, mode=_DummyMode.ACCURATE, limit=5, verbose=True)
+    cfg = _DummyConfig(max_steps=50, mode=_DummyMode.ACCURATE, limit=5, verbose=True)
     as_dict = cfg.to_dict()
     assert as_dict == {
-        "steps": 50,
+        "max_steps": 50,
         "lr": 1e-3,
         "mode": "accurate",
         "limit": 5,
@@ -61,7 +61,7 @@ def test_parse_config_cli_defaults_and_overrides():
     overridden = parse_config_cli(
         _DummyConfig,
         [
-            "--steps",
+            "--max-steps",
             "250",
             "--lr",
             "0.005",
@@ -73,7 +73,7 @@ def test_parse_config_cli_defaults_and_overrides():
         ],
     )
     assert overridden == _DummyConfig(
-        steps=250,
+        max_steps=250,
         lr=0.005,
         mode=_DummyMode.ACCURATE,
         limit=10,
@@ -86,7 +86,7 @@ def test_parse_config_cli_merges_json_file_with_cli_overrides(tmp_path: Path):
     config_file.write_text(
         json.dumps(
             {
-                "steps": 500,
+                "max_steps": 500,
                 "lr": 2e-4,
                 "mode": "accurate",
                 "limit": 12,
@@ -102,7 +102,7 @@ def test_parse_config_cli_merges_json_file_with_cli_overrides(tmp_path: Path):
         [
             "--config",
             str(config_file),
-            "--steps",
+            "--max-steps",
             "300",
             "--limit",
             "none",
@@ -110,7 +110,7 @@ def test_parse_config_cli_merges_json_file_with_cli_overrides(tmp_path: Path):
         ],
     )
     assert merged == _DummyConfig(
-        steps=300,
+        max_steps=300,
         lr=2e-4,
         mode=_DummyMode.ACCURATE,
         limit=None,
@@ -129,7 +129,7 @@ def test_add_config_args_rejects_non_dataclass():
     import argparse
 
     class ForgotDataclassDecorator(ExperimentConfig):
-        steps: int = 10
+        max_steps: int = 10
 
     parser = argparse.ArgumentParser()
     with pytest.raises(TypeError, match="must be decorated with @dataclass"):
@@ -138,7 +138,7 @@ def test_add_config_args_rejects_non_dataclass():
 
 @dataclass(frozen=True, kw_only=True)
 class _AltDummyConfig(_DummyConfig):
-    extra_flag: str = "out_first"
+    extra_flag: str = "default_tag"
 
 
 def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
@@ -147,7 +147,7 @@ def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
     ) -> dict[str, Any]:
         return {
             "variant": "v1",
-            "steps": cfg.steps,
+            "max_steps": cfg.max_steps,
             "out_dir": str(out_dir),
             "device": device,
         }
@@ -157,7 +157,7 @@ def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
     ) -> dict[str, Any]:
         return {
             "variant": "v2",
-            "steps": cfg.steps,
+            "max_steps": cfg.max_steps,
             "extra_flag": cfg.extra_flag,
             "out_dir": str(out_dir),
             "device": device,
@@ -186,11 +186,11 @@ def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
     with pytest.raises(KeyError, match="unknown variant 'v3'"):
         exp.get_variant("v3")
 
-    cfg = v1.config_cls(steps=10)
+    cfg = v1.config_cls(max_steps=10)
     result = v1.run(cfg, tmp_path)
     assert result == {
         "variant": "v1",
-        "steps": 10,
+        "max_steps": 10,
         "out_dir": str(tmp_path),
         "device": "auto",
     }
@@ -209,7 +209,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
     ) -> dict[str, Any]:
         return {
             "variant": "cls",
-            "steps": cfg.steps,
+            "max_steps": cfg.max_steps,
             "mode": cfg.mode.value,
             "out_dir": out_dir,
             "device": device,
@@ -220,7 +220,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
     ) -> dict[str, Any]:
         return {
             "variant": "ar",
-            "steps": cfg.steps,
+            "max_steps": cfg.max_steps,
             "extra_flag": cfg.extra_flag,
             "out_dir": out_dir,
             "device": device,
@@ -246,27 +246,27 @@ def test_run_experiment_cli_and_run_experiments_cli(
 
     # Single-experiment CLI runner with explicit variant, --out-dir, and --no-save.
     single_res = run_experiment_cli(
-        exp, ["cls", "--steps", "12", "--out-dir", str(tmp_path)]
+        exp, ["cls", "--max-steps", "12", "--out-dir", str(tmp_path)]
     )
     assert single_res == {
         "variant": "cls",
-        "steps": 12,
+        "max_steps": 12,
         "mode": "fast",
         "out_dir": tmp_path,
         "device": "auto",
     }
 
-    nosave_res = run_experiment_cli(exp, ["cls", "--steps", "12", "--no-save"])
+    nosave_res = run_experiment_cli(exp, ["cls", "--max-steps", "12", "--no-save"])
     assert nosave_res == {
         "variant": "cls",
-        "steps": 12,
+        "max_steps": 12,
         "mode": "fast",
         "out_dir": None,
         "device": "auto",
     }
 
     # Default out_dir uses results/<experiment>/<date>-<sha>-<adj>-<noun>.
-    default_res = run_experiment_cli(exp, ["cls", "--steps", "12"])
+    default_res = run_experiment_cli(exp, ["cls", "--max-steps", "12"])
     assert default_res is not None
     assert default_res["out_dir"].parent.name == "dummy"
 
@@ -291,7 +291,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         [
             "dummy",
             "cls",
-            "--steps",
+            "--max-steps",
             "25",
             "--mode",
             "accurate",
@@ -301,7 +301,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
     )
     assert dispatched_cls == {
         "variant": "cls",
-        "steps": 25,
+        "max_steps": 25,
         "mode": "accurate",
         "out_dir": tmp_path,
         "device": "auto",
@@ -312,10 +312,10 @@ def test_run_experiment_cli_and_run_experiments_cli(
         [
             "dummy",
             "ar",
-            "--steps",
+            "--max-steps",
             "30",
             "--extra-flag",
-            "wrap_first",
+            "custom_tag",
             "--device",
             "mps",
             "--no-save",
@@ -323,8 +323,8 @@ def test_run_experiment_cli_and_run_experiments_cli(
     )
     assert dispatched_ar == {
         "variant": "ar",
-        "steps": 30,
-        "extra_flag": "wrap_first",
+        "max_steps": 30,
+        "extra_flag": "custom_tag",
         "out_dir": None,
         "device": "mps",
     }

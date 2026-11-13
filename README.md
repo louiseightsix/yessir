@@ -6,7 +6,7 @@
 
 | Experiment | Rule | Status |
 | :--- | :--- | :--- |
-| [`sir_yes_sir`](experiments/sir_yes_sir/) | Next symbol in an in-context alphabet (mod B, no carry) | Live smoke-test & reference experiment |
+| [`sir_yes_sir`](experiments/sir_yes_sir/) | Cyclic successor in an in-context alphabet | Live smoke-test & reference experiment |
 | [`addition`](experiments/addition/) | Long addition in bases defined in the prompt | Prototype done; implementation in progress |
 
 ## Layout

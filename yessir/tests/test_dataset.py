@@ -88,7 +88,7 @@ def test_format_token_special_and_hex():
 
 def test_format_labelled_example_with_and_without_type_and_position_ids():
     ex_full = Example(
-        input_ids=(int(SpecialToken.BOS), 0x0A, int(SpecialToken.STEP)),
+        input_ids=(int(SpecialToken.BOS), 0x0A, int(SpecialToken.SEP)),
         token_type_ids=(0, 1, 3),
         position_ids=(0, 0, 0),
     )
@@ -98,9 +98,9 @@ def test_format_labelled_example_with_and_without_type_and_position_ids():
     )
     formatted_full = format_labelled_example(item_full, index=0)
     assert "Example 0:" in formatted_full
-    assert "input_ids:      [BOS]  0x0a  [STEP]" in formatted_full
-    assert "token_type_ids:     0     1       3" in formatted_full
-    assert "position_ids:       0     0       0" in formatted_full
+    assert "input_ids:      [BOS]  0x0a  [SEP]" in formatted_full
+    assert "token_type_ids:     0     1      3" in formatted_full
+    assert "position_ids:       0     0      0" in formatted_full
     assert "labels:         (0x0a, [FLAG_FINISHED])" in formatted_full
 
     ex_nope = Example(input_ids=(int(SpecialToken.BOS), 0x0A))

@@ -78,7 +78,7 @@ export interface RunData {
   variant: string | null;
   config: Record<string, unknown>;
   changed: ChangedSetting[];
-  /** `config.steps`, if the run recorded it. */
+  /** `config.max_steps` (or legacy `config.steps`), if the run recorded it. */
   totalSteps: number | null;
   /** When `config.json` was written (ms since epoch), to order runs from the same day. */
   startedAtMs: number;
@@ -205,7 +205,12 @@ export function loadRun(
     variant,
     config,
     changed,
-    totalSteps: typeof config.steps === "number" ? config.steps : null,
+    totalSteps:
+      typeof config.max_steps === "number"
+        ? config.max_steps
+        : typeof config.steps === "number"
+          ? config.steps
+          : null,
     startedAtMs: fileMtimeMs(resolve(runDir, "config.json")),
   };
 }

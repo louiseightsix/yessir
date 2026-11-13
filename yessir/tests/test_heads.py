@@ -24,7 +24,7 @@ def test_parallel_classification_head_shapes_and_bias_free():
     assert logits_b.shape == (4, VOCAB_SIZE)
     assert logits_c.shape == (4, VOCAB_SIZE)
 
-    # Sequence-level mode (lengths=None) projects all T positions
+    # Per-position mode (lengths=None) projects all T positions
     seq_a, seq_b, seq_c = head(hidden_states)
     assert seq_a.shape == (4, 7, VOCAB_SIZE)
     assert seq_b.shape == (4, 7, VOCAB_SIZE)

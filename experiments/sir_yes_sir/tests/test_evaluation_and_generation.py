@@ -1,4 +1,4 @@
-"""Tests for `experiments/sir_yes_sir/variants/*/harness.py` and `experiments/sir_yes_sir/variants/*/evaluation.py`."""
+"""Tests for `experiments/sir_yes_sir/variants/*/generation.py` and `experiments/sir_yes_sir/variants/*/evaluation.py`."""
 
 import itertools
 from collections.abc import Sequence
@@ -11,10 +11,10 @@ from experiments.sir_yes_sir.inputs import build_example
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
-from experiments.sir_yes_sir.variants.ar.harness import rollout_ar
+from experiments.sir_yes_sir.variants.ar.generation import greedy_generate_ar
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
 from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
-from experiments.sir_yes_sir.variants.cls.harness import rollout_cls
+from experiments.sir_yes_sir.variants.cls.generation import greedy_generate_cls
 from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.heads import HeadType
@@ -160,7 +160,7 @@ class _WrapBlindModel:
         return logits_o, logits_f
 
 
-def test_rollout_cls_feeds_back_models_own_emitted_outputs():
+def test_greedy_generate_cls_feeds_back_models_own_generated_outputs():
     alphabet = b"0123"
     x = b"130"
     # Ground-truth o_0 is '2' and o_1 is '0'; script wrong symbols '3' then '1'
@@ -172,9 +172,9 @@ def test_rollout_cls_feeds_back_models_own_emitted_outputs():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    steps = greedy_generate_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert model.training is False
-    assert emitted == scripted
+    assert steps == scripted
     assert model.seen_examples == [
         build_example(alphabet, x, ()),
         build_example(alphabet, x, (ord("3"),)),
@@ -182,7 +182,7 @@ def test_rollout_cls_feeds_back_models_own_emitted_outputs():
     ]
 
 
-def test_rollout_cls_stops_early_on_premature_flag_finished():
+def test_greedy_generate_cls_stops_early_on_premature_flag_finished():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -191,12 +191,12 @@ def test_rollout_cls_stops_early_on_premature_flag_finished():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
-    assert emitted == [scripted[0]]
+    steps = greedy_generate_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    assert steps == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_rollout_cls_stops_at_len_x_when_flag_finished_never_emitted():
+def test_greedy_generate_cls_stops_at_len_x_when_flag_finished_never_emitted():
     alphabet = b"0123"
     x = b"13"
     scripted = [
@@ -205,9 +205,9 @@ def test_rollout_cls_stops_at_len_x_when_flag_finished_never_emitted():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
-    assert len(emitted) == 2
-    assert emitted == scripted
+    steps = greedy_generate_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    assert len(steps) == 2
+    assert steps == scripted
 
 
 def test_evaluate_cls_computes_exact_match_step_and_halt_accuracy():
@@ -273,7 +273,7 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert metrics_b1 == metrics_b7
     assert 0.0 < metrics_b1.exact_match < 1.0
 
-    # Run free-running `rollout_cls` on the exact same `num_problems` problems
+    # Run free-running `greedy_generate_cls` on the exact same `num_problems` problems
     all_items = list(itertools.islice(dataset, num_problems))
     free_running_em_count = 0
     for item in all_items:
@@ -281,12 +281,12 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
         expected_steps = [
             s for s in item.labels if isinstance(s, tuple) and s[0] != IGNORE_INDEX
         ]
-        emitted_steps = rollout_cls(
+        steps = greedy_generate_cls(
             model,  # ty: ignore[invalid-argument-type]
             alphabet,
             x,
         )
-        if emitted_steps == expected_steps:
+        if steps == expected_steps:
             free_running_em_count += 1
 
     assert free_running_em_count / num_problems == pytest.approx(metrics_b1.exact_match)
@@ -332,7 +332,7 @@ def test_evaluate_cls_validation_errors():
 
     ex = build_example(b"01", b"0")
     # Label length mismatch
-    with pytest.raises(ValueError, match="expected sequence-length labels"):
+    with pytest.raises(ValueError, match="expected per-position labels"):
         evaluate_cls(
             model,
             [
@@ -378,7 +378,7 @@ def test_evaluate_cls_validation_errors():
 
 
 class _ScriptedArModel:
-    """Fake sequence-level model returning scripted next-token argmax predictions."""
+    """Fake per-position model returning scripted next-token argmax predictions."""
 
     def __init__(self, scripted_tokens: Sequence[Token]) -> None:
         self._tokens = list(scripted_tokens)
@@ -423,20 +423,20 @@ class _ScriptedArModel:
         return logits
 
 
-def test_rollout_ar_stops_on_eos_and_caps_at_len_x_plus_one():
+def test_greedy_generate_ar_stops_on_eos_and_caps_at_len_x_plus_one():
     alphabet = b"0123"
     x = b"13"
 
     # Script 2 successor symbols ('2', '0') followed by EOS
     scripted = [ord("2"), ord("0"), int(SpecialToken.EOS)]
     model = _ScriptedArModel(scripted)
-    emitted = rollout_ar(
+    output = greedy_generate_ar(
         model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
     )
     assert model.training is False
-    assert emitted == scripted
+    assert output == scripted
     assert model.seen_examples == [
         build_example(alphabet, x, ()),
         build_example(alphabet, x, (ord("2"),)),
@@ -445,22 +445,22 @@ def test_rollout_ar_stops_on_eos_and_caps_at_len_x_plus_one():
 
     # Premature EOS at step 0 stops generation immediately
     early_model = _ScriptedArModel([int(SpecialToken.EOS), ord("2")])
-    early_emitted = rollout_ar(
+    early_output = greedy_generate_ar(
         early_model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
     )
-    assert early_emitted == [int(SpecialToken.EOS)]
+    assert early_output == [int(SpecialToken.EOS)]
     assert len(early_model.seen_examples) == 1
 
     # When EOS is never emitted, stops after L + 1 tokens
     never_halt_model = _ScriptedArModel([ord("2"), ord("0"), ord("1"), ord("3")])
-    never_halt_emitted = rollout_ar(
+    never_halt_output = greedy_generate_ar(
         never_halt_model,  # ty: ignore[invalid-argument-type]
         alphabet,
         x,
     )
-    assert never_halt_emitted == [ord("2"), ord("0"), ord("1")]
+    assert never_halt_output == [ord("2"), ord("0"), ord("1")]
     assert len(never_halt_model.seen_examples) == 3
 
 

@@ -5,10 +5,10 @@ import pytest
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
-from experiments.sir_yes_sir.variants.ar.harness import rollout_ar
+from experiments.sir_yes_sir.variants.ar.generation import greedy_generate_ar
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
 from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
-from experiments.sir_yes_sir.variants.cls.harness import rollout_cls
+from experiments.sir_yes_sir.variants.cls.generation import greedy_generate_cls
 from yessir.alphabet import SymbolSet
 from yessir.heads import HeadType
 from yessir.model import Transformer
@@ -63,14 +63,14 @@ def test_sir_yes_sir_cls_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, steps=500, batch_size=24, lr=8e-4)
+    train(model, train_dataset, max_steps=500, batch_size=24, lr=8e-4)
 
     metrics = evaluate_cls(model, eval_dataset, num_problems=100)
     assert metrics.exact_match > 0.99
     assert metrics.step_accuracy > 0.99
     assert metrics.halt_accuracy > 0.99
 
-    # Also verify free-running `rollout_cls` on two reversed 3-symbol permutations
+    # Also verify free-running `greedy_generate_cls` on two reversed 3-symbol permutations
     # (`b"012"` and `b"210"`), where every symbol's `o_k` differs.
     for alphabet in (b"012", b"210"):
         for x in (b"01", b"12"):
@@ -78,7 +78,7 @@ def test_sir_yes_sir_cls_cpu_convergence():
                 tuple(int(t) for t in reference_step(alphabet, x, k))
                 for k in range(len(x))
             ]
-            assert rollout_cls(model, alphabet, x) == expected
+            assert greedy_generate_cls(model, alphabet, x) == expected
 
 
 def test_sir_yes_sir_ar_cpu_convergence():
@@ -111,7 +111,7 @@ def test_sir_yes_sir_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, steps=500, batch_size=16, lr=1e-3)
+    train(model, train_dataset, max_steps=500, batch_size=16, lr=1e-3)
 
     metrics = evaluate_ar(model, eval_dataset, num_problems=100)
     assert metrics.exact_match > 0.99
@@ -124,4 +124,4 @@ def test_sir_yes_sir_ar_cpu_convergence():
                 *(reference_step(alphabet, x, k)[0] for k in range(len(x))),
                 int(SpecialToken.EOS),
             ]
-            assert rollout_ar(model, alphabet, x) == expected
+            assert greedy_generate_ar(model, alphabet, x) == expected

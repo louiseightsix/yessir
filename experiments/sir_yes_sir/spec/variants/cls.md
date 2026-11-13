@@ -37,15 +37,18 @@ k = 3:  in:  [BOS] q # 7 [SEP] # 7 q 7 [SEP] 7 q #
         out: ('q', [FLAG_FINISHED])
 ```
 
-## 2. Supervision & Rollout
+## 2. Supervision & Greedy Generation
 
 Using the shared `[BOS] alphabet [SEP] x [SEP] output` sequence layout ([`task.md` §2](../task.md#2-shared-sequence-layout--embedding-modes-experimentssir_yes_sirinputspy)), let `P = B + L + 3` be the length of the prompt prefix `[BOS] alphabet [SEP] x [SEP]`:
 
-- **Single-pass teacher-forced supervision (default: one pass per problem)**: the model reads the full teacher-forced sequence `build_example(alphabet, x, output=(o_0, ..., o_{L-2}))` (`prefix + (o_0, ..., o_{L-2})`, length `P + L - 1`) in a single forward pass, and `heads[0..1]` read the hidden states at every query position `P - 1, ..., P + L - 2`:
-  - At `k == 0`, the query sits at index `P - 1` (the second `[SEP]` at `position_id = 0`) and predicts `(o_0, flag_0)`.
-  - At `k >= 1`, the query sits at index `P - 1 + k` (`o_{k-1}` at `position_id = k`) and predicts `(o_k, flag_k)`.
-  Because the attention mask is causal, the hidden state at the query for step `k` sees exactly the same prefix as the step-`k` input in the examples above, giving the same `L` predictions as `L` separate forward passes. The loss averages over all `L` steps of every problem, matching the one-pass supervision of [`ar`](ar.md).
-- **Rollout (`rollout_cls`)**: Free-running greedy generation starts with `output = ()` at `k = 0`, reads `(o_k, flag_k) = (argmax(heads[0]), argmax(heads[1]))` at the final token, appends `o_k` to `output`, and stops when `flag_k == FLAG_FINISHED` (or after `L` steps).
+- **Supervision (`ClsSupervision` / `supervision`)**:
+  - **`single_pass` (default, `build_cls_labelled_example`)**: the model reads the full teacher-forced sequence `build_example(alphabet, x, output=(o_0, ..., o_{L-2}))` (`prefix + (o_0, ..., o_{L-2})`, length `P + L - 1`) in a single forward pass, and `heads[0..1]` read the hidden states at every query position `P - 1, ..., P + L - 2` (`lengths=None`):
+    - At `k == 0`, the query sits at index `P - 1` (the second `[SEP]` at `position_id = 0`) and predicts `(o_0, flag_0)`.
+    - At `k >= 1`, the query sits at index `P - 1 + k` (`o_{k-1}` at `position_id = k`) and predicts `(o_k, flag_k)`.
+    Because the attention mask is causal, the hidden state at the query for step `k` sees the exact same prefix as the step-`k` input in the examples above, giving the same `L` predictions as `L` separate forward passes. The loss averages over all `L` steps of every problem, matching the one-pass supervision of [`ar`](ar.md).
+  - **`all_steps` (`build_cls_step_labelled_example`)**: emits `L` separate single-step examples per problem (`k = 0 .. L - 1`), each reading the final unpadded position `lengths - 1` to predict `(o_k, flag_k)`.
+  - **`random_step` (`build_cls_step_labelled_example`)**: emits one randomly sampled single-step example `k` (`0 <= k < L`) per problem, reading `lengths - 1` to predict `(o_k, flag_k)`.
+- **Greedy generation (`greedy_generate_cls`)**: Free-running greedy generation starts with `output = ()` at `k = 0`, reads `(o_k, flag_k) = (argmax(heads[0]), argmax(heads[1]))` at the final token, appends `o_k` to `output`, and stops when `flag_k == FLAG_FINISHED` (or after `L` steps).
 
 ## 3. Evaluation Metrics (`evaluate_cls`)
 

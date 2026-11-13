@@ -30,7 +30,7 @@ from yessir.vertex import (
 
 @dataclass(frozen=True, kw_only=True)
 class _SampleConfig(ExperimentConfig):
-    steps: int = 10
+    max_steps: int = 10
     lr: float = 1e-3
 
 
@@ -38,7 +38,7 @@ def _make_sample_experiment() -> Experiment:
     def _noop_run(
         cfg: _SampleConfig, out_dir: Path | None = None, *, device: str = "auto"
     ) -> dict[str, Any]:
-        return {"steps": cfg.steps, "out_dir": str(out_dir), "device": device}
+        return {"max_steps": cfg.max_steps, "out_dir": str(out_dir), "device": device}
 
     return Experiment(
         name="sir_yes_sir",
@@ -255,7 +255,16 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     record = cmd_submit(
         [exp],
-        ["sir_yes_sir", "cls", "--steps", "42", "--lr", "0.005", "--device", "cuda"],
+        [
+            "sir_yes_sir",
+            "cls",
+            "--max-steps",
+            "42",
+            "--lr",
+            "0.005",
+            "--device",
+            "cuda",
+        ],
         settings=settings,
         results_root=tmp_path,
         git_info=fake_git,
@@ -273,7 +282,7 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     saved_cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     assert saved_cfg["device"] == "cuda"
-    assert saved_cfg["config"] == {"steps": 42, "lr": 0.005}
+    assert saved_cfg["config"] == {"max_steps": 42, "lr": 0.005}
     assert saved_cfg["git_commit_sha"] == fake_git.commit_sha
     assert submitted_specs[0]["workerPoolSpecs"][0]["containerSpec"]["args"][-2:] == [
         "--device",
@@ -389,7 +398,7 @@ def test_cmd_submit_leaves_no_local_files_and_surfaces_stderr_when_gcloud_fails(
     with pytest.raises(RuntimeError, match="PERMISSION_DENIED"):
         cmd_submit(
             [exp],
-            ["sir_yes_sir", "cls", "--steps", "10"],
+            ["sir_yes_sir", "cls", "--max-steps", "10"],
             settings=settings,
             results_root=tmp_path,
             git_info=fake_git,
@@ -410,7 +419,7 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
             [
                 "sir_yes_sir",
                 "cls",
-                "--steps",
+                "--max-steps",
                 "10",
                 "--out-dir",
                 str(tmp_path / "custom"),
@@ -422,7 +431,7 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
     with pytest.raises(ValueError, match="Cannot submit a Vertex job with --no-save"):
         cmd_submit(
             [exp],
-            ["sir_yes_sir", "cls", "--steps", "10", "--no-save"],
+            ["sir_yes_sir", "cls", "--max-steps", "10", "--no-save"],
             settings=settings,
             results_root=tmp_path,
             interactive=False,
@@ -434,7 +443,7 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
         ):
             cmd_submit(
                 [exp],
-                ["sir_yes_sir", "cls", "--steps", "10", *bad_device],
+                ["sir_yes_sir", "cls", "--max-steps", "10", *bad_device],
                 settings=settings,
                 results_root=tmp_path,
                 interactive=False,

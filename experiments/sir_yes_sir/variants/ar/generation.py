@@ -1,4 +1,4 @@
-"""Autoregressive execution harness (`rollout_ar`) for the `ar` variant of `sir_yes_sir`."""
+"""Free-running greedy autoregressive generation (`greedy_generate_ar`) for the `ar` variant of `sir_yes_sir`."""
 
 import torch
 
@@ -14,14 +14,14 @@ from yessir.vocab import Token, TokenSequence
 
 
 @torch.no_grad()
-def rollout_ar(
+def greedy_generate_ar(
     model: Transformer,
     alphabet: TokenSequence,
     x: TokenSequence,
     *,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> list[Token]:
-    """Run free-running greedy autoregressive rollout on `(alphabet, x)`.
+    """Run free-running greedy autoregressive generation on `(alphabet, x)`.
 
     Starts with `output = ()` after the second `[SEP]` and greedily appends one
     `argmax` token per forward pass from `SubspaceLMHead` (up to `len(x) + 1`
@@ -35,20 +35,20 @@ def rollout_ar(
         embedding_mode: Which of `token_type_ids` and `position_ids` to attach.
 
     Returns:
-        List of emitted tokens (including the terminating `SpecialToken.EOS` if emitted).
+        List of generated tokens (including the terminating `SpecialToken.EOS` if emitted).
     """
     alphabet_tokens, x_tokens = validate_problem(alphabet, x)
     max_tokens = len(x_tokens) + 1
 
     model.eval()
     device = model.device
-    emitted: list[Token] = []
+    output: list[Token] = []
 
     for _ in range(max_tokens):
         example = build_example(
             alphabet_tokens,
             x_tokens,
-            emitted,
+            output,
             embedding_mode=embedding_mode,
         )
         batch = collate([example]).to(device)
@@ -60,9 +60,9 @@ def rollout_ar(
         )
         assert isinstance(logits, torch.Tensor)
         next_token = int(logits[0, -1].argmax(dim=-1).item())
-        emitted.append(next_token)
+        output.append(next_token)
 
         if next_token == SpecialToken.EOS:
             break
 
-    return emitted
+    return output

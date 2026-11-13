@@ -9,13 +9,11 @@ from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
-SIR_YES_SIR_DESCRIPTION = (
-    "In-context successor (next symbol mod B, no carry) smoke-test experiment."
-)
+SIR_YES_SIR_DESCRIPTION = "In-context cyclic successor lookup smoke-test experiment."
 CLS_DESCRIPTION = (
-    "Parallel classification harness read through ParallelClassificationHead."
+    "Parallel classification variant read through ParallelClassificationHead."
 )
-AR_DESCRIPTION = "Autoregressive harness read through SubspaceLMHead."
+AR_DESCRIPTION = "Autoregressive variant read through SubspaceLMHead."
 
 
 @unique
@@ -32,11 +30,11 @@ class SymbolSetName(StrEnum):
 
 
 @unique
-class ClsTrainingMode(StrEnum):
-    """How `cls` training examples are constructed per problem (`studies/sir_yes_sir/cls-training-passes.json`)."""
+class ClsSupervision(StrEnum):
+    """How `cls` training examples are supervised per problem (`studies/sir_yes_sir/cls-training-passes.json`)."""
 
     SINGLE_PASS = (
-        "single_pass"  # 1 sequence-labelled example supervising all L query positions
+        "single_pass"  # 1 per-position example supervising all L query positions
     )
     ALL_STEPS = (
         "all_steps"  # L separate single-step examples (k = 0 .. L - 1) per problem
@@ -78,7 +76,7 @@ class SirYesSirConfig(ExperimentConfig):
     symbol_pool_size: int | None = field(
         default=None, metadata={"domain": "int in 2..len(symbol_set) or None"}
     )
-    permute_alphabet: bool = True
+    resample_alphabet: bool = True
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
 
     # Model architecture
@@ -93,7 +91,7 @@ class SirYesSirConfig(ExperimentConfig):
     fixed_d_model: bool = True
 
     # Training & evaluation
-    steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
+    max_steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
     batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
     lr: float = field(
         default=DEFAULT_LR, metadata={"domain": "float > 0", "step": 1e-4}
@@ -150,8 +148,8 @@ class SirYesSirConfig(ExperimentConfig):
         if self.d_ff <= 0:
             raise ValueError(f"d_ff must be > 0, got {self.d_ff}")
 
-        if self.steps < 1:
-            raise ValueError(f"steps must be >= 1, got {self.steps}")
+        if self.max_steps < 1:
+            raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
         if self.lr <= 0:
@@ -224,10 +222,10 @@ class SirYesSirConfig(ExperimentConfig):
 
 @dataclass(frozen=True, kw_only=True)
 class SirYesSirClsConfig(SirYesSirConfig):
-    """Configuration schema for the `cls` variant of `sir_yes_sir` (adds `training_mode`)."""
+    """Configuration schema for the `cls` variant of `sir_yes_sir` (adds `supervision`)."""
 
-    training_mode: ClsTrainingMode = ClsTrainingMode.SINGLE_PASS
+    supervision: ClsSupervision = ClsSupervision.SINGLE_PASS
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        object.__setattr__(self, "training_mode", ClsTrainingMode(self.training_mode))
+        object.__setattr__(self, "supervision", ClsSupervision(self.supervision))

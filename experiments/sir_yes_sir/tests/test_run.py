@@ -30,7 +30,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
             "cls",
             "--out-dir",
             str(run_dir),
-            "--steps",
+            "--max-steps",
             "2",
             "--batch-size",
             "4",
@@ -72,7 +72,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert config_payload["device"] in ("cpu", "mps", "cuda")
     assert "git_commit_sha" in config_payload
     loaded_cfg = SirYesSirClsConfig.from_dict(config_payload["config"])
-    assert loaded_cfg.steps == 2
+    assert loaded_cfg.max_steps == 2
     assert loaded_cfg.n_layers == 1
 
     train_lines = [json.loads(line) for line in train_file.read_text().splitlines()]
@@ -111,7 +111,7 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
             "ar",
             "--out-dir",
             str(run_dir),
-            "--steps",
+            "--max-steps",
             "2",
             "--batch-size",
             "4",
@@ -135,6 +135,6 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     assert config_payload["variant"] == "ar"
     assert config_payload["device"] in ("cpu", "mps", "cuda")
     loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
-    assert loaded_cfg.steps == 2
+    assert loaded_cfg.max_steps == 2
     out = capsys.readouterr().out
     assert "[sir_yes_sir:ar] Starting run:" in out

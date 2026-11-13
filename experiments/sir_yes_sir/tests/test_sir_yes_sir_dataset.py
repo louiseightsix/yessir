@@ -4,7 +4,7 @@ import itertools
 
 import pytest
 
-from experiments.sir_yes_sir.config import ClsTrainingMode
+from experiments.sir_yes_sir.config import ClsSupervision
 from experiments.sir_yes_sir.inputs import EmbeddingMode, TokenType
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import (
@@ -30,7 +30,7 @@ def test_dataset_reproducibility_and_seed_variation():
     assert run1 != run_other
 
 
-def test_dataset_matches_reference_step_and_accumulates_output_history():
+def test_dataset_matches_reference_step_and_accumulates_output():
     alphabet_size = 5
     x_length = 4
     ds = SirYesSirClsDataset(
@@ -52,8 +52,8 @@ def test_dataset_matches_reference_step_and_accumulates_output_history():
         (o_k, int(flag_k))
         for o_k, flag_k in (reference_step(alphabet, x, k) for k in range(x_length))
     )
-    expected_outputs = tuple(o_k for o_k, _ in expected_steps[:-1])
-    assert ids[prefix_len:] == expected_outputs
+    expected_output = tuple(o_k for o_k, _ in expected_steps[:-1])
+    assert ids[prefix_len:] == expected_output
     assert item.labels[: prefix_len - 1] == ((IGNORE_INDEX, IGNORE_INDEX),) * (
         prefix_len - 1
     )
@@ -99,13 +99,13 @@ def test_dataset_samples_only_from_given_symbols_pool():
         assert set(alphabet) == set(pool)
 
 
-def test_dataset_canonical_order_when_permute_alphabet_is_false():
+def test_dataset_canonical_order_when_resample_alphabet_is_false():
     pool = SymbolSet.DECIMAL[:4]
     ds = SirYesSirClsDataset(
         alphabet_size=4,
         x_length=3,
         symbols=pool,
-        permute_alphabet=False,
+        resample_alphabet=False,
         seed=42,
     )
     for item in itertools.islice(ds, 6):
@@ -117,7 +117,7 @@ def test_cls_dataset_all_steps_and_random_step_modes():
     ds_all = SirYesSirClsDataset(
         alphabet_size=4,
         x_length=3,
-        training_mode=ClsTrainingMode.ALL_STEPS,
+        supervision=ClsSupervision.ALL_STEPS,
         seed=11,
     )
     step_items = list(itertools.islice(ds_all, 3))
@@ -131,7 +131,7 @@ def test_cls_dataset_all_steps_and_random_step_modes():
     ds_rand = SirYesSirClsDataset(
         alphabet_size=4,
         x_length=3,
-        training_mode=ClsTrainingMode.RANDOM_STEP,
+        supervision=ClsSupervision.RANDOM_STEP,
         seed=11,
     )
     rand_item = next(iter(ds_rand))
@@ -144,7 +144,7 @@ def test_cls_dataset_all_steps_and_random_step_modes():
     assert isinstance(rand_item.labels[0], int)
 
     # Verify `step_rng` is decoupled from `iter_problems` on problem 0 (when B == L and
-    # permute_alphabet=False, sharing the same seed would force k == index(x[0]) for every seed).
+    # resample_alphabet=False, sharing the same seed would force k == index(x[0]) for every seed).
     decoupled = False
     for s in range(20):
         item_s = next(
@@ -153,13 +153,13 @@ def test_cls_dataset_all_steps_and_random_step_modes():
                     alphabet_size=3,
                     x_length=3,
                     symbols=SymbolSet.DECIMAL[:3],
-                    permute_alphabet=False,
-                    training_mode=ClsTrainingMode.RANDOM_STEP,
+                    resample_alphabet=False,
+                    supervision=ClsSupervision.RANDOM_STEP,
                     seed=s,
                 )
             )
         )
-        # Prefix length is 1 + 3 + 1 + 3 + 1 = 9; output history length is k.
+        # Prefix length is 1 + 3 + 1 + 3 + 1 = 9; output length is k.
         k = len(item_s.example) - 9
         x0_rank = SymbolSet.DECIMAL[:3].index(item_s.example.input_ids[5])
         if k != x0_rank:
@@ -209,8 +209,8 @@ def test_ar_dataset_yields_one_labelled_example_per_problem_and_cli(
     alphabet = ids[1 : 1 + alphabet_size]
     x = ids[1 + alphabet_size + 1 : prefix_len - 1]
 
-    expected_outputs = tuple(reference_step(alphabet, x, k)[0] for k in range(x_length))
-    expected_targets = (*expected_outputs, int(SpecialToken.EOS))
+    expected_output = tuple(reference_step(alphabet, x, k)[0] for k in range(x_length))
+    expected_targets = (*expected_output, int(SpecialToken.EOS))
     assert item.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
     assert item.labels[prefix_len - 1 :] == expected_targets
 

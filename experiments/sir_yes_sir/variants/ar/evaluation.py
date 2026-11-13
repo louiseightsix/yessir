@@ -13,10 +13,10 @@ from yessir.special_tokens import SpecialToken
 
 
 def _validate_ar_item(item: LabelledExample) -> int:
-    """Validate an `ar` sequence-labelled `LabelledExample` and return its step count `L`."""
+    """Validate an `ar` per-position `LabelledExample` and return its step count `L`."""
     if len(item.labels) != len(item.example):
         raise ValueError(
-            f"expected sequence-length labels ({len(item.example)}), got {len(item.labels)}"
+            f"expected per-position labels ({len(item.example)}), got {len(item.labels)}"
         )
     target_tokens = [t for t in item.labels if t != IGNORE_INDEX]
     if len(target_tokens) < 2:
@@ -45,9 +45,9 @@ def evaluate_ar(
     """Evaluate `model` on `num_problems` problems from an `ar` `dataset`.
 
     Why teacher-forced next-token evaluation gives exact match (`exact_match`) for `ar`:
-    Under causal masking and right-padding invariance, free-running greedy rollout
-    (`rollout_ar`) feeds the exact same prefix into `model` as teacher forcing up to the
-    first token mismatch. Therefore `rollout_ar` emits `(o_0, ..., o_{L-1}, EOS)` if and
+    Under causal masking and right-padding invariance, free-running greedy generation
+    (`greedy_generate_ar`) feeds the exact same prefix into `model` as teacher forcing up to the
+    first token mismatch. Therefore `greedy_generate_ar` emits `(o_0, ..., o_{L-1}, EOS)` if and
     only if every non-ignored position's greedy `argmax` matches `labels`.
 
     Metrics (`experiments/sir_yes_sir/spec/variants/ar.md` §3):
@@ -59,7 +59,7 @@ def evaluate_ar(
 
     Args:
         model: `Transformer` configured with `SubspaceLMHead`.
-        dataset: Stream of sequence-labelled `LabelledExample`s (one per problem).
+        dataset: Stream of per-position `LabelledExample`s (one per problem).
         num_problems: Number of problems to evaluate (`>= 1`).
         batch_size: Maximum number of problems per forward pass (`>= 1`).
 
@@ -97,26 +97,26 @@ def evaluate_ar(
             position_ids=batch.position_ids,
         )
         assert isinstance(logits, torch.Tensor)
-        preds = logits.argmax(dim=-1).cpu()
+        batch_preds = logits.argmax(dim=-1).cpu()
 
         for b in range(len(chunk)):
             valid_mask = labels[b] != IGNORE_INDEX
-            prob_preds = preds[b][valid_mask].tolist()
-            prob_targets = labels[b][valid_mask].tolist()
+            preds = batch_preds[b][valid_mask].tolist()
+            targets = labels[b][valid_mask].tolist()
 
-            n_steps = len(prob_targets) - 1
+            n_steps = len(targets) - 1
             total_steps += n_steps
             for k in range(n_steps):
-                if prob_preds[k] == prob_targets[k]:
+                if preds[k] == targets[k]:
                     step_ok_count += 1
 
             halt_ok = (
-                all(prob_preds[k] != SpecialToken.EOS for k in range(n_steps))
-                and prob_preds[n_steps] == SpecialToken.EOS
+                all(preds[k] != SpecialToken.EOS for k in range(n_steps))
+                and preds[n_steps] == SpecialToken.EOS
             )
             if halt_ok:
                 halt_ok_count += 1
-            if prob_preds == prob_targets:
+            if preds == targets:
                 em_count += 1
 
     return EvalMetrics(

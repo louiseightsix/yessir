@@ -153,13 +153,13 @@ def iter_problems(
     x_length: int,
     symbol_pool: tuple[int, ...],
     seed: int,
-    permute_alphabet: bool = True,
+    resample_alphabet: bool = True,
 ) -> Iterator[tuple[tuple[int, ...], tuple[int, ...]]]:
     """Yield an infinite deterministic stream of `(alphabet, x)` problem instances from `seed`.
 
-    When `permute_alphabet=True` (the default), each problem samples `alphabet_size`
+    When `resample_alphabet=True` (the default), each problem samples `alphabet_size`
     distinct symbols without replacement in random order from `symbol_pool`. When
-    `permute_alphabet=False`, every problem uses the fixed canonical prefix
+    `resample_alphabet=False`, every problem uses the fixed canonical prefix
     `symbol_pool[:alphabet_size]` in order (`experiments/sir_yes_sir/spec/task.md` §1).
     """
     rng = random.Random(seed)
@@ -167,7 +167,7 @@ def iter_problems(
     while True:
         alphabet = (
             create_alphabet(symbol_pool, sample_size=alphabet_size, rng=rng)
-            if permute_alphabet
+            if resample_alphabet
             else fixed_alphabet
         )
         x = tuple(rng.choice(alphabet) for _ in range(x_length))
@@ -175,7 +175,7 @@ def iter_problems(
 
 
 def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
-    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--permute-alphabet`, `--embedding-mode`, and `--seed` flags."""
+    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--resample-alphabet`, `--embedding-mode`, and `--seed` flags."""
     parser.add_argument(
         "-B",
         "--alphabet-size",
@@ -191,7 +191,7 @@ def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
         help="Length L of input sequence x (default: 3)",
     )
     parser.add_argument(
-        "--permute-alphabet",
+        "--resample-alphabet",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Sample/permute the alphabet per problem rather than using fixed canonical order (default: True)",

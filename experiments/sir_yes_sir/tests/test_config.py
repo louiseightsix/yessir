@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from experiments.sir_yes_sir.config import (
-    ClsTrainingMode,
+    ClsSupervision,
     SirYesSirClsConfig,
     SirYesSirConfig,
     SymbolSetName,
@@ -23,7 +23,7 @@ def test_default_config_is_valid():
     assert cfg.symbol_set == SymbolSetName.ALL
     assert cfg.symbol_pool_size is None
     assert cfg.symbol_pool == bytes(SymbolSet.ALL)
-    assert cfg.permute_alphabet is True
+    assert cfg.resample_alphabet is True
     assert cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
     assert cfg.use_token_type is True
     assert cfg.fixed_d_model is True
@@ -115,8 +115,8 @@ def test_model_and_training_bounds():
         SirYesSirConfig(n_heads=7)
     with pytest.raises(ValueError, match="d_ff must be > 0"):
         SirYesSirConfig(d_ff=0)
-    with pytest.raises(ValueError, match="steps must be >= 1"):
-        SirYesSirConfig(steps=0)
+    with pytest.raises(ValueError, match="max_steps must be >= 1"):
+        SirYesSirConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         SirYesSirConfig(batch_size=0)
     with pytest.raises(ValueError, match="lr must be > 0"):
@@ -135,7 +135,7 @@ def test_json_round_trip():
         x_length=4,
         symbol_set=SymbolSetName.HEX,
         symbol_pool_size=6,
-        permute_alphabet=False,
+        resample_alphabet=False,
         embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
         n_layers=2,
         n_heads=4,
@@ -143,21 +143,21 @@ def test_json_round_trip():
         d_position=8,
         d_scratch=16,
         fixed_d_model=False,
-        steps=600,
+        max_steps=600,
         batch_size=24,
         lr=1e-3,
         seed=7,
         num_eval_problems=50,
         eval_batch_size=32,
         eval_seed=100,
-        training_mode=ClsTrainingMode.RANDOM_STEP,
+        supervision=ClsSupervision.RANDOM_STEP,
     )
     payload = json.dumps(original.to_dict())
     restored = SirYesSirClsConfig.from_dict(json.loads(payload))
     assert restored == original
     assert isinstance(restored.symbol_set, SymbolSetName)
     assert isinstance(restored.embedding_mode, EmbeddingMode)
-    assert isinstance(restored.training_mode, ClsTrainingMode)
+    assert isinstance(restored.supervision, ClsSupervision)
 
 
 def test_config_import_does_not_load_torch():

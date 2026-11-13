@@ -222,7 +222,7 @@ def test_duplicate_run_alert_and_confirmation():
 
 @dataclass(frozen=True, kw_only=True)
 class _VariantBConfig(_SmallConfig):
-    step_order: str = "out_first"
+    extra_mode: str = "fast"
 
 
 def test_variant_switching_preserves_shared_values_and_swaps_schema():
@@ -234,7 +234,7 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
     )
     v_b = ExperimentVariant(
         name="ar",
-        description="Autoregressive trace.",
+        description="Autoregressive generation.",
         config_cls=_VariantBConfig,
         run=lambda cfg, out=None, *, device="auto": {},
     )
@@ -282,15 +282,15 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
         "rate",
         "opt_limit",
         "flag",
-        "step_order",
+        "extra_mode",
     ]
-    # Shared field `count` keeps its edited value 10, and `step_order` gets its default.
+    # Shared field `count` keeps its edited value 10, and `extra_mode` gets its default.
     assert state.values["count"] == 10
-    assert state.values["step_order"] == "out_first"
+    assert state.values["extra_mode"] == "fast"
     assert state.matching_runs() == []
 
     cfg, err = state.validate()
     assert err is None
     assert isinstance(cfg, _VariantBConfig)
     assert cfg.count == 10
-    assert cfg.step_order == "out_first"
+    assert cfg.extra_mode == "fast"

@@ -107,7 +107,7 @@ def parallel_classification_cross_entropy(
     the unweighted sum of each head's cross-entropy loss.
 
     Supports both single-step classification (`logits[h]` of shape `(B, num_classes_h)`,
-    `labels` of shape `(B, H)`) and sequence-level multi-position classification
+    `labels` of shape `(B, H)`) and per-position classification
     (`logits[h]` of shape `(B, T, num_classes_h)`, `labels` of shape `(B, T, H)` with
     `IGNORE_INDEX = -100` at masked prefix and padding positions).
 
@@ -122,15 +122,15 @@ def parallel_classification_cross_entropy(
     """
     if not logits:
         raise ValueError("logits must contain at least one head")
-    num_heads = len(logits)
+    num_targets = len(logits)
     leading_shape = logits[0].shape[:-1]
     if len(leading_shape) not in (1, 2):
         raise ValueError(
             f"logits[0] must have 2 or 3 dimensions, got shape {tuple(logits[0].shape)}"
         )
-    if labels.shape != (*leading_shape, num_heads):
+    if labels.shape != (*leading_shape, num_targets):
         raise ValueError(
-            f"labels shape {tuple(labels.shape)} must match (*leading_shape, num_heads) = {(*leading_shape, num_heads)}"
+            f"labels shape {tuple(labels.shape)} must match (*leading_shape, num_targets) = {(*leading_shape, num_targets)}"
         )
 
     total_loss = torch.zeros((), dtype=logits[0].dtype, device=logits[0].device)
@@ -184,14 +184,14 @@ def next_token_cross_entropy(
 
 
 def pack_classification_labels(items: Sequence[LabelledExample]) -> torch.Tensor:
-    """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_heads)` LongTensor."""
+    """Stack fixed-width `LabelledExample.labels` into a `(batch_size, num_targets)` LongTensor."""
     if not items:
         raise ValueError("items must not be empty")
-    num_heads = len(items[0].labels)
+    num_targets = len(items[0].labels)
     for idx, item in enumerate(items):
-        if len(item.labels) != num_heads:
+        if len(item.labels) != num_targets:
             raise ValueError(
-                f"all LabelledExamples in a parallel classification batch must have {num_heads} labels; "
+                f"all LabelledExamples in a parallel classification batch must have {num_targets} labels; "
                 f"item {idx} has {len(item.labels)}"
             )
     return torch.tensor([item.labels for item in items], dtype=torch.long)
@@ -206,9 +206,9 @@ def train_step(
 
     Moves the collated `Batch` and `labels` onto `model.device` and dispatches on
     `model.head`:
-    - `SubspaceLMHead`: collates sequence-level labels with `collate_labelled`
+    - `SubspaceLMHead`: collates per-position labels with `collate_labelled`
       and computes `next_token_cross_entropy`.
-    - `ParallelClassificationHead` (sequence-level, when `items[0].labels[0]` is a
+    - `ParallelClassificationHead` (per-position, when `items[0].labels[0]` is a
       per-position tuple): collates with `collate_labelled`, projects all positions
       (`lengths=None`), and computes `parallel_classification_cross_entropy`.
     - `ParallelClassificationHead` (single-step, when `items[0].labels` is a 1D tuple
@@ -271,13 +271,13 @@ def train(
     model: Transformer,
     dataset: Iterable[LabelledExample],
     *,
-    steps: int,
+    max_steps: int,
     batch_size: int,
     lr: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
     on_step: Callable[[int, float], None] | None = None,
 ) -> list[float]:
-    """Train `model` on batches drawn from `dataset` for `steps` optimisation steps.
+    """Train `model` on batches drawn from `dataset` for `max_steps` optimisation steps.
 
     Pass a persistent iterator `stream = iter(dataset)` and an existing `optimizer`
     to resume training across multiple `train(...)` calls (e.g. between evaluations)
@@ -285,10 +285,10 @@ def train(
     `lr` and `optimizer`.
 
     Returns:
-        List of per-step scalar training losses of length `steps`.
+        List of per-step scalar training losses of length `max_steps`.
     """
-    if steps < 1:
-        raise ValueError(f"steps must be >= 1, got {steps}")
+    if max_steps < 1:
+        raise ValueError(f"max_steps must be >= 1, got {max_steps}")
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
     if optimizer is not None and lr is not None:
@@ -299,7 +299,7 @@ def train(
     stream = iter(dataset)
 
     losses: list[float] = []
-    for step_idx in range(1, steps + 1):
+    for step_idx in range(1, max_steps + 1):
         items = list(itertools.islice(stream, batch_size))
         if len(items) < batch_size:
             raise ValueError(

@@ -10,7 +10,7 @@ It is implemented in two variants that share the task definition, input layout, 
 
 Each problem instance supplies an ordered alphabet in the prompt (an in-context lookup table, not few-shot demonstrations) and asks for the cyclic successor of each symbol in an input sequence:
 
-1. **Alphabet** (`alphabet = [s_0, s_1, ..., s_{B-1}]`): an ordered list of `B >= 2` distinct byte symbols drawn from the 240-byte symbol pool (`0x00`–`0xEF`; bytes `0xF0`–`0xFF` are reserved for special tokens so all symbols and control markers fit in a single 256-token byte vocabulary). The position `i` of a symbol `s_i` in the alphabet defines its rank (`0` to `B - 1`).
+1. **Alphabet** (`alphabet = [s_0, s_1, ..., s_{B-1}]`): an ordered list of `B >= 2` distinct byte symbols drawn from the 240-byte symbol pool (`0x00`–`0xEF`; bytes `0xF0`–`0xFF` are reserved for special tokens so all symbols and special tokens fit in a single 256-token byte vocabulary). The position `i` of a symbol `s_i` in the alphabet defines its rank (`0` to `B - 1`).
 2. **Input sequence** (`x = [x_0, x_1, ..., x_{L-1}]`): a sequence of `L >= 1` symbols drawn from `alphabet`.
 
 At each position `k` in `0 .. L - 1`, where the input symbol is `x_k = s_i`, the ground-truth transition (`reference_step`) defines:
@@ -31,10 +31,10 @@ A natural circuit for this task combines positional indexing (attending to `x_k`
 
 If every problem uses the same fixed alphabet (e.g. `'0', '1', '2', '3'`), a model can ignore the prompt's alphabet section altogether and memorise static token-to-token transitions (`'0' -> '1'`, `'1' -> '2'`, ...) in its weights. Randomising the alphabet order from problem to problem makes static memorisation impossible and forces the model to look up `x_k` in context.
 
-Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rng=None)` from `SymbolSet`:
-- **Random symbols**: `create_alphabet(SymbolSet.ALL, sample_size=B, rng=rng)` — `B` distinct bytes sampled uniformly without replacement in random order from the 240-byte symbol pool (`0x00`–`0xEF`). Prevents both transition memorisation and overfitting to a small fixed set of token embeddings.
-- **Canonical order**: `create_alphabet(SymbolSet.DECIMAL[:B])` or `create_alphabet(SymbolSet.HEX[:B])` — conventional ASCII characters in fixed order (`'0'`–`'9'` (`DECIMAL`) or `'0'`–`'9'`, `'A'`–`'F'` (`HEX`)), where static memorisation is possible.
-- **Canonical permuted**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` — the same canonical glyphs shuffled into a random order per problem, isolating whether a model relies on in-context lookup vs. memorised glyph order.
+Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rng=None)` from `SymbolSet` and controlled in `SirYesSirConfig` by `symbol_set`, `symbol_pool_size`, and `resample_alphabet`:
+- **Random symbols** (`symbol_set=all`, `symbol_pool_size=None`, `resample_alphabet=True`): `create_alphabet(SymbolSet.ALL, sample_size=B, rng=rng)` — `B` distinct bytes sampled uniformly without replacement in random order from the 240-byte symbol pool (`0x00`–`0xEF`). Prevents both transition memorisation and overfitting to a small fixed set of token embeddings.
+- **Canonical order** (`symbol_set=decimal` or `hex`, `resample_alphabet=False`): `create_alphabet(SymbolSet.DECIMAL[:B])` or `create_alphabet(SymbolSet.HEX[:B])` — conventional ASCII characters in fixed order (`'0'`–`'9'` (`DECIMAL`) or `'0'`–`'9'`, `'A'`–`'F'` (`HEX`)), where static memorisation is possible.
+- **Canonical permuted** (`symbol_set=decimal` or `hex`, `symbol_pool_size=B`, `resample_alphabet=True`): `create_alphabet(SymbolSet.DECIMAL[:B], sample_size=B, rng=rng)` — the same canonical glyphs shuffled into a random order per problem, isolating whether a model relies on in-context lookup vs. memorised glyph order.
 
 ## 2. Shared Sequence Layout & Embedding Modes (`experiments/sir_yes_sir/inputs.py`)
 
@@ -57,7 +57,7 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 
 Output `position_ids` start at `1` (`o_0` at `1`, `o_{k-1}` at `k`) while the second `[SEP]` sits at `position_id = 0`. Consequently, at every step `k` in `0 .. L - 1`, the query token that predicts `o_k` (`[SEP]` at `k == 0`, `o_{k-1}` at `k >= 1`) has `position_id = k`—matching the `position_id = k` of `x_k` in `TokenType.INPUT` with zero offset (position coupling).
 
-See [`variants/ar.md`](variants/ar.md) and [`variants/cls.md`](variants/cls.md) for how each variant constructs training targets and runs greedy rollout over this sequence.
+See [`variants/ar.md`](variants/ar.md) and [`variants/cls.md`](variants/cls.md) for how each variant constructs training targets and runs greedy generation over this sequence.
 
 ### Embedding modes (`EmbeddingMode`)
 
@@ -75,6 +75,6 @@ All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SE
 
 Evaluation over a set of problems (computed under teacher forcing) reports three metrics in `0.0..1.0` (`EvalMetrics`) with identical denominators across variants:
 
-- **`exact_match`** *(per problem)*: fraction of problems where every output symbol and halting prediction matches the ground truth. Because all variants use a causal attention mask and deterministic `argmax` decoding, teacher-forced inputs and free-running greedy rollout feed the exact same prefix into the model up to the first error on a problem, so teacher-forced `exact_match` equals free-running greedy `exact_match`. This equality holds in exact arithmetic; under `bfloat16` autocast, differences in padding and batch shape can flip near-tied `argmax` decisions, so the two may differ slightly.
+- **`exact_match`** *(per problem)*: fraction of problems where every output symbol and halting prediction matches the ground truth. Because all variants use a causal attention mask and deterministic `argmax` decoding, teacher-forced inputs and free-running greedy generation feed the exact same prefix into the model up to the first error on a problem, so teacher-forced `exact_match` equals free-running greedy `exact_match`. This equality holds in exact arithmetic; under `bfloat16` autocast, differences in padding and batch shape can flip near-tied `argmax` decisions, so the two may differ slightly.
 - **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` steps across all evaluated problems where the predicted symbol matches `o_k`.
 - **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right step—no premature halt before `o_{L-1}`, and halts immediately after `o_{L-1}`. Scoring halting per problem rather than per step avoids class-imbalance inflation (where a model that never halts would otherwise score near `1 - 1 / L`).

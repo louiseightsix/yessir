@@ -16,7 +16,7 @@ def _validate_cls_item(item: LabelledExample) -> int:
     """Validate a single-pass `cls` `LabelledExample` and return its step count `L`."""
     if len(item.labels) != len(item.example):
         raise ValueError(
-            f"expected sequence-length labels ({len(item.example)}), got {len(item.labels)}"
+            f"expected per-position labels ({len(item.example)}), got {len(item.labels)}"
         )
     if not isinstance(item.labels[0], tuple) or len(item.labels[0]) != 2:
         raise ValueError(
@@ -56,7 +56,7 @@ def evaluate_cls(
     Why single-pass teacher-forced evaluation gives exact match (`exact_match`) for `cls`:
     Under causal masking and right-padding invariance, the hidden state at query index
     `P - 1 + k` sees the exact same prefix `prefix + (o_0, ..., o_{k-1})` as step `k` of
-    `rollout_cls` up to the first prediction mismatch.
+    `greedy_generate_cls` up to the first prediction mismatch.
 
     Metrics (`experiments/sir_yes_sir/spec/variants/cls.md` §3):
     - `exact_match` (per problem): every step `k` in `0 .. L - 1` predicts both
@@ -106,26 +106,26 @@ def evaluate_cls(
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
-        preds_o = logits_o.argmax(dim=-1).cpu()
-        preds_flag = logits_flag.argmax(dim=-1).cpu()
+        batch_pred_o = logits_o.argmax(dim=-1).cpu()
+        batch_pred_flag = logits_flag.argmax(dim=-1).cpu()
 
         for b in range(len(chunk)):
             valid_mask = labels[b, :, 0] != IGNORE_INDEX
-            prob_pred_o = preds_o[b][valid_mask].tolist()
-            prob_pred_flag = preds_flag[b][valid_mask].tolist()
-            prob_targ_o = labels[b, :, 0][valid_mask].tolist()
-            prob_targ_flag = labels[b, :, 1][valid_mask].tolist()
+            pred_o = batch_pred_o[b][valid_mask].tolist()
+            pred_flag = batch_pred_flag[b][valid_mask].tolist()
+            target_o = labels[b, :, 0][valid_mask].tolist()
+            target_flag = labels[b, :, 1][valid_mask].tolist()
 
-            n_steps = len(prob_targ_o)
+            n_steps = len(target_o)
             total_steps += n_steps
             for k in range(n_steps):
-                if prob_pred_o[k] == prob_targ_o[k]:
+                if pred_o[k] == target_o[k]:
                     step_ok_count += 1
 
-            halt_ok = prob_pred_flag == prob_targ_flag
+            halt_ok = pred_flag == target_flag
             if halt_ok:
                 halt_ok_count += 1
-            if prob_pred_o == prob_targ_o and halt_ok:
+            if pred_o == target_o and halt_ok:
                 em_count += 1
 
     return EvalMetrics(

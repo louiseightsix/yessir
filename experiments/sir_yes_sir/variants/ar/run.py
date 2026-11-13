@@ -25,7 +25,7 @@ def run_sir_yes_sir_ar(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
-        permute_alphabet=config.permute_alphabet,
+        resample_alphabet=config.resample_alphabet,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
@@ -33,7 +33,7 @@ def run_sir_yes_sir_ar(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
-        permute_alphabet=config.permute_alphabet,
+        resample_alphabet=config.resample_alphabet,
         embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )

@@ -147,7 +147,7 @@ function sirYesSirChecks(values: Record<string, unknown>): { checks: Check[]; su
   atLeast("n_layers", 1);
   atLeast("n_heads", 1);
   atLeast("d_ff", 1);
-  atLeast("steps", 1);
+  atLeast("max_steps", 1);
   atLeast("batch_size", 1);
   atLeast("num_eval_problems", 1);
   atLeast("eval_batch_size", 1);

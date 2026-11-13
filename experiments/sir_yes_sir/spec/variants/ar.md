@@ -20,14 +20,14 @@ in:   [BOS] q # 7 [SEP] # 7 q 7 [SEP]
 out:  7 q # q [EOS]
 ```
 
-## 2. Supervision & Rollout
+## 2. Supervision & Greedy Generation
 
 Using the shared `[BOS] alphabet [SEP] x [SEP] output` sequence layout ([`task.md` §2](../task.md#2-shared-sequence-layout--embedding-modes-experimentssir_yes_sirinputspy)), let `P = B + L + 3` be the length of the prompt prefix `[BOS] alphabet [SEP] x [SEP]` and `targets = (o_0, ..., o_{L-1}, EOS)` be the ground-truth target sequence of length `L + 1`:
 
-- **Teacher-forced sequence labels (`build_ar_labelled_example`)**:
+- **Teacher-forced per-position labels (`build_ar_labelled_example`)**:
   - `example` is `build_example(alphabet, x, output=(o_0, ..., o_{L-1}))`, so `example.input_ids` is `prefix + (o_0, ..., o_{L-1})` (length `P + L`).
   - `labels` is pre-shifted (`(IGNORE_INDEX,) * (P - 1) + targets`, length `P + L`), so `SubspaceLMHead` + `next_token_cross_entropy` supervise predictions in a single forward pass from index `P - 1` (the second `[SEP]` at `position_id = 0`, predicting `o_0`) through index `P + L - 1` (`o_{L-1}` at `position_id = L`, predicting `EOS`), while masking earlier prompt positions and right-padding with `IGNORE_INDEX = -100`.
-- **Rollout (`rollout_ar`)**: Free-running greedy generation starts with `output = ()` after the second `[SEP]`, appends `argmax` tokens from `SubspaceLMHead` one by one (up to `L + 1` tokens), and stops as soon as `EOS` is emitted.
+- **Greedy generation (`greedy_generate_ar`)**: Free-running greedy generation starts with `output = ()` after the second `[SEP]`, appends `argmax` tokens from `SubspaceLMHead` one by one (up to `L + 1` tokens), and stops as soon as `EOS` is emitted.
 
 ## 3. Evaluation Metrics (`evaluate_ar`)
 
