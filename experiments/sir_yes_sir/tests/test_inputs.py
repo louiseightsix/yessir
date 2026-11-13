@@ -8,6 +8,7 @@ from experiments.sir_yes_sir.inputs import (
     build_example,
 )
 from experiments.sir_yes_sir.variants.ar.inputs import build_ar_labelled_example
+from experiments.sir_yes_sir.variants.cls.inputs import build_cls_labelled_example
 from yessir.dataset import IGNORE_INDEX
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import TOKEN_TYPE_RANGE
@@ -143,3 +144,29 @@ def test_build_ar_labelled_example_layout():
     # Prefix before the second [SEP] is masked with IGNORE_INDEX; from second [SEP] onward predicts (o_0..o_{L-1}, EOS)
     assert labelled.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
     assert labelled.labels[prefix_len - 1 :] == expected_targets
+
+
+def test_build_cls_labelled_example_layout():
+    """Verify `build_cls_labelled_example` for Example 1 (`alphabet = '0123'`, `x = '130'`)."""
+    alphabet = b"0123"
+    x = b"130"
+
+    labelled = build_cls_labelled_example(alphabet, x)
+    prefix_len = 1 + len(alphabet) + 1 + len(x) + 1  # [BOS] 0123 [SEP] 130 [SEP] = 10
+    expected_steps = (
+        (ord("2"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("0"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("1"), int(SpecialToken.FLAG_FINISHED)),
+    )
+
+    assert len(labelled.example) == prefix_len + len(x) - 1
+    assert len(labelled.labels) == len(labelled.example)
+    # Input sequence appends (o_0, ..., o_{L-2}) = ('2', '0')
+    assert labelled.example.input_ids[prefix_len:] == (ord("2"), ord("0"))
+    assert labelled.example.position_ids is not None
+    # Query positions are second [SEP] at 0, o_0 at 1, o_1 at 2 (matching x_0, x_1, x_2)
+    assert labelled.example.position_ids[prefix_len - 1 :] == (0, 1, 2)
+    assert labelled.labels[: prefix_len - 1] == ((IGNORE_INDEX, IGNORE_INDEX),) * (
+        prefix_len - 1
+    )
+    assert labelled.labels[prefix_len - 1 :] == expected_steps

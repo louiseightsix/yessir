@@ -37,32 +37,26 @@ def test_dataset_matches_reference_step_and_accumulates_output_history():
         x_length=x_length,
         seed=7,
     )
-    items = list(itertools.islice(ds, x_length))
+    item = next(iter(ds))
 
-    # Extract alphabet and input sequence x from the first example's sections:
-    # [BOS] alphabet[0..B-1] [SEP] x[0..L-1] [SEP] out_history[0..k-1] [STEP]
-    first_ids = items[0].example.input_ids
-    alphabet = first_ids[1 : 1 + alphabet_size]
+    # Extract alphabet and input sequence x from the example's sections:
+    # [BOS] alphabet[0..B-1] [SEP] x[0..L-1] [SEP] o_0 .. o_{L-2}
+    ids = item.example.input_ids
+    alphabet = ids[1 : 1 + alphabet_size]
     x_start = 1 + alphabet_size + 1
-    x = first_ids[x_start : x_start + x_length]
-    out_start = x_start + x_length + 1
+    x = ids[x_start : x_start + x_length]
+    prefix_len = x_start + x_length + 1
 
-    expected_history: list[int] = []
-    for k, item in enumerate(items):
-        o_k, w_k, flag_k = reference_step(alphabet, x, k)
-        assert item.labels == (o_k, w_k, int(flag_k))
-
-        ids = item.example.input_ids
-        assert ids[out_start:-1] == tuple(expected_history)
-        assert ids[-1] == SpecialToken.STEP
-
-        expected_flag = (
-            SpecialToken.FLAG_FINISHED
-            if k == x_length - 1
-            else SpecialToken.FLAG_CONTINUE
-        )
-        assert item.labels[2] == int(expected_flag)
-        expected_history.append(o_k)
+    expected_steps = tuple(
+        (o_k, int(flag_k))
+        for o_k, flag_k in (reference_step(alphabet, x, k) for k in range(x_length))
+    )
+    expected_outputs = tuple(o_k for o_k, _ in expected_steps[:-1])
+    assert ids[prefix_len:] == expected_outputs
+    assert item.labels[: prefix_len - 1] == ((IGNORE_INDEX, IGNORE_INDEX),) * (
+        prefix_len - 1
+    )
+    assert item.labels[prefix_len - 1 :] == expected_steps
 
 
 @pytest.mark.parametrize(

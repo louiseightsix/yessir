@@ -102,36 +102,49 @@ def parallel_classification_cross_entropy(
     """Compute the sum of cross-entropy losses across `ParallelClassificationHead` outputs.
 
     When a `ParallelClassificationHead` predicts `H` conditionally independent labels
-    `(y_0, ..., y_{H-1})` from the final hidden state `h_last`, the joint
-    log-probability is `sum_h log P(y_h | h_last)`. Minimising the negative
-    joint log-likelihood is therefore the unweighted sum of each head's
-    cross-entropy loss.
+    `(y_0, ..., y_{H-1})` from a hidden state `h`, the joint log-probability is
+    `sum_h log P(y_h | h)`. Minimising the negative joint log-likelihood is therefore
+    the unweighted sum of each head's cross-entropy loss.
+
+    Supports both single-step classification (`logits[h]` of shape `(B, num_classes_h)`,
+    `labels` of shape `(B, H)`) and sequence-level multi-position classification
+    (`logits[h]` of shape `(B, T, num_classes_h)`, `labels` of shape `(B, T, H)` with
+    `IGNORE_INDEX = -100` at masked prefix and padding positions).
 
     Args:
         logits: Sequence of `H` tensors, where `logits[h]` has shape
-            `(batch_size, num_classes_h)`.
-        labels: LongTensor of shape `(batch_size, H)`, where `labels[b, h]`
-            is the ground-truth class index for example `b` and head `h`.
+            `(B, num_classes_h)` or `(B, T, num_classes_h)`.
+        labels: LongTensor of shape `(B, H)` or `(B, T, H)` containing class
+            indices in `0..num_classes_h - 1` or `IGNORE_INDEX`.
 
     Returns:
-        Scalar loss tensor (sum of mean cross-entropy over the batch for each head).
+        Scalar loss tensor (sum across heads of mean cross-entropy over non-ignored positions).
     """
     if not logits:
         raise ValueError("logits must contain at least one head")
     num_heads = len(logits)
-    batch_size = logits[0].size(0)
-    if labels.shape != (batch_size, num_heads):
+    leading_shape = logits[0].shape[:-1]
+    if len(leading_shape) not in (1, 2):
         raise ValueError(
-            f"labels shape {tuple(labels.shape)} must match (batch_size, num_heads) = ({batch_size}, {num_heads})"
+            f"logits[0] must have 2 or 3 dimensions, got shape {tuple(logits[0].shape)}"
+        )
+    if labels.shape != (*leading_shape, num_heads):
+        raise ValueError(
+            f"labels shape {tuple(labels.shape)} must match (*leading_shape, num_heads) = {(*leading_shape, num_heads)}"
         )
 
     total_loss = torch.zeros((), dtype=logits[0].dtype, device=logits[0].device)
     for h, head_logits in enumerate(logits):
-        if head_logits.size(0) != batch_size:
+        if head_logits.shape[:-1] != leading_shape:
             raise ValueError(
-                f"logits[{h}] batch size {head_logits.size(0)} does not match logits[0] batch size {batch_size}"
+                f"logits[{h}] leading shape {tuple(head_logits.shape[:-1])} does not match "
+                f"logits[0] leading shape {tuple(leading_shape)}"
             )
-        total_loss = total_loss + F.cross_entropy(head_logits, labels[:, h])
+        total_loss = total_loss + F.cross_entropy(
+            head_logits.reshape(-1, head_logits.size(-1)),
+            labels[..., h].reshape(-1),
+            ignore_index=IGNORE_INDEX,
+        )
     return total_loss
 
 
@@ -195,8 +208,13 @@ def train_step(
     `model.head`:
     - `SubspaceLMHead`: collates sequence-level labels with `collate_labelled`
       and computes `next_token_cross_entropy`.
-    - `ParallelClassificationHead`: collates examples with `collate`, packs per-head labels with
-      `pack_classification_labels`, and computes `parallel_classification_cross_entropy`.
+    - `ParallelClassificationHead` (sequence-level, when `items[0].labels[0]` is a
+      per-position tuple): collates with `collate_labelled`, projects all positions
+      (`lengths=None`), and computes `parallel_classification_cross_entropy`.
+    - `ParallelClassificationHead` (single-step, when `items[0].labels` is a 1D tuple
+      of per-head targets): collates with `collate`, packs labels with
+      `pack_classification_labels`, projects at `lengths - 1`, and computes
+      `parallel_classification_cross_entropy`.
 
     Returns:
         The scalar loss value (`float`) for this step before the parameter update.
@@ -220,6 +238,18 @@ def train_step(
         )
         assert isinstance(logits, torch.Tensor)
         loss = next_token_cross_entropy(logits, labels)
+    elif isinstance(items[0].labels[0], tuple):
+        batch, labels = collate_labelled(items)
+        batch = batch.to(device)
+        labels = labels.to(device)
+        logits = model(
+            batch.input_ids,
+            lengths=None,
+            token_type_ids=batch.token_type_ids,
+            position_ids=batch.position_ids,
+        )
+        assert isinstance(logits, tuple)
+        loss = parallel_classification_cross_entropy(logits, labels)
     else:
         batch = collate([item.example for item in items]).to(device)
         labels = pack_classification_labels(items).to(device)

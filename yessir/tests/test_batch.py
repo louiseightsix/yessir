@@ -116,6 +116,44 @@ def test_collate_labelled_right_pads_labels_with_ignore_index():
         collate_labelled([bad_item])
 
 
+def test_collate_labelled_2d_per_position_head_labels():
+    item1 = LabelledExample(
+        example=Example(input_ids=(SpecialToken.BOS, 10)),
+        labels=((IGNORE_INDEX, IGNORE_INDEX), (20, int(SpecialToken.FLAG_FINISHED))),
+    )
+    item2 = LabelledExample(
+        example=Example(input_ids=(SpecialToken.BOS, 10, 20)),
+        labels=(
+            (IGNORE_INDEX, IGNORE_INDEX),
+            (20, int(SpecialToken.FLAG_CONTINUE)),
+            (30, int(SpecialToken.FLAG_FINISHED)),
+        ),
+    )
+    batch, labels = collate_labelled([item1, item2])
+    assert batch.input_ids.shape == (2, 3)
+    assert labels.shape == (2, 3, 2)
+    assert torch.equal(
+        labels[0],
+        torch.tensor(
+            [
+                [IGNORE_INDEX, IGNORE_INDEX],
+                [20, int(SpecialToken.FLAG_FINISHED)],
+                [IGNORE_INDEX, IGNORE_INDEX],
+            ],
+            dtype=torch.long,
+        ),
+    )
+
+    item_1d = LabelledExample(
+        example=Example(input_ids=(SpecialToken.BOS, 10)),
+        labels=(IGNORE_INDEX, 20),
+    )
+    with pytest.raises(ValueError, match="same label dimensionality"):
+        collate_labelled([item1, item_1d])
+    with pytest.raises(ValueError, match="same label dimensionality"):
+        collate_labelled([item_1d, item1])
+
+
 def test_batch_to_moves_present_tensors_and_preserves_none():
     full = collate(
         [

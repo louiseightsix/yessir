@@ -96,6 +96,28 @@ def test_parallel_classification_cross_entropy_matches_manual_sum():
     assert logits_1.grad is not None
     assert logits_2.grad is not None
 
+    # Also supports 3D (B, T, num_classes) sequence-level logits with IGNORE_INDEX
+    seq_logits_0 = torch.randn(2, 3, 8, requires_grad=True)
+    seq_logits_1 = torch.randn(2, 3, 4, requires_grad=True)
+    seq_labels = torch.tensor(
+        [
+            [[IGNORE_INDEX, IGNORE_INDEX], [2, 1], [IGNORE_INDEX, IGNORE_INDEX]],
+            [[IGNORE_INDEX, IGNORE_INDEX], [5, 0], [7, 3]],
+        ],
+        dtype=torch.long,
+    )
+    seq_loss = parallel_classification_cross_entropy(
+        (seq_logits_0, seq_logits_1), seq_labels
+    )
+    expected_seq = F.cross_entropy(
+        torch.stack([seq_logits_0[0, 1], seq_logits_0[1, 1], seq_logits_0[1, 2]]),
+        torch.tensor([2, 5, 7]),
+    ) + F.cross_entropy(
+        torch.stack([seq_logits_1[0, 1], seq_logits_1[1, 1], seq_logits_1[1, 2]]),
+        torch.tensor([1, 0, 3]),
+    )
+    assert torch.allclose(seq_loss, expected_seq)
+
 
 def test_parallel_classification_cross_entropy_rejects_invalid_shapes():
     with pytest.raises(ValueError, match="at least one head"):
@@ -108,9 +130,14 @@ def test_parallel_classification_cross_entropy_rejects_invalid_shapes():
         )
 
     mismatched_logits = (torch.randn(2, 8), torch.randn(3, 8))
-    with pytest.raises(ValueError, match="batch size"):
+    with pytest.raises(ValueError, match="leading shape"):
         parallel_classification_cross_entropy(
             mismatched_logits, torch.zeros(2, 2, dtype=torch.long)
+        )
+
+    with pytest.raises(ValueError, match="must have 2 or 3 dimensions"):
+        parallel_classification_cross_entropy(
+            (torch.randn(8),), torch.zeros(1, dtype=torch.long)
         )
 
 

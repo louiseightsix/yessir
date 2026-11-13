@@ -9,21 +9,20 @@ from experiments.sir_yes_sir.inputs import (
     iter_problems,
     resolve_symbol_pool,
 )
-from experiments.sir_yes_sir.reference import reference_step
-from experiments.sir_yes_sir.variants.cls.inputs import build_cls_example
+from experiments.sir_yes_sir.variants.cls.inputs import build_cls_labelled_example
 from yessir.alphabet import SymbolSet
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
-from yessir.vocab import Token, TokenSequence
+from yessir.vocab import TokenSequence
 
 
 class SirYesSirClsDataset:
-    """Infinite deterministic stream of parallel-classification `LabelledExample`s for `sir_yes_sir`.
+    """Infinite deterministic stream of single-pass parallel-classification `LabelledExample`s for `sir_yes_sir`.
 
-    Each problem samples a fresh alphabet of size `alphabet_size` from `symbols`
-    (defaulting to `SymbolSet.ALL`) and a random input sequence `x` of length
-    `x_length` over that alphabet, then yields one `LabelledExample` for each
-    step `k = 0 .. x_length - 1`.
+    Each yielded `LabelledExample` is one complete problem `(alphabet, x)` with
+    `(o_0, ..., o_{L-2})` appended to the prompt prefix and per-position `(o_k, flag_k)`
+    labels at query indices `P - 1 .. P + L - 2` (and `(IGNORE_INDEX, IGNORE_INDEX)`
+    at earlier prompt positions).
     """
 
     def __init__(
@@ -38,31 +37,22 @@ class SirYesSirClsDataset:
         self._symbol_pool = resolve_symbol_pool(alphabet_size, x_length, symbols)
         self._alphabet_size = alphabet_size
         self._x_length = x_length
-        self._embedding_mode = embedding_mode
+        self._embedding_mode = EmbeddingMode(embedding_mode)
         self._seed = seed
 
     def __iter__(self) -> Iterator[LabelledExample]:
-        """Yield `LabelledExample`s deterministically from `self._seed`."""
+        """Yield one sequence-labelled `LabelledExample` per problem from `self._seed`."""
         for alphabet, x in iter_problems(
             alphabet_size=self._alphabet_size,
             x_length=self._x_length,
             symbol_pool=self._symbol_pool,
             seed=self._seed,
         ):
-            output_history: list[Token] = []
-            for k in range(self._x_length):
-                o_k, w_k, flag_k = reference_step(alphabet, x, k)
-                example = build_cls_example(
-                    alphabet,
-                    x,
-                    output_history,
-                    embedding_mode=self._embedding_mode,
-                )
-                yield LabelledExample(
-                    example=example,
-                    labels=(o_k, w_k, int(flag_k)),
-                )
-                output_history.append(o_k)
+            yield build_cls_labelled_example(
+                alphabet,
+                x,
+                embedding_mode=self._embedding_mode,
+            )
 
 
 def _build_from_args(args: argparse.Namespace) -> SirYesSirClsDataset:

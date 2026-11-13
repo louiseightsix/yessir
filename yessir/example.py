@@ -5,6 +5,7 @@ carry aligned per-token `token_type_ids` and `position_ids`.
 """
 
 from dataclasses import dataclass
+from typing import TypeGuard
 
 from yessir.vocab import (
     MAX_TOKEN_TYPES,
@@ -15,7 +16,7 @@ from yessir.vocab import (
 )
 
 
-def _is_int(value: object) -> bool:
+def _is_int(value: object) -> TypeGuard[int]:
     """Return True if `value` is an `int` and not a `bool` (`bool` subclasses `int`)."""
     return isinstance(value, int) and not isinstance(value, bool)
 

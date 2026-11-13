@@ -38,7 +38,7 @@ def run_sir_yes_sir_cls(
         config=config,
         out_dir=out_dir,
         head_type=HeadType.PARALLEL_CLASSIFICATION,
-        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_cls,
