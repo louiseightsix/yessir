@@ -1,0 +1,8 @@
+{
+  "title": "Embedding modes and length extrapolation (token_type_pe vs. token_type_nope vs. nope)",
+  "status": "draft",
+  "kind": "ablation",
+  "question": "How do section-coupled sinusoidal position_ids (token_type_pe), token_type_ids alone (token_type_nope), and causal masking alone (nope) compare on in-domain convergence speed vs. zero-shot extrapolation to operand lengths longer than those seen in training?",
+  "runs": [],
+  "conclusion": null
+}

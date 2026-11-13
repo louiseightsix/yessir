@@ -1,0 +1,8 @@
+{
+  "title": "Sum-first vs. carry-first emission order",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "In step_ar (and ar), does emitting the outgoing carry c_{k+1} before the sum digit o_k (carry_first: a monotone threshold followed by a conditional subtraction) improve convergence speed and zero-shot base generalisation compared to emitting o_k before c_{k+1} (sum_first)?",
+  "runs": [],
+  "conclusion": null
+}

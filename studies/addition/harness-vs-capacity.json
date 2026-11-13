@@ -1,0 +1,8 @@
+{
+  "title": "External step harness vs. model capacity (d_scratch, n_layers)",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "Because cls and step_ar offload inter-column state updates (rewriting c_k and stripping transient tokens) to the external harness while ar must track the entire unrolled trace in context, can cls and step_ar solve base-conditioned addition with a smaller working-memory scratchpad (d_scratch) or fewer layers (n_layers) than ar?",
+  "runs": [],
+  "conclusion": null
+}

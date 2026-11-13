@@ -1,0 +1,8 @@
+{
+  "title": "Prior override on permuted canonical alphabets",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "As the fraction of training problems using conventional canonical numerals ('0'..'9' in order) increases, does the model still follow a permuted canonical alphabet in context at evaluation time, or does it fall back to the memorised canonical order?",
+  "runs": [],
+  "conclusion": null
+}
