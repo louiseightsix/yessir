@@ -1,5 +1,6 @@
-/* Base styles shared by every page. Component styles live next to each component. */
+/* Base styles shared by every page. Astro components keep scoped styles; React component styles are in components.css. */
 @import "./tokens.css";
+@import "./components.css";
 
 body {
   margin: 0;

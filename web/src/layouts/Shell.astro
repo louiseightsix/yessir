@@ -1,6 +1,7 @@
 ---
 // App shell: sidebar (experiment picker, nav, "Running now", footer) and content area.
 import "../styles/global.css";
+import { ProgressBar } from "../components/controls";
 import { getExperiment, getSiteData } from "../lib/data";
 
 export type Section = "studies" | "runs" | "new";
@@ -89,11 +90,7 @@ const newestProgress =
               <a class="mono" href={`/${experiment}/runs/${newest.name}/`}>
                 {newest.name}
               </a>
-              {newestProgress !== null && (
-                <div class="progress-track">
-                  <div class="progress-fill" style={`width: ${(newestProgress * 100).toFixed(1)}%`} />
-                </div>
-              )}
+              {newestProgress !== null && <ProgressBar fraction={newestProgress} />}
               <div class="running-stats muted">
                 <span>
                   {newestLast ? newestLast.step : 0}
@@ -260,17 +257,6 @@ const newestProgress =
     display: flex;
     justify-content: space-between;
   }
-  .progress-track {
-    height: 4px;
-    background: var(--c-accent-track);
-    border-radius: 2px;
-  }
-  .progress-fill {
-    height: 4px;
-    background: var(--c-accent);
-    border-radius: 2px;
-  }
-
   /* With no running card the footer still sits at the bottom. */
   .footer {
     margin-top: auto;
