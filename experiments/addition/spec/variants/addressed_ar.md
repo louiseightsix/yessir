@@ -14,12 +14,17 @@ For any non-negative column index `j >= 0` and ordered alphabet `alphabet = [s_0
   - For `0 <= j < B`, `addr(j, alphabet) = (s_j,)` (a single symbol).
   - For `B <= j < B^2`, `addr(j, alphabet) = (s_{j % B}, s_{j // B})` (e.g. column `24` in Base 10 has `addr(24) = ('4', '2')`; column `5` in Base 2 has `addr(5) = (s_1, s_0, s_1)`).
 
-### Within-step emission order (`StepOrder`)
+### Variant parameters
 
-As in [`step_ar`](step_ar.md) and [`ar`](ar.md), `addressed_ar` exposes a variant-specific `step_order` parameter controlling the order of the 2 value tokens emitted after `addr(k)` at each column `k` (`0 <= k <= K`):
-
-- **`StepOrder.SUM_FIRST` (`"sum_first"`, default)**: each column `k` emits `[STEP] addr(k) o_k c_{k+1}`.
-- **`StepOrder.CARRY_FIRST` (`"carry_first"`)**: each column `k` emits `[STEP] addr(k) c_{k+1} o_k`.
+1. **`step_order: StepOrder`** (`StepOrder.SUM_FIRST` default, or `StepOrder.CARRY_FIRST`):
+   - `SUM_FIRST` (`"sum_first"`): each column `k` emits `o_k` before `c_{k+1}`.
+   - `CARRY_FIRST` (`"carry_first"`): each column `k` emits `c_{k+1}` before `o_k`.
+2. **`use_query_tokens: bool`** (`False` default):
+   - `False`: each column `k` in the trace emits `[STEP] addr(k) o_k c_{k+1}` (or `[STEP] addr(k) c_{k+1} o_k` under `carry_first`).
+   - `True`: each value token in the trace is preceded by its explicit query trigger (`[S]` for `o_k`, `[C]` for `c_{k+1}`): `[STEP] addr(k) [S] o_k [C] c_{k+1}` under `sum_first`, or `[STEP] addr(k) [C] c_{k+1} [S] o_k` under `carry_first`.
+3. **`include_alphabet: bool`** (`True` default):
+   - `True`: includes the explicit `s_0 ... s_{B-1} [SEP]` alphabet section after `[BOS]`.
+   - `False` *(zero-preamble mode)*: omits `s_0 ... s_{B-1} [SEP]` from the prompt and requires operand lengths `L_a, L_b >= B` so every symbol `s_0, ..., s_{B-1}` appears in ascending order as the single-digit column addresses `addr(0) .. addr(B - 1)` of the operands.
 
 After column `K`, the trace terminates with `[EOS]`.
 
@@ -44,16 +49,16 @@ Trace (carry_first):
 | Section | `input_ids` | `token_type_ids` | `position_ids` |
 | :--- | :--- | :--- | :--- |
 | Start marker | `[BOS]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Alphabet | `s_0, ..., s_{B-1}` | `TokenType.ALPHABET` (`1`) | `0, 1, ..., B - 1` |
-| Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
+| Alphabet *(if `include_alphabet=True`)* | `s_0, ..., s_{B-1}` | `TokenType.ALPHABET` (`1`) | `0, 1, ..., B - 1` |
+| Delimiter *(if `include_alphabet=True`)* | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Operand `a` entry `j` (`0 <= j < L_a`) | `[STEP]`, `addr(j)`, `a_j` | `SPECIAL` (`0`), `ADDRESS` (`6`), `OPERAND_A` (`2`) | `j` (for all tokens in entry `j`) |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Operand `b` entry `j` (`0 <= j < L_b`) | `[STEP]`, `addr(j)`, `b_j` | `SPECIAL` (`0`), `ADDRESS` (`6`), `OPERAND_B` (`3`) | `j` (for all tokens in entry `j`) |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Trace column `k` marker (`0 <= k <= K`) | `[STEP]` | `TokenType.SPECIAL` (`0`) | `k` |
 | Trace column `k` address | `addr(k)` | `TokenType.ADDRESS` (`6`) | `k` |
-| Trace column `k` first token | `o_k` (`sum_first`) / `c_{k+1}` (`carry_first`) | `OUTPUT` (`5`) / `CARRY` (`4`) | `k` |
-| Trace column `k` second token | `c_{k+1}` (`sum_first`) / `o_k` (`carry_first`) | `CARRY` (`4`) / `OUTPUT` (`5`) | `k + 1` |
+| Trace column `k` first token *(with optional `[S]` / `[C]`)* | `([S],) o_k` (`sum_first`) / `([C],) c_{k+1}` (`carry_first`) | `(SPECIAL (0),) OUTPUT` (`5`) / `(SPECIAL (0),) CARRY` (`4`) | `k` |
+| Trace column `k` second token *(with optional `[C]` / `[S]`)* | `([C],) c_{k+1}` (`sum_first`) / `([S],) o_k` (`carry_first`) | `(SPECIAL (0),) CARRY` (`4`) / `(SPECIAL (0),) OUTPUT` (`5`) | `k + 1` |
 
 ## 2. Examples
 

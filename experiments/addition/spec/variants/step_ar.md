@@ -4,14 +4,16 @@ The `step_ar` variant (`experiments/addition/variants/step_ar/`) frames [the `ad
 
 Holding the per-step harness fixed (updating `c_k` and `o_0, ..., o_{k-1}` between columns and discarding transient step tokens), `step_ar` replaces `cls`'s 3-head `ParallelClassificationHead` with 3 sequential next-token predictions through the parameter-free `SubspaceLMHead`.
 
-### Within-step emission order (`StepOrder`)
+### Variant parameters
 
-Because the 3 outputs of column `k` are emitted one token at a time rather than in parallel, `step_ar` exposes a variant-specific `step_order` parameter controlling whether the sum digit or the outgoing carry is emitted first:
+1. **`step_order: StepOrder`** (`StepOrder.SUM_FIRST` default, or `StepOrder.CARRY_FIRST`):
+   - **`StepOrder.SUM_FIRST` (`"sum_first"`, default)**: emits `(o_k, c_{k+1}, flag_k)`. The model must compute the modular residue `o_k = alphabet[(v_a + v_b + v_c) % B]` directly on the first prediction, before emitting `c_{k+1}`.
+   - **`StepOrder.CARRY_FIRST` (`"carry_first"`)**: emits `(c_{k+1}, o_k, flag_k)`. The model first predicts the monotone carry threshold (`c_{k+1} = s_1` if `v_a + v_b + v_c >= B` else `s_0`); once `c_{k+1}` is appended to the sequence, the second prediction `o_k` can condition on `c_{k+1}` (a conditional subtraction by `B`).
+2. **`use_query_tokens: bool`** (`False` default):
+   - **`False`**: after the step-trigger `[SEP]`, the model emits the 3 targets `(o_k, c_{k+1}, flag_k)` (or `(c_{k+1}, o_k, flag_k)`) directly in 3 consecutive positions.
+   - **`True`**: replaces the step-trigger `[SEP]` with explicit harness-inserted query triggers (`[S]`, `[C]`, `[F]`; see [`step_fork.md`](step_fork.md#1-sequence-layout--query-triggers)) before each of the 3 predictions (`[S] o_k [C] c_{k+1} [F] flag_k` under `sum_first`, or `[C] c_{k+1} [S] o_k [F] flag_k` under `carry_first`), supervising only the 3 target positions after `[S]`, `[C]`, and `[F]`.
 
-- **`StepOrder.SUM_FIRST` (`"sum_first"`, default)**: emits `(o_k, c_{k+1}, flag_k)`. The model must compute the modular residue `o_k = alphabet[(v_a + v_b + v_c) % B]` directly on the first prediction, before emitting `c_{k+1}`.
-- **`StepOrder.CARRY_FIRST` (`"carry_first"`)**: emits `(c_{k+1}, o_k, flag_k)`. The model first predicts the monotone carry threshold (`c_{k+1} = s_1` if `v_a + v_b + v_c >= B` else `s_0`); once `c_{k+1}` is appended to the sequence, the second prediction `o_k` can condition on `c_{k+1}` (a conditional subtraction by `B`).
-
-Between columns, the harness behaves identically under both orders: it discards the 3 transient step tokens, updates `carry = c_{k+1}`, and appends `o_k` to `output`.
+Between columns, the harness behaves identically under all settings: it discards the transient step tokens, updates `carry = c_{k+1}`, and appends `o_k` to `output`.
 
 ## 1. Sequence Layout
 

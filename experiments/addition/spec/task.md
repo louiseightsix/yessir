@@ -2,11 +2,13 @@
 
 This experiment tests whether a transformer trained from scratch can learn multi-step column addition conditioned on an **in-context numeral system** (an ordered alphabet of digit symbols supplied in the prompt) rather than memorising fixed symbol values or a fixed base in its weights, and whether the learned procedure transfers zero-shot to unseen bases, alphabets, and operand lengths.
 
-It is implemented in four variants that share the task definition, embedding modes, and evaluation metrics below:
+It is implemented in six variants that share the task definition, embedding modes, and evaluation metrics below:
 - [`variants/cls.md`](variants/cls.md): parallel per-step classification (`ParallelClassificationHead`) with per-step harness state updates.
+- [`variants/step_fork.md`](variants/step_fork.md): three parallel single-token query branches (`[S]`, `[C]`, `[F]`) per step (`SubspaceLMHead`) with per-step harness state updates.
 - [`variants/step_ar.md`](variants/step_ar.md): sequential per-step next-token prediction (`SubspaceLMHead`) with per-step harness state updates.
 - [`variants/ar.md`](variants/ar.md): full-trace autoregressive next-token prediction (`SubspaceLMHead`) with no external state rewriting.
-- [`variants/addressed_ar.md`](variants/addressed_ar.md): full-trace autoregressive next-token prediction (`SubspaceLMHead`) with explicit base-`B` column addresses in the sequence.
+- [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md): sequential per-step next-token prediction (`SubspaceLMHead`) with explicit base-`B` column addresses and per-step harness state updates (including optional zero-preamble mode `include_alphabet=False`).
+- [`variants/addressed_ar.md`](variants/addressed_ar.md): full-trace autoregressive next-token prediction (`SubspaceLMHead`) with explicit base-`B` column addresses in the sequence (including optional zero-preamble mode `include_alphabet=False`).
 
 ## 1. Task: In-Context Column Addition (`experiments/addition/reference.py`)
 
@@ -78,7 +80,7 @@ Varying the base `B` and operand lengths `L_a, L_b` between training and evaluat
 
 ## 2. Shared Problem Prefix & Embedding Modes (`experiments/addition/inputs.py`)
 
-[`cls`](variants/cls.md), [`step_ar`](variants/step_ar.md), and [`ar`](variants/ar.md) share the unaddressed problem prefix layout (`[BOS] alphabet [SEP] a [SEP] b [SEP]`; [`addressed_ar`](variants/addressed_ar.md) uses the same four `[BOS] ... [SEP] ... [SEP] ... [SEP]` sections with explicit base-`B` column addresses attached to each digit):
+[`cls`](variants/cls.md), [`step_fork`](variants/step_fork.md), [`step_ar`](variants/step_ar.md), and [`ar`](variants/ar.md) share the unaddressed problem prefix layout (`[BOS] alphabet [SEP] a [SEP] b [SEP]`; [`addressed_step_ar`](variants/addressed_step_ar.md) and [`addressed_ar`](variants/addressed_ar.md) use the same `[BOS] ... [SEP] ... [SEP] ... [SEP]` sections with explicit base-`B` column addresses attached to each digit):
 
 ```
 [BOS]  s_0 ... s_{B-1}  [SEP]  a_0 ... a_{L_a-1}  [SEP]  b_0 ... b_{L_b-1}  [SEP]  ...
@@ -96,7 +98,7 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 | Operand `b` | `b_0, ..., b_{L_b-1}` | `TokenType.OPERAND_B` (`3`) | `0, 1, ..., L_b - 1` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 
-In the prefix, digit `a_k` in `TokenType.OPERAND_A` and digit `b_k` in `TokenType.OPERAND_B` both sit at `position_id = k` (`0`-indexed from least-significant to most-significant column). How the step state or trace after the third `[SEP]` is laid out—and how its `token_type_ids` and `position_ids` couple to column `k`—is specified in [`variants/cls.md`](variants/cls.md), [`variants/step_ar.md`](variants/step_ar.md), [`variants/ar.md`](variants/ar.md), and [`variants/addressed_ar.md`](variants/addressed_ar.md).
+In the prefix, digit `a_k` in `TokenType.OPERAND_A` and digit `b_k` in `TokenType.OPERAND_B` both sit at `position_id = k` (`0`-indexed from least-significant to most-significant column). How the step state or trace after the third `[SEP]` is laid out—and how its `token_type_ids` and `position_ids` couple to column `k`—is specified in [`variants/cls.md`](variants/cls.md), [`variants/step_fork.md`](variants/step_fork.md), [`variants/step_ar.md`](variants/step_ar.md), [`variants/ar.md`](variants/ar.md), [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md), and [`variants/addressed_ar.md`](variants/addressed_ar.md).
 
 ### Embedding modes (`EmbeddingMode`)
 

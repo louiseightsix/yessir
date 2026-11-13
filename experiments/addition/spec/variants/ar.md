@@ -4,14 +4,16 @@ The `ar` variant (`experiments/addition/variants/ar/`) frames [the `addition` ta
 
 Unlike [`cls`](cls.md) and [`step_ar`](step_ar.md)—where an external harness updates the carry slot and strips transient step tokens between columns—`ar` feeds the problem prompt once and lets the model generate the entire multi-column trace into its own context until `[EOS]`. Holding `SubspaceLMHead` fixed, comparing `ar` against [`step_ar`](step_ar.md) isolates free-running unrolled scratchpad execution against per-step external state rewriting.
 
-### Within-step emission order (`StepOrder`)
+### Variant parameters
 
-As in [`step_ar`](step_ar.md), `ar` exposes a variant-specific `step_order` parameter controlling the order of the 2 tokens emitted at each column `k` (`0 <= k <= K`):
+1. **`step_order: StepOrder`** (`StepOrder.SUM_FIRST` default, or `StepOrder.CARRY_FIRST`):
+   - **`StepOrder.SUM_FIRST` (`"sum_first"`, default)**: each column `k` emits `(o_k, c_{k+1})`, giving the full `2 * (K + 1) + 1` target sequence `(o_0, c_1, o_1, c_2, ..., o_K, c_{K+1}, [EOS])`.
+   - **`StepOrder.CARRY_FIRST` (`"carry_first"`)**: each column `k` emits `(c_{k+1}, o_k)`, giving the full `2 * (K + 1) + 1` target sequence `(c_1, o_0, c_2, o_1, ..., c_{K+1}, o_K, [EOS])`.
+2. **`use_query_tokens: bool`** (`False` default):
+   - **`False`**: each column `k` emits `(o_k, c_{k+1})` (or `(c_{k+1}, o_k)`) directly (`2 * (K + 1) + 1` target tokens total).
+   - **`True`**: each value token in the trace is preceded by its explicit query trigger (`[S]` for `o_k`, `[C]` for `c_{k+1}`), so each column `k` emits `([S], o_k, [C], c_{k+1})` under `sum_first` or `([C], c_{k+1}, [S], o_k)` under `carry_first`, followed by `[EOS]` (`4 * (K + 1) + 1` target tokens total, where `[S]` and `[C]` sit at the same `position_id` as the value token they precede).
 
-- **`StepOrder.SUM_FIRST` (`"sum_first"`, default)**: each column `k` emits `(o_k, c_{k+1})`, giving the full `2 * (K + 1) + 1` target sequence `(o_0, c_1, o_1, c_2, ..., o_K, c_{K+1}, [EOS])`.
-- **`StepOrder.CARRY_FIRST` (`"carry_first"`)**: each column `k` emits `(c_{k+1}, o_k)`, giving the full `2 * (K + 1) + 1` target sequence `(c_1, o_0, c_2, o_1, ..., c_{K+1}, o_K, [EOS])`.
-
-In both orders, the outgoing carry `c_{k+1}` of column `k` remains in the trace, where subsequent columns can attend to it directly as the incoming carry for column `k + 1`, and halting is represented by emitting `[EOS]` immediately after completing column `K`.
+In all settings, the outgoing carry `c_{k+1}` of column `k` remains in the trace, where subsequent columns can attend to it directly as the incoming carry for column `k + 1`, and halting is represented by emitting `[EOS]` immediately after completing column `K`.
 
 ## 1. Sequence Layout
 
