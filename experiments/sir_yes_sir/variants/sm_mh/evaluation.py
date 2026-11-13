@@ -94,6 +94,7 @@ def evaluate_sm_mh(
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
 
     model.eval()
+    device = model.device
     problems = _collect_problems(dataset, num_problems)
     flat_items = [item for problem in problems for item in problem]
 
@@ -102,8 +103,8 @@ def evaluate_sm_mh(
 
     for start in range(0, len(flat_items), batch_size):
         chunk = flat_items[start : start + batch_size]
-        batch = collate([item.example for item in chunk])
-        labels = pack_multitask_labels(chunk)
+        batch = collate([item.example for item in chunk]).to(device)
+        labels = pack_multitask_labels(chunk).to(device)
 
         logits = model(
             batch.input_ids,

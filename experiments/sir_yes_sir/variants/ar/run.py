@@ -17,6 +17,8 @@ from yessir.heads import HeadType
 def run_sir_yes_sir_ar(
     config: SirYesSirArConfig,
     out_dir: Path | None = None,
+    *,
+    device: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the `ar` variant of `sir_yes_sir` according to `config`."""
     train_dataset = SirYesSirArDataset(
@@ -43,6 +45,7 @@ def run_sir_yes_sir_ar(
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_ar,
+        device=device,
     )
 
 

@@ -15,6 +15,8 @@ from yessir.vocab import VOCAB_SIZE
 def run_sir_yes_sir_sm_mh(
     config: SirYesSirConfig,
     out_dir: Path | None = None,
+    *,
+    device: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the `sm_mh` variant of `sir_yes_sir` according to `config`."""
     train_dataset = SirYesSirSmMhDataset(
@@ -40,6 +42,7 @@ def run_sir_yes_sir_sm_mh(
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_sm_mh,
+        device=device,
     )
 
 

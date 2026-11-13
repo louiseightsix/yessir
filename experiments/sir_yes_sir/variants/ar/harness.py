@@ -76,6 +76,7 @@ def rollout_ar(
     max_tokens = 3 * len(x_tokens)
 
     model.eval()
+    device = model.device
     trace: list[Token] = []
 
     for _ in range(max_tokens):
@@ -85,7 +86,7 @@ def rollout_ar(
             trace,
             embedding_mode=embedding_mode,
         )
-        batch = collate([example])
+        batch = collate([example]).to(device)
         logits = model(
             batch.input_ids,
             batch.lengths,

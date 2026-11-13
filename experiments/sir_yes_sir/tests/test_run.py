@@ -87,6 +87,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
 
     out = capsys.readouterr().out
     assert "[sir_yes_sir:sm_mh] Starting run: B=4, L=3" in out
+    assert "device=cpu" in out
     assert "[sir_yes_sir:sm_mh] step=1/2 loss=" in out
     assert "[sir_yes_sir:sm_mh] step=2/2 loss=" in out
     assert "[sir_yes_sir:sm_mh] eval (4 problems):" in out

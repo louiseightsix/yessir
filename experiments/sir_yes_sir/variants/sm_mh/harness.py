@@ -47,6 +47,7 @@ def rollout_sm_mh(
     alphabet_set = set(alphabet_tokens)
 
     model.eval()
+    device = model.device
     output_history: list[Token] = []
     emitted_steps: list[tuple[Token, Token, Token]] = []
 
@@ -57,7 +58,7 @@ def rollout_sm_mh(
             output_history,
             embedding_mode=embedding_mode,
         )
-        batch = collate([example])
+        batch = collate([example]).to(device)
         logits_o, logits_w, logits_flag = model(
             batch.input_ids,
             batch.lengths,

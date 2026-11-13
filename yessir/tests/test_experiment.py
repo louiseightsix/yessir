@@ -197,12 +197,15 @@ def test_run_experiment_cli_and_run_experiments_cli(
             "out_dir": out_dir,
         }
 
-    def _v2_run(cfg: _AltDummyConfig, out_dir: Path | None) -> dict[str, Any]:
+    def _v2_run(
+        cfg: _AltDummyConfig, out_dir: Path | None, *, device: str = "auto"
+    ) -> dict[str, Any]:
         return {
             "variant": "ar",
             "steps": cfg.steps,
             "extra_flag": cfg.extra_flag,
             "out_dir": out_dir,
+            "device": device,
         }
 
     v_sm = ExperimentVariant(
@@ -292,6 +295,8 @@ def test_run_experiment_cli_and_run_experiments_cli(
             "30",
             "--extra-flag",
             "wrap_first",
+            "--device",
+            "mps",
             "--no-save",
         ],
     )
@@ -300,6 +305,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         "steps": 30,
         "extra_flag": "wrap_first",
         "out_dir": None,
+        "device": "mps",
     }
 
     # Empty or duplicate experiment lists are rejected.

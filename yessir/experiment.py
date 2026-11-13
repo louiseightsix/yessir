@@ -2,6 +2,7 @@
 
 import argparse
 import dataclasses
+import inspect
 import sys
 import types
 from collections.abc import Callable, Mapping, Sequence
@@ -212,7 +213,7 @@ def _add_run_control_args(
     *,
     suppress_defaults: bool = False,
 ) -> None:
-    """Attach `--interactive`, `--out-dir`, and `--no-save` flags to `parser`."""
+    """Attach `--interactive`, `--out-dir`, `--no-save`, and `--device` flags to `parser`."""
     parser.add_argument(
         "-i",
         "--interactive",
@@ -231,6 +232,12 @@ def _add_run_control_args(
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
         help="Do not write run artefacts (config.json, train.jsonl, eval.json) to disk",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=argparse.SUPPRESS if suppress_defaults else "auto",
+        help="Compute device to run on, e.g. auto, cpu, mps, cuda (default: auto)",
     )
 
 
@@ -257,12 +264,24 @@ def _configure_experiment_parser(
 
 @dataclass(frozen=True, kw_only=True)
 class ResolvedExperimentRun:
-    """Resolved `(experiment, variant, config, out_dir)` from CLI arguments or the interactive TUI."""
+    """Resolved `(experiment, variant, config, out_dir, device)` from CLI arguments or the interactive TUI."""
 
     experiment: Experiment
     variant: ExperimentVariant[Any]
     config: ExperimentConfig
     out_dir: Path | None
+    device: str = "auto"
+
+
+def _invoke_variant_run(resolved: ResolvedExperimentRun) -> dict[str, Any]:
+    """Invoke `resolved.variant.run`, forwarding `device` if the callable accepts it."""
+    params = inspect.signature(resolved.variant.run).parameters
+    if "device" in params or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    ):
+        call_fn: Any = resolved.variant.run
+        return call_fn(resolved.config, resolved.out_dir, device=resolved.device)
+    return resolved.variant.run(resolved.config, resolved.out_dir)
 
 
 def _resolve_experiment(
@@ -339,6 +358,7 @@ def _resolve_experiment(
         variant=chosen_variant,
         config=chosen_config,
         out_dir=out_dir,
+        device=str(getattr(args, "device", "auto")),
     )
 
 
@@ -369,7 +389,7 @@ def run_experiment_cli(
     )
     if resolved is None:
         return None
-    return resolved.variant.run(resolved.config, resolved.out_dir)
+    return _invoke_variant_run(resolved)
 
 
 def resolve_experiments_cli(
@@ -450,4 +470,4 @@ def run_experiments_cli(
     )
     if resolved is None:
         return None
-    return resolved.variant.run(resolved.config, resolved.out_dir)
+    return _invoke_variant_run(resolved)

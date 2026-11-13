@@ -78,6 +78,7 @@ def evaluate_ar(
         _validate_ar_item(item)
 
     model.eval()
+    device = model.device
     em_count = 0
     total_steps = 0
     step_ok_count = 0
@@ -86,6 +87,7 @@ def evaluate_ar(
     for start in range(0, len(items), batch_size):
         chunk = items[start : start + batch_size]
         batch, labels = collate_labelled(chunk)
+        batch = batch.to(device)
         logits = model(
             batch.input_ids,
             batch.lengths,
@@ -93,7 +95,7 @@ def evaluate_ar(
             position_ids=batch.position_ids,
         )
         assert isinstance(logits, torch.Tensor)
-        preds = logits.argmax(dim=-1)
+        preds = logits.argmax(dim=-1).cpu()
 
         for b in range(len(chunk)):
             valid_mask = labels[b] != IGNORE_INDEX

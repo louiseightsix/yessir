@@ -218,3 +218,17 @@ def test_transformer_validates_head_type_and_num_classes():
         ValueError, match="num_classes must be None when head_type is 'tied_identity'"
     ):
         Transformer(head_type=HeadType.TIED_IDENTITY, num_classes=(4,))
+
+
+def test_transformer_device_property_tracks_module_device():
+    model = Transformer(
+        head_type=HeadType.TIED_IDENTITY,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    assert model.device == torch.device("cpu")
+    model.to("meta")
+    assert model.device.type == "meta"

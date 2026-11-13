@@ -114,3 +114,29 @@ def test_collate_labelled_right_pads_labels_with_ignore_index():
     )
     with pytest.raises(ValueError, match="has 2 labels for example of length 3"):
         collate_labelled([bad_item])
+
+
+def test_batch_to_moves_present_tensors_and_preserves_none():
+    full = collate(
+        [
+            Example(input_ids=(1, 2), token_type_ids=(0, 1), position_ids=(0, 0)),
+        ]
+    )
+    moved_full = full.to("meta")
+    assert moved_full.input_ids.device.type == "meta"
+    assert moved_full.lengths.device.type == "meta"
+    assert (
+        moved_full.token_type_ids is not None
+        and moved_full.token_type_ids.device.type == "meta"
+    )
+    assert (
+        moved_full.position_ids is not None
+        and moved_full.position_ids.device.type == "meta"
+    )
+
+    minimal = collate([Example(input_ids=(1, 2))])
+    moved_minimal = minimal.to(torch.device("meta"))
+    assert moved_minimal.input_ids.device.type == "meta"
+    assert moved_minimal.lengths.device.type == "meta"
+    assert moved_minimal.token_type_ids is None
+    assert moved_minimal.position_ids is None

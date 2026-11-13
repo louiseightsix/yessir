@@ -89,6 +89,11 @@ class Transformer(nn.Module):
 
         self.reset_parameters()
 
+    @property
+    def device(self) -> torch.device:
+        """The `torch.device` this model's buffers and parameters reside on."""
+        return self.embedding._dtype_tracker.device
+
     @torch.no_grad()
     def reset_parameters(self) -> None:
         """Initialise linear weights from `N(0, 0.02^2)` with `1 / sqrt(2 * n_layers)` residual scaling."""

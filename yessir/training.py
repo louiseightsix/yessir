@@ -1,4 +1,4 @@
-"""Minimal training utilities (`seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `next_token_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
+"""Minimal training utilities (`resolve_device`, `seed_everything`, `build_optimizer`, `multitask_cross_entropy`, `next_token_cross_entropy`, `pack_multitask_labels`, `train_step`, `train`)."""
 
 import itertools
 import os
@@ -14,6 +14,36 @@ from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.defaults import DEFAULT_LR
 from yessir.heads import TiedIdentityHead
 from yessir.model import Transformer
+
+
+def resolve_device(device: str | torch.device | None = None) -> torch.device:
+    """Resolve a target compute device (`'auto'` / `None` -> `'cuda'` -> `'mps'` -> `'cpu'`).
+
+    When `device` is `None` or `'auto'`, selects CUDA if available, otherwise
+    macOS Metal (`mps`) if available, otherwise `'cpu'`. When a specific device is
+    requested, validates that its backend is available before returning.
+    """
+    if device is None or (isinstance(device, str) and device.strip().lower() == "auto"):
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+
+    resolved = (
+        device
+        if isinstance(device, torch.device)
+        else torch.device(device.strip().lower())
+    )
+    if resolved.type == "cuda" and not torch.cuda.is_available():
+        raise ValueError(
+            f"CUDA device requested ({str(device)!r}), but torch.cuda.is_available() is False"
+        )
+    if resolved.type == "mps" and not torch.backends.mps.is_available():
+        raise ValueError(
+            f"MPS (Metal) device requested ({str(device)!r}), but torch.backends.mps.is_available() is False"
+        )
+    return resolved
 
 
 def seed_everything(seed: int) -> None:
@@ -146,9 +176,10 @@ def train_step(
     optimizer: torch.optim.Optimizer,
     items: Sequence[LabelledExample],
 ) -> float:
-    """Run one fp32 CPU forward/backward/optimiser step on a batch of `LabelledExample`s.
+    """Run one fp32 forward/backward/optimiser step on a batch of `LabelledExample`s.
 
-    Dispatches on `model.head`:
+    Moves the collated `Batch` and `labels` onto `model.device` and dispatches on
+    `model.head`:
     - `TiedIdentityHead`: collates sequence-level labels with `collate_labelled`
       and computes `next_token_cross_entropy`.
     - `MultiTaskHead`: collates examples with `collate`, packs per-head labels with
@@ -162,9 +193,12 @@ def train_step(
 
     model.train()
     optimizer.zero_grad()
+    device = model.device
 
     if isinstance(model.head, TiedIdentityHead):
         batch, labels = collate_labelled(items)
+        batch = batch.to(device)
+        labels = labels.to(device)
         logits = model(
             batch.input_ids,
             batch.lengths,
@@ -174,8 +208,8 @@ def train_step(
         assert isinstance(logits, torch.Tensor)
         loss = next_token_cross_entropy(logits, labels)
     else:
-        batch = collate([item.example for item in items])
-        labels = pack_multitask_labels(items)
+        batch = collate([item.example for item in items]).to(device)
+        labels = pack_multitask_labels(items).to(device)
         logits = model(
             batch.input_ids,
             batch.lengths,
@@ -200,7 +234,7 @@ def train(
     optimizer: torch.optim.Optimizer | None = None,
     on_step: Callable[[int, float], None] | None = None,
 ) -> list[float]:
-    """Train `model` on batches drawn from `dataset` for `steps` optimisation steps on CPU.
+    """Train `model` on batches drawn from `dataset` for `steps` optimisation steps.
 
     Pass a persistent iterator `stream = iter(dataset)` and an existing `optimizer`
     to resume training across multiple `train(...)` calls (e.g. between evaluations)
