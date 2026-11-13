@@ -8,6 +8,7 @@ from experiments.__main__ import EXPERIMENTS
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
+    SirYesSirClsConfig,
     SirYesSirConfig,
 )
 from experiments.web_export import DESCRIPTIONS, VARIANTS
@@ -34,9 +35,9 @@ def test_web_export_prints_schemas_with_stdlib_only():
                 {
                     "name": "cls",
                     "description": CLS_DESCRIPTION,
-                    "default_config": SirYesSirConfig().to_dict(),
+                    "default_config": SirYesSirClsConfig().to_dict(),
                     "fields": [
-                        spec.to_dict() for spec in build_field_specs(SirYesSirConfig)
+                        spec.to_dict() for spec in build_field_specs(SirYesSirClsConfig)
                     ],
                 },
                 {

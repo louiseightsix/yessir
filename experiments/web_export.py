@@ -13,6 +13,7 @@ from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
     SIR_YES_SIR_DESCRIPTION,
+    SirYesSirClsConfig,
     SirYesSirConfig,
 )
 from yessir.experiment import ExperimentConfig
@@ -23,7 +24,7 @@ from yessir.tui import build_field_specs
 # `test_web_export.py` verifies both dicts stay in sync with `EXPERIMENTS`.
 VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
     "sir_yes_sir": (
-        ("cls", CLS_DESCRIPTION, SirYesSirConfig),
+        ("cls", CLS_DESCRIPTION, SirYesSirClsConfig),
         ("ar", AR_DESCRIPTION, SirYesSirConfig),
     ),
 }

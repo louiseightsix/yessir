@@ -3,7 +3,12 @@
 from pathlib import Path
 from typing import Any
 
-from experiments.sir_yes_sir.config import CLS_DESCRIPTION, SirYesSirConfig
+from experiments.sir_yes_sir.config import (
+    CLS_DESCRIPTION,
+    ClsTrainingMode,
+    SirYesSirClsConfig,
+    SirYesSirConfig,
+)
 from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
 from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
 from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
@@ -19,10 +24,17 @@ def run_sir_yes_sir_cls(
     device: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the `cls` variant of `sir_yes_sir` according to `config`."""
+    training_mode = (
+        config.training_mode
+        if isinstance(config, SirYesSirClsConfig)
+        else ClsTrainingMode.SINGLE_PASS
+    )
     train_dataset = SirYesSirClsDataset(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
+        permute_alphabet=config.permute_alphabet,
+        training_mode=training_mode,
         embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
@@ -30,6 +42,8 @@ def run_sir_yes_sir_cls(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
+        permute_alphabet=config.permute_alphabet,
+        training_mode=ClsTrainingMode.SINGLE_PASS,
         embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )
@@ -49,6 +63,6 @@ def run_sir_yes_sir_cls(
 CLS_VARIANT = ExperimentVariant(
     name="cls",
     description=CLS_DESCRIPTION,
-    config_cls=SirYesSirConfig,
+    config_cls=SirYesSirClsConfig,
     run=run_sir_yes_sir_cls,
 )

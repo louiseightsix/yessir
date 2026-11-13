@@ -1,4 +1,4 @@
-"""Configuration schema and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`)."""
+"""Configuration schemas and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`, `SirYesSirClsConfig`)."""
 
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
@@ -31,6 +31,19 @@ class SymbolSetName(StrEnum):
         return SymbolSet[self.name]
 
 
+@unique
+class ClsTrainingMode(StrEnum):
+    """How `cls` training examples are constructed per problem (`studies/sir_yes_sir/cls-training-passes.json`)."""
+
+    SINGLE_PASS = (
+        "single_pass"  # 1 sequence-labelled example supervising all L query positions
+    )
+    ALL_STEPS = (
+        "all_steps"  # L separate single-step examples (k = 0 .. L - 1) per problem
+    )
+    RANDOM_STEP = "random_step"  # 1 randomly sampled single-step example k per problem
+
+
 @dataclass(frozen=True, kw_only=True)
 class SirYesSirConfig(ExperimentConfig):
     """Flat, validated inventory of settings for a `sir_yes_sir` run.
@@ -39,17 +52,19 @@ class SirYesSirConfig(ExperimentConfig):
     1. **Symbol pool & alphabet size (`B`)**: `symbol_pool_size` (if given) slices the
        first `symbol_pool_size` bytes of `symbol_set` (useful for small-pool smoke
        tests on CPU), and `alphabet_size` must satisfy `2 <= alphabet_size <= len(symbol_pool)`.
-    2. **Embedding mode vs. position dimensions**:
-       - `EmbeddingMode.TOKEN_TYPE_PE` attaches `position_ids`, so `d_position` must
-         be a positive even integer.
+    2. **Embedding mode & residual width (`d_model`)**:
+       - `d_position` must be a non-negative even integer, and must be `> 0` when
+         `embedding_mode == EmbeddingMode.TOKEN_TYPE_PE`.
        - `EmbeddingMode.NOPE` and `EmbeddingMode.TOKEN_TYPE_NOPE` omit `position_ids`
-         (`position_ids=None`), which `SubspaceEmbedding` requires to be paired with
-         `d_position == 0`.
-       - `use_token_type` is not a separate knob because it is completely determined by
-         `embedding_mode` (`False` for `NOPE`, `True` for `TOKEN_TYPE_NOPE` and
-         `TOKEN_TYPE_PE`).
-    3. **Attention head divisibility**: `d_model` (`256 + d_token_type + d_position + d_scratch`)
-       must be divisible by `n_heads`.
+         (`effective_d_position == 0`), and `EmbeddingMode.NOPE` also omits the 16-d
+         `token_type_ids` slice (`use_token_type == False`).
+       - When `fixed_d_model=True` (the default, `experiments/sir_yes_sir/spec/task.md` §2),
+         any slice omitted by `embedding_mode` (`16` for `token_type_ids` in `NOPE`;
+         `d_position` in `TOKEN_TYPE_NOPE` and `NOPE`) is added into `effective_d_scratch`
+         so `d_model = 256 + 16 + d_position + d_scratch` stays constant across modes.
+         When `fixed_d_model=False`, `effective_d_scratch == d_scratch` and `d_model`
+         shrinks by the omitted slice widths.
+    3. **Attention head divisibility**: `d_model` must be divisible by `n_heads`.
     4. **Disjoint train/eval streams**: `eval_seed` must differ from `seed` so evaluation
        does not replay the training problem stream.
     """
@@ -63,6 +78,7 @@ class SirYesSirConfig(ExperimentConfig):
     symbol_pool_size: int | None = field(
         default=None, metadata={"domain": "int in 2..len(symbol_set) or None"}
     )
+    permute_alphabet: bool = True
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
 
     # Model architecture
@@ -71,9 +87,10 @@ class SirYesSirConfig(ExperimentConfig):
     d_ff: int = field(default=1376, metadata={"domain": "int >= 1", "step": 32})
     d_position: int = field(
         default=32,
-        metadata={"domain": "even int >= 0 (>0 if pe, 0 if nope)", "step": 2},
+        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
     )
     d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
+    fixed_d_model: bool = True
 
     # Training & evaluation
     steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
@@ -118,11 +135,6 @@ class SirYesSirConfig(ExperimentConfig):
         if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
             raise ValueError(
                 "d_position must be > 0 when embedding_mode is 'token_type_pe'"
-            )
-        if self.embedding_mode != EmbeddingMode.TOKEN_TYPE_PE and self.d_position != 0:
-            raise ValueError(
-                f"d_position must be 0 when embedding_mode is {self.embedding_mode.value!r}, "
-                f"got {self.d_position}"
             )
 
         if self.d_scratch < 0:
@@ -171,11 +183,51 @@ class SirYesSirConfig(ExperimentConfig):
         return self.embedding_mode != EmbeddingMode.NOPE
 
     @property
+    def effective_d_position(self) -> int:
+        """Position-slice width passed to `SubspaceEmbedding` (`0` when `position_ids` are omitted)."""
+        return (
+            self.d_position if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+        )
+
+    @property
+    def effective_d_scratch(self) -> int:
+        """Scratch-slice width passed to `SubspaceEmbedding`.
+
+        When `fixed_d_model=True` (the default), any slice omitted by `embedding_mode`
+        (`16` for `token_type_ids` in `NOPE`; `d_position` in `TOKEN_TYPE_NOPE` and
+        `NOPE`) is added into `d_scratch` so `d_model` stays constant across modes
+        (`experiments/sir_yes_sir/spec/task.md` §2).
+        """
+        if not self.fixed_d_model:
+            return self.d_scratch
+        dropped_token_type = 0 if self.use_token_type else MAX_TOKEN_TYPES
+        dropped_position = (
+            0 if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else self.d_position
+        )
+        return self.d_scratch + dropped_token_type + dropped_position
+
+    @property
     def d_model(self) -> int:
-        """Total residual-stream width (`256 + d_token_type + d_position + d_scratch`)."""
+        """Total residual-stream width (`256 + d_token_type + effective_d_position + effective_d_scratch`)."""
         d_token_type = MAX_TOKEN_TYPES if self.use_token_type else 0
-        return VOCAB_SIZE + d_token_type + self.d_position + self.d_scratch
+        return (
+            VOCAB_SIZE
+            + d_token_type
+            + self.effective_d_position
+            + self.effective_d_scratch
+        )
 
     def derived_summary(self) -> str:
         """Derived quantities displayed in the interactive TUI status bar."""
         return f"d_model={self.d_model}, symbol_pool_size={len(self.symbol_pool)}"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SirYesSirClsConfig(SirYesSirConfig):
+    """Configuration schema for the `cls` variant of `sir_yes_sir` (adds `training_mode`)."""
+
+    training_mode: ClsTrainingMode = ClsTrainingMode.SINGLE_PASS
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        object.__setattr__(self, "training_mode", ClsTrainingMode(self.training_mode))

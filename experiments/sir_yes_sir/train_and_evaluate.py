@@ -60,8 +60,8 @@ def train_and_evaluate(
         n_heads=config.n_heads,
         d_ff=config.d_ff,
         use_token_type=config.use_token_type,
-        d_position=config.d_position,
-        d_scratch=config.d_scratch,
+        d_position=config.effective_d_position,
+        d_scratch=config.effective_d_scratch,
     ).to(resolved_device)
 
     def _on_step(step_idx: int, step_loss: float) -> None:

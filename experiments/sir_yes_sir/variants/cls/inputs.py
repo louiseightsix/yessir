@@ -1,4 +1,4 @@
-"""Parallel classification sequence-label construction (`build_cls_labelled_example`) for the `cls` variant of `sir_yes_sir`."""
+"""Parallel classification label construction (`build_cls_labelled_example`, `build_cls_step_labelled_example`) for the `cls` variant of `sir_yes_sir`."""
 
 from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
@@ -46,3 +46,32 @@ def build_cls_labelled_example(
     )
     ignored_prefix = ((IGNORE_INDEX, IGNORE_INDEX),) * (len(example) - len(steps))
     return LabelledExample(example=example, labels=ignored_prefix + steps)
+
+
+def build_cls_step_labelled_example(
+    alphabet: TokenSequence,
+    x: TokenSequence,
+    k: int,
+    *,
+    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+) -> LabelledExample:
+    """Build a single-step `LabelledExample` for step `k` (`0 <= k < len(x)`).
+
+    Used by the `all_steps` and `random_step` training-pass ablations
+    (`studies/sir_yes_sir/cls-training-passes.json`):
+    - `example` is `build_example(alphabet, x, output=(o_0, ..., o_{k-1}))`
+      (ending at the step-`k` query token at index `lengths - 1`).
+    - `labels` is the 1D per-head tuple `(o_k, int(flag_k))`.
+    """
+    alphabet_tokens, x_tokens = validate_problem(alphabet, x)
+    o_k, flag_k = reference_step(alphabet_tokens, x_tokens, k)
+    output_history = tuple(
+        reference_step(alphabet_tokens, x_tokens, j)[0] for j in range(k)
+    )
+    example = build_example(
+        alphabet_tokens,
+        x_tokens,
+        output=output_history,
+        embedding_mode=embedding_mode,
+    )
+    return LabelledExample(example=example, labels=(o_k, int(flag_k)))

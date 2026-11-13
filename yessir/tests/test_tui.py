@@ -128,24 +128,7 @@ def test_live_cross_parameter_validation_and_run_blocking():
     cfg, err = state.validate()
     assert cfg is not None and err is None
 
-    # Find `embedding_mode` row and step it from `token_type_pe` to `nope` while `d_position` is still 32.
-    emb_idx = next(i for i, s in enumerate(state.specs) if s.name == "embedding_mode")
-    state.cursor = emb_idx
-    state.handle_key("RIGHT")  # token_type_pe -> nope
-    assert state.values["embedding_mode"] == EmbeddingMode.NOPE
-
-    # Now cross-parameter validation fails because d_position == 32 != 0.
-    cfg, err = state.validate()
-    assert cfg is None
-    assert err is not None and "d_position must be 0" in err
-
-    # Pressing 'r' while invalid is blocked and sets a helpful message.
-    assert state.handle_key("r") == EditorOutcome.CONTINUE
-    assert state.message is not None and "Cannot run" in state.message
-    rendered = "\n".join(state.render_lines())
-    assert "Status: INVALID" in rendered
-
-    # Navigate to `d_position` and step left down to 0 (staying even all the way).
+    # Navigate to `d_position` and step left down to 0 while `embedding_mode` is still `token_type_pe`.
     d_pos_idx = next(i for i, s in enumerate(state.specs) if s.name == "d_position")
     state.cursor = d_pos_idx
     for _ in range(18):
@@ -153,10 +136,30 @@ def test_live_cross_parameter_validation_and_run_blocking():
         assert state.values["d_position"] % 2 == 0
     assert state.values["d_position"] == 0
 
+    # Cross-parameter validation fails because token_type_pe requires d_position > 0.
+    cfg, err = state.validate()
+    assert cfg is None
+    assert err is not None and "d_position must be > 0" in err
+
+    # Pressing 'r' while invalid is blocked and sets a helpful message.
+    assert state.handle_key("r") == EditorOutcome.CONTINUE
+    assert state.message is not None and "Cannot run" in state.message
+    rendered = "\n".join(state.render_lines())
+    assert "Status: INVALID" in rendered
+
+    # Stepping `d_position` back to 32 and switching `embedding_mode` to `nope` keeps d_model=512 valid.
+    for _ in range(16):
+        state.handle_key("RIGHT")
+    assert state.values["d_position"] == 32
+    emb_idx = next(i for i, s in enumerate(state.specs) if s.name == "embedding_mode")
+    state.cursor = emb_idx
+    state.handle_key("RIGHT")  # token_type_pe -> nope
+    assert state.values["embedding_mode"] == EmbeddingMode.NOPE
+
     cfg, err = state.validate()
     assert cfg is not None and err is None
     rendered_valid = "\n".join(state.render_lines())
-    assert "Status: VALID (d_model=464, symbol_pool_size=240)" in rendered_valid
+    assert "Status: VALID (d_model=512, symbol_pool_size=240)" in rendered_valid
 
     # Now pressing 'r' (or ENTER on the Run row) succeeds and returns RUN.
     assert state.handle_key("r") == EditorOutcome.RUN

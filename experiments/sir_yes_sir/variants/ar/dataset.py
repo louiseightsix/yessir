@@ -30,12 +30,14 @@ class SirYesSirArDataset:
         alphabet_size: int = 4,
         x_length: int = 3,
         symbols: TokenSequence = SymbolSet.ALL,
+        permute_alphabet: bool = True,
         embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
         self._symbol_pool = resolve_symbol_pool(alphabet_size, x_length, symbols)
         self._alphabet_size = alphabet_size
         self._x_length = x_length
+        self._permute_alphabet = permute_alphabet
         self._embedding_mode = EmbeddingMode(embedding_mode)
         self._seed = seed
 
@@ -46,6 +48,7 @@ class SirYesSirArDataset:
             x_length=self._x_length,
             symbol_pool=self._symbol_pool,
             seed=self._seed,
+            permute_alphabet=self._permute_alphabet,
         ):
             yield build_ar_labelled_example(
                 alphabet,
@@ -58,6 +61,7 @@ def _build_from_args(args: argparse.Namespace) -> SirYesSirArDataset:
     return SirYesSirArDataset(
         alphabet_size=args.alphabet_size,
         x_length=args.x_length,
+        permute_alphabet=args.permute_alphabet,
         embedding_mode=args.embedding_mode,
         seed=args.seed,
     )

@@ -4,6 +4,7 @@ import itertools
 
 import pytest
 
+from experiments.sir_yes_sir.config import ClsTrainingMode
 from experiments.sir_yes_sir.inputs import EmbeddingMode, TokenType
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import (
@@ -96,6 +97,51 @@ def test_dataset_samples_only_from_given_symbols_pool():
     for item in items[::2]:
         alphabet = item.example.input_ids[1:4]
         assert set(alphabet) == set(pool)
+
+
+def test_dataset_canonical_order_when_permute_alphabet_is_false():
+    pool = SymbolSet.DECIMAL[:4]
+    ds = SirYesSirClsDataset(
+        alphabet_size=4,
+        x_length=3,
+        symbols=pool,
+        permute_alphabet=False,
+        seed=42,
+    )
+    for item in itertools.islice(ds, 6):
+        alphabet = item.example.input_ids[1:5]
+        assert alphabet == tuple(pool)
+
+
+def test_cls_dataset_all_steps_and_random_step_modes():
+    ds_all = SirYesSirClsDataset(
+        alphabet_size=4,
+        x_length=3,
+        training_mode=ClsTrainingMode.ALL_STEPS,
+        seed=11,
+    )
+    step_items = list(itertools.islice(ds_all, 3))
+    # All 3 step examples come from the same problem and have 1D (o_k, flag_k) labels.
+    prefix_len = 1 + 4 + 1 + 3 + 1
+    for k, step_item in enumerate(step_items):
+        assert len(step_item.example) == prefix_len + k
+        assert len(step_item.labels) == 2
+        assert isinstance(step_item.labels[0], int)
+
+    ds_rand = SirYesSirClsDataset(
+        alphabet_size=4,
+        x_length=3,
+        training_mode=ClsTrainingMode.RANDOM_STEP,
+        seed=11,
+    )
+    rand_item = next(iter(ds_rand))
+    # First problem's alphabet and x match ds_all's first problem.
+    assert (
+        rand_item.example.input_ids[:prefix_len]
+        == (step_items[0].example.input_ids[:prefix_len])
+    )
+    assert len(rand_item.labels) == 2
+    assert isinstance(rand_item.labels[0], int)
 
 
 @pytest.mark.parametrize(

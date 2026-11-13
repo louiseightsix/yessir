@@ -153,17 +153,29 @@ def iter_problems(
     x_length: int,
     symbol_pool: tuple[int, ...],
     seed: int,
+    permute_alphabet: bool = True,
 ) -> Iterator[tuple[tuple[int, ...], tuple[int, ...]]]:
-    """Yield an infinite deterministic stream of `(alphabet, x)` problem instances from `seed`."""
+    """Yield an infinite deterministic stream of `(alphabet, x)` problem instances from `seed`.
+
+    When `permute_alphabet=True` (the default), each problem samples `alphabet_size`
+    distinct symbols without replacement in random order from `symbol_pool`. When
+    `permute_alphabet=False`, every problem uses the fixed canonical prefix
+    `symbol_pool[:alphabet_size]` in order (`experiments/sir_yes_sir/spec/task.md` §1).
+    """
     rng = random.Random(seed)
+    fixed_alphabet = create_alphabet(symbol_pool[:alphabet_size])
     while True:
-        alphabet = create_alphabet(symbol_pool, sample_size=alphabet_size, rng=rng)
+        alphabet = (
+            create_alphabet(symbol_pool, sample_size=alphabet_size, rng=rng)
+            if permute_alphabet
+            else fixed_alphabet
+        )
         x = tuple(rng.choice(alphabet) for _ in range(x_length))
         yield alphabet, x
 
 
 def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
-    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--embedding-mode`, and `--seed` flags."""
+    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--permute-alphabet`, `--embedding-mode`, and `--seed` flags."""
     parser.add_argument(
         "-B",
         "--alphabet-size",
@@ -177,6 +189,12 @@ def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=3,
         help="Length L of input sequence x (default: 3)",
+    )
+    parser.add_argument(
+        "--permute-alphabet",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Sample/permute the alphabet per problem rather than using fixed canonical order (default: True)",
     )
     parser.add_argument(
         "--embedding-mode",

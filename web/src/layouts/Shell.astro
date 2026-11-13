@@ -23,6 +23,8 @@ const exp = getExperiment(experiment);
 // picker reuses this so switching experiment keeps you in the same section.
 const sectionPaths: Record<Section, string> = { spec: "spec/", studies: "", runs: "runs/", new: "new/" };
 const navLinks: Array<{ section: Section; label: string; count: number | null; icon: string }> = [
+  // A page with three lines of text.
+  { section: "spec", label: "Spec", count: null, icon: "M3.5 2h9v12h-9zM6 5.5h4M6 8h4M6 10.5h4" },
   { section: "studies", label: "Studies", count: exp.studies.length, icon: "M2.5 3h4.5v10H2.5zM9 3h4.5v10H9z" },
   { section: "runs", label: "Runs", count: exp.runs.length, icon: "M2.5 4h11M2.5 8h11M2.5 12h11" },
   { section: "new", label: "New run", count: null, icon: "M8 3v10M3 8h10" },

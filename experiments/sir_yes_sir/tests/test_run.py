@@ -7,7 +7,7 @@ import pytest
 
 from experiments.__main__ import EXPERIMENTS
 from experiments.__main__ import main as experiments_main
-from experiments.sir_yes_sir.config import SirYesSirConfig
+from experiments.sir_yes_sir.config import SirYesSirClsConfig, SirYesSirConfig
 from experiments.sir_yes_sir.run import SIR_YES_SIR_EXPERIMENT
 from yessir.experiment import run_experiments_cli
 
@@ -71,7 +71,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert config_payload["variant"] == "cls"
     assert config_payload["device"] in ("cpu", "mps", "cuda")
     assert "git_commit_sha" in config_payload
-    loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
+    loaded_cfg = SirYesSirClsConfig.from_dict(config_payload["config"])
     assert loaded_cfg.steps == 2
     assert loaded_cfg.n_layers == 1
 
