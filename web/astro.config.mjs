@@ -2,6 +2,7 @@
 import { fileURLToPath } from "node:url";
 import react from "@astrojs/react";
 import { defineConfig } from "astro/config";
+import astroAgentAnnotate from "astro-agent-annotate";
 
 const resultsDir = fileURLToPath(new URL("../results/", import.meta.url));
 
@@ -36,6 +37,6 @@ function reloadOnResultsChange() {
 // Static output: every page is rendered to HTML at build time.
 export default defineConfig({
   output: "static",
-  integrations: [react()],
+  integrations: [react(), astroAgentAnnotate()],
   vite: { plugins: [reloadOnResultsChange()] },
 });
