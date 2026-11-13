@@ -80,16 +80,17 @@ k = 1:  in ([S]):  [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] # [SEP] q [S]  ->  out: 7
   - Sum query (`[S]`): `labels = (IGNORE_INDEX,) * (P_k - 1) + (o_k,)`
   - Carry query (`[C]`): `labels = (IGNORE_INDEX,) * (P_k - 1) + (c_{k+1},)`
   - Flag query (`[F]`): `labels = (IGNORE_INDEX,) * (P_k - 1) + (flag_k,)`
-  Each branch supervises only the final query position (`P_k - 1`) via `SubspaceLMHead` + `next_token_cross_entropy`.
+  Each branch supervises only the final query position (`P_k - 1`) via `SubspaceLMHead` + `next_token_cross_entropy`. During training, each column step is drawn by generating a fresh problem and sampling a single column index `k` with terminal-step oversampling `p_terminal` ([`task.md` §1](../task.md#alphabets-problem-sampling--generalisation-yessiralphabet)); during evaluation, all `K + 1` steps of each problem are evaluated.
 - **Rollout (`rollout_step_fork`)**: Free-running greedy execution starts at `k = 0` with `carry = s_0` and `output = ()`. At each step `k` (up to `max(L_a, L_b) + 1` steps):
   1. The harness collates the 3 branched queries (`[S]`, `[C]`, `[F]`) into a 3-row batch, runs one batched forward pass through `SubspaceLMHead`, and takes the greedy `argmax` at the final token (`-1`) of each row to obtain `(o_k, c_{k+1}, flag_k)`.
   2. If `flag_k == FLAG_FINISHED`, rollout stops and returns the emitted `(o_k, c_{k+1}, flag_k)` step tuples; otherwise the harness updates `carry = c_{k+1}`, appends `o_k` to `output`, and advances to `k + 1`.
 
 ## 4. Evaluation Metrics (`evaluate_step_fork`)
 
-Given teacher-forced greedy predictions `(pred_o[k], pred_c[k], pred_flag[k])` from the `[S]`, `[C]`, and `[F]` query branches at each step `k` in `0 .. K` across all evaluated problems:
+Given teacher-forced greedy predictions `(pred_o[k], pred_c[k], pred_flag[k])` from the `[S]`, `[C]`, and `[F]` query branches at each step `k` in `0 .. K` across all evaluated problems, `evaluate_step_fork` computes the five metrics and 4-way first-error taxonomy defined in [`task.md` §3](../task.md#3-evaluation-metrics-experimentsadditionevaluationpy):
 
 - **`exact_match`** *(per problem)*: fraction of problems where every step `k` in `0 .. K` predicts `pred_o[k] == o_k`, `pred_c[k] == c_{k+1}`, and `pred_flag[k] == flag_k`.
 - **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
 - **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where `pred_o[k] == o_k`.
+- **`carry_accuracy`** *(per carry-active column step)*: fraction of column steps with `c_k != s_0` or `c_{k+1} != s_0` where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
 - **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right column `K`—no premature halt (`pred_flag[k] == FLAG_CONTINUE` for every `k < K`) and halts on the final column (`pred_flag[K] == FLAG_FINISHED`).

@@ -64,7 +64,7 @@ k = 1:  in:  [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] # [SEP] q
 
 Because the incoming carry slot `c_k` is updated in place from step to step (`c_0` at `k = 0`, `c_1` at `k = 1`, ...), each step `k` has a distinct input sequence rather than extending step `k - 1` as a prefix:
 
-- **Teacher-forced step examples**: a problem with `K + 1` ground-truth column transitions yields `K + 1` per-step `LabelledExample`s (`k = 0 .. K`). At step `k`, `example` is built from the ground-truth incoming carry `c_k` and ground-truth prefix `output = (o_0, ..., o_{k-1})`, and `labels = (o_k, c_{k+1}, flag_k)` supervises `heads[0..2]` at the final token (`lengths - 1`) via `parallel_classification_cross_entropy`.
+- **Teacher-forced step examples**: at step `k` (`0 <= k <= K`), `example` is built from the ground-truth incoming carry `c_k` and ground-truth prefix `output = (o_0, ..., o_{k-1})`, and `labels = (o_k, c_{k+1}, flag_k)` supervises `heads[0..2]` at the final token (`lengths - 1`) via `parallel_classification_cross_entropy`. During training, each batch item is drawn by generating a fresh problem and sampling a single column index `k` (choosing `k = K` with probability `p_terminal` and a uniform `k in 0 .. K` otherwise; see [`task.md` §1](../task.md#alphabets-problem-sampling--generalisation-yessiralphabet)); during evaluation, all `K + 1` steps of each problem are evaluated.
 - **Rollout (`rollout_cls`)**: Free-running greedy execution starts at `k = 0` with `carry = s_0` and `output = ()`. At each step `k` (up to `max(L_a, L_b) + 1` steps):
   1. The harness builds the step-`k` `Example` with the current `carry` and `output` and runs one forward pass through `model`.
   2. It decodes `(o_k, c_{k+1}, flag_k) = (argmax(heads[0]), argmax(heads[1]), argmax(heads[2]))` at the final token (`lengths - 1`).
@@ -72,9 +72,10 @@ Because the incoming carry slot `c_k` is updated in place from step to step (`c_
 
 ## 4. Evaluation Metrics (`evaluate_cls`)
 
-Given teacher-forced greedy predictions `(pred_o[k], pred_c[k], pred_flag[k])` from `heads[0..2]` across all `K + 1` steps of each evaluated problem (`k` in `0 .. K`):
+Given teacher-forced greedy predictions `(pred_o[k], pred_c[k], pred_flag[k])` from `heads[0..2]` across all `K + 1` steps of each evaluated problem (`k` in `0 .. K`), `evaluate_cls` computes the five metrics and 4-way first-error taxonomy defined in [`task.md` §3](../task.md#3-evaluation-metrics-experimentsadditionevaluationpy):
 
 - **`exact_match`** *(per problem)*: fraction of problems where every step `k` in `0 .. K` predicts `pred_o[k] == o_k`, `pred_c[k] == c_{k+1}`, and `pred_flag[k] == flag_k`.
 - **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
 - **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where `pred_o[k] == o_k`.
+- **`carry_accuracy`** *(per carry-active column step)*: fraction of column steps with `c_k != s_0` or `c_{k+1} != s_0` where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
 - **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right column `K`—no premature halt (`pred_flag[k] == FLAG_CONTINUE` for every `k < K`) and halts on the final column (`pred_flag[K] == FLAG_FINISHED`).

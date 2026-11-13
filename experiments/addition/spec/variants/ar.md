@@ -70,9 +70,10 @@ Let `P = B + L_a + L_b + 4` be the length of the problem prefix `[BOS] alphabet 
 
 ## 4. Evaluation Metrics (`evaluate_ar`)
 
-Given teacher-forced greedy predictions `preds[0 .. 2K + 2]` at the `2 * (K + 1) + 1` supervised positions of each problem (where column `k` in `0 .. K` corresponds to `(pred_o[k], pred_c[k])` unpacked from `(preds[2k], preds[2k + 1])` according to `step_order`, and `preds[2K + 2]` is the halting prediction after column `K`):
+Given teacher-forced greedy predictions `preds[0 .. 2K + 2]` at the `2 * (K + 1) + 1` supervised positions of each problem (where column `k` in `0 .. K` corresponds to `(pred_o[k], pred_c[k])` unpacked from `(preds[2k], preds[2k + 1])` according to `step_order`, and `preds[2K + 2]` is the halting prediction after column `K`), `evaluate_ar` computes the five metrics and 4-way first-error taxonomy defined in [`task.md` §3](../task.md#3-evaluation-metrics-experimentsadditionevaluationpy):
 
 - **`exact_match`** *(per problem)*: fraction of problems where all `2 * (K + 1) + 1` predictions match `targets` (`(*trace, EOS)`).
 - **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
 - **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where `pred_o[k] == o_k`.
+- **`carry_accuracy`** *(per carry-active column step)*: fraction of column steps with `c_k != s_0` or `c_{k+1} != s_0` where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
 - **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right step—no premature `[EOS]` at any trace position `0 .. 2K + 1`, and `preds[2K + 2] == EOS` immediately after column `K`.

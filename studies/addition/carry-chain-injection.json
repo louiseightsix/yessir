@@ -1,0 +1,8 @@
+{
+  "title": "Carry-chain injection (p_chain) and multi-column carry propagation",
+  "status": "draft",
+  "kind": "ablation",
+  "question": "Because uniform random digits in base B rarely produce long carry ripples (~(1/B)^m), how much does injecting synthetic carry chains during training (p_chain = 0.25 vs. p_chain = 0.0) improve carry_accuracy and exact_match on problems with multi-column carry propagation?",
+  "runs": [],
+  "conclusion": null
+}

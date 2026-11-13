@@ -89,9 +89,10 @@ Let `P` be the length of the addressed problem prefix ending at the third `[SEP]
 
 ## 4. Evaluation Metrics (`evaluate_addressed_ar`)
 
-Given teacher-forced greedy predictions across all `len(targets)` supervised trace positions of each problem (where column `k` in `0 .. K` spans the entry `[STEP] addr(k) t_{k,0} t_{k,1}` with `(pred_o[k], pred_c[k])` unpacked from `(t_{k,0}, t_{k,1})` according to `step_order`, and the final supervised position after column `K` predicts `[EOS]` while the position after each non-final column `k < K` predicts `[STEP]`):
+Given teacher-forced greedy predictions across all `len(targets)` supervised trace positions of each problem (where column `k` in `0 .. K` spans the entry `[STEP] addr(k) t_{k,0} t_{k,1}` with `(pred_o[k], pred_c[k])` unpacked from `(t_{k,0}, t_{k,1})` according to `step_order`, and the final supervised position after column `K` predicts `[EOS]` while the position after each non-final column `k < K` predicts `[STEP]`), `evaluate_addressed_ar` computes the five metrics and 4-way first-error taxonomy defined in [`task.md` §3](../task.md#3-evaluation-metrics-experimentsadditionevaluationpy):
 
 - **`exact_match`** *(per problem)*: fraction of problems where every supervised trace prediction (including all `[STEP]` markers, `addr(k)` tokens, `o_k`, `c_{k+1}`, and the final `[EOS]`) matches `targets`.
 - **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where `addr(k)`, `o_k`, and `c_{k+1}` all match the ground truth for column `k`.
 - **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where `pred_o[k] == o_k`.
+- **`carry_accuracy`** *(per carry-active column step)*: fraction of column steps with `c_k != s_0` or `c_{k+1} != s_0` where `addr(k)`, `o_k`, and `c_{k+1}` all match the ground truth for column `k`.
 - **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right column `K`—no premature `[EOS]` before the end of column `K`, `[STEP]` predicted after every column `k < K`, and `[EOS]` predicted immediately after column `K`.

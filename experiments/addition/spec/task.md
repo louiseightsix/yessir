@@ -68,11 +68,16 @@ Writing columns left-to-right from least-significant (`k = 0`) to most-significa
   halt flag:  [C]  [F]
 ```
 
-### Alphabets & Generalisation (`yessir.alphabet`)
+### Alphabets, Problem Sampling & Generalisation (`yessir.alphabet`)
 
 As in [`sir_yes_sir`](../../sir_yes_sir/spec/task.md#alphabets-yessiralphabet), alphabets are resampled per problem with `create_alphabet(symbols, *, sample_size=B, rng=rng)` so digit values must be read in context:
 - **Random symbols**: `create_alphabet(SymbolSet.ALL, sample_size=B, rng=rng)` — `B` distinct bytes sampled in random order from the 240-byte symbol pool (`0x00`–`0xEF`).
 - **Permuted canonical symbols**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` (or `HEX[:B]`) — conventional numerals shuffled into a random order per problem, testing whether a model exposed to canonical numerals overrides a familiar symbol-order prior in favour of the prompt's alphabet.
+
+Problem and step sampling expose three distribution controls:
+- **Prior mixture (`p_prior` in `0.0..1.0`, default `0.0`)**: each training problem uses the conventional canonical alphabet (`DECIMAL[:B]` / `HEX[:B]` in ascending order) with probability `p_prior`, and a random alphabet from `SymbolSet.ALL` with probability `1 - p_prior`. Because `SymbolSet.ALL` already includes the ASCII numeral bytes, `p_prior = 0.0` exposes the model to those byte embeddings without inducing a canonical ordering preference, while increasing `p_prior` strengthens the canonical symbol-order prior.
+- **Carry-chain injection (`p_chain` in `0.0..1.0`, default `0.25`)**: under uniform random digit sampling in base `B`, a carry-propagating column (`v_a + v_b == B - 1`) occurs with probability `1 / B`, so a carry chain of length `m` occurs only at rate `~(1 / B)^m`. With probability `p_chain` (when `min(L_a, L_b) >= 2`), the problem generator injects a carry chain of random length `m` (`1 <= m < min(L_a, L_b)`), setting the starting column `i` so `v_a + v_b >= B` (carry generation) and the next `m` columns `j` so `v_a + v_b == B - 1` (carry propagation).
+- **One step per problem & terminal-step oversampling (`p_terminal` in `0.0..1.0`, default `0.2`)**: in the step-by-step harnessed variants ([`cls`](variants/cls.md), [`step_fork`](variants/step_fork.md), [`step_ar`](variants/step_ar.md), [`addressed_step_ar`](variants/addressed_step_ar.md)), each column step `k` is a separate model forward pass, and only `1` of the `K + 1` columns has `flag_k = FLAG_FINISHED`. During training, each example is drawn by generating a fresh problem and sampling a single column index `k`—selecting the terminal step `k = K` with probability `p_terminal` and a uniform step `k in 0 .. K` otherwise—so every example in a training batch has an independent alphabet and operands while keeping `FLAG_FINISHED` well-represented.
 
 Varying the base `B` and operand lengths `L_a, L_b` between training and evaluation probes two axes of generalisation:
 - **Base generalisation**: training on a single base (e.g. `{10}`) allows hardcoding a fixed carry threshold `B = 10`, and training on two bases (e.g. `{2, 10}`) allows switching between two memorised routines without computing `B = len(alphabet)`. Training across multiple bases (e.g. `{2, 4, 8, 10}`) and evaluating zero-shot on unseen bases—such as `B = 3` (interpolation) and `B = 12` (extrapolation)—tests whether the model computes `B` and digit values from `alphabet`.
@@ -114,9 +119,19 @@ All three modes keep the exact same `input_ids` (including `[BOS]` and all three
 
 ## 3. Evaluation Metrics (`experiments/addition/evaluation.py`)
 
-Evaluation over a set of problems (computed under teacher forcing) reports four metrics in `0.0..1.0` (`EvalMetrics`) with identical denominators across variants:
+Evaluation over a set of problems (computed under teacher forcing across all `K + 1` columns of every evaluated problem) reports five metrics in `0.0..1.0` (`EvalMetrics`) with identical denominators across variants, together with a 4-way first-error breakdown over failed problems:
 
 - **`exact_match`** *(per problem)*: fraction of problems where every sum digit `o_k`, outgoing carry `c_{k+1}`, and halting prediction across all `K + 1` columns matches the ground truth. Because all variants use a causal attention mask and deterministic `argmax` decoding, teacher-forced inputs and free-running greedy rollout feed the exact same prefix into the model up to the first error on a problem, so teacher-forced `exact_match` equals free-running greedy `exact_match` in exact arithmetic (under `bfloat16` autocast, differences in padding and batch shape can flip near-tied `argmax` decisions).
 - **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where both the predicted sum digit and outgoing carry match `(o_k, c_{k+1})`.
 - **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where the predicted sum digit matches `o_k`.
+- **`carry_accuracy`** *(per carry-active column step)*: fraction of column steps with a non-zero incoming or outgoing carry (`c_k != s_0` or `c_{k+1} != s_0`) where both the predicted sum digit and outgoing carry match `(o_k, c_{k+1})` (`None` if no evaluated column has a non-zero carry).
 - **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right column `K`—no premature halt for `k < K`, and halts immediately on completing column `K`. Scoring halting per problem rather than per step avoids class-imbalance inflation (where a model that never halts would otherwise score `K / (K + 1)`).
+
+### First-error taxonomy (`FirstErrorType`)
+
+For every evaluated problem that fails `exact_match`, the earliest column `k` (`0 <= k <= K`) where the model's prediction deviates from the ground truth is classified into one of four mutually exclusive error categories:
+
+1. **`out_of_alphabet`**: a predicted sum digit or outgoing carry at column `k` is not a member of the problem's `alphabet`.
+2. **`prior_intrusion`**: when evaluated on a permuted canonical alphabet, the predicted token at column `k` belongs to `alphabet` and is wrong under the prompt's alphabet, but equals the symbol that conventional canonical numeral order (`'0'..'9'`, `'A'..'F'`) would assign to that digit value (`total % B` or `total // B`).
+3. **`procedural_error`**: the predicted sum digit or outgoing carry belongs to `alphabet`, but has the wrong arithmetic value (and is not a `prior_intrusion`).
+4. **`syntax_malformation`**: the sum digit and outgoing carry at column `k` are valid, or a non-value token was expected, and the model emitted a premature or missing halting/step control token (`FLAG_FINISHED` / `FLAG_CONTINUE` / `[EOS]` / `[STEP]`) or an ill-formed column address `addr(k)`.
