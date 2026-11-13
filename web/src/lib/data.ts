@@ -312,7 +312,6 @@ function loadExperiment(name: string, schema: ExperimentSchema | null): Experime
 export interface SiteData {
   experiments: ExperimentData[];
   schemas: Record<string, ExperimentSchema>;
-  pythonVersion: string;
   headShortSha: string | null;
 }
 
@@ -323,10 +322,6 @@ function readSiteData(): SiteData {
   ).sort((a, b) => a.localeCompare(b));
   const experiments = names.map((name) => loadExperiment(name, schemas[name] ?? null));
 
-  // "Python 3.12.13" → "3.12.13"
-  const pythonVersion = execFileSync(python, ["--version"], { encoding: "utf8" })
-    .trim()
-    .replace(/^Python\s+/, "");
   let headShortSha: string | null = null;
   try {
     headShortSha = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
@@ -337,7 +332,7 @@ function readSiteData(): SiteData {
     // Not a git checkout (e.g. a deployed copy): leave the footer without a SHA.
   }
 
-  return { experiments, schemas, pythonVersion, headShortSha };
+  return { experiments, schemas, headShortSha };
 }
 
 // A static build renders one page per run and study, so read the disk once.

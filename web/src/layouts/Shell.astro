@@ -73,9 +73,7 @@ const navLinks: Array<{ section: Section; label: string; count: number | null; i
         </div>
 
         <div class="footer muted">
-          <div class="mono">
-            {site.headShortSha && `HEAD ${site.headShortSha} · `}py {site.pythonVersion}
-          </div>
+          {site.headShortSha && <div class="mono">HEAD {site.headShortSha}</div>}
           <div>
             Logo emoji by <a href="https://openmoji.org/">OpenMoji</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>
           </div>

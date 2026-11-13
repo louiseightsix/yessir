@@ -113,16 +113,22 @@ function sirYesSirChecks(values: Record<string, unknown>): { checks: Check[]; su
   const dPosition = Number(values.d_position);
   const usesPe = embeddingMode === "token_type_pe";
   always.push({
-    ok: dPosition >= 0 && dPosition % 2 === 0 && (usesPe ? dPosition > 0 : dPosition === 0),
+    ok: dPosition >= 0 && dPosition % 2 === 0 && (!usesPe || dPosition > 0),
     text: usesPe
       ? `d_position ${dPosition} is even and > 0 ('${embeddingMode}')`
-      : `d_position ${dPosition} is 0 ('${embeddingMode}' has no positions)`,
+      : `d_position ${dPosition} is an even int >= 0`,
   });
 
   const dScratch = Number(values.d_scratch);
+  const fixedDModel = Boolean(values.fixed_d_model ?? true);
   const nHeads = Number(values.n_heads);
-  const dTokenType = embeddingMode !== "nope" ? 16 : 0;
-  const dModel = 256 + dTokenType + dPosition + dScratch;
+  const useTokenType = embeddingMode !== "nope";
+  const dTokenType = useTokenType ? 16 : 0;
+  const effectiveDPosition = usesPe ? dPosition : 0;
+  const effectiveDScratch = fixedDModel
+    ? dScratch + (useTokenType ? 0 : 16) + (usesPe ? 0 : dPosition)
+    : dScratch;
+  const dModel = 256 + dTokenType + effectiveDPosition + effectiveDScratch;
   always.push({
     ok: nHeads > 0 && dModel % nHeads === 0,
     text: `n_heads ${nHeads} divides d_model ${dModel}`,

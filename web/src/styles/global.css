@@ -126,22 +126,17 @@ h1 {
   color: var(--c-ink);
 }
 
-/* The "Yessir!" logo at the top of the sidebar and the landing page, where
-   "results & runs" sits under it. The mark is about 181px wide, so it fits
-   the 232px sidebar. */
+/* The "Yessir!" logo at the top of the sidebar and the landing page. The mark
+   is about 181px wide, so it fits the 232px sidebar. */
 .wordmark {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  font-size: var(--fs-small);
 }
 .wordmark-name {
   display: block;
   line-height: 0;
 }
 /* The SVG has 16 units of clear space on every side of a 93-unit-tall mark.
-   The negative margin cancels it, so the "Y" lines up with the text below. */
+   The negative margin cancels it, so the "Y" lines up with the content below. */
 .wordmark-name svg {
   --logo-h: 48px;
   display: block;
