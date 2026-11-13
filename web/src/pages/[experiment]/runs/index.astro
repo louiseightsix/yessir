@@ -22,6 +22,7 @@ const rows: RunRow[] = exp.runs.map((run) => {
     variant: run.variant,
     status: run.status,
     flawedReason: run.flawedReason,
+    outdatedReason: run.outdatedReason,
     dirty: run.meta?.git_dirty === true,
     changed: run.changed,
     studies: (exp.studiesByRun.get(run.name) ?? []).map((s) => ({

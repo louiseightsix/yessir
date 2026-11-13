@@ -103,6 +103,53 @@
   font-weight: 600;
 }
 
+/* ---- Outdated: same shapes as flawed, in grey ---------------------------- */
+
+.outdated-pill {
+  flex: none;
+  font: 700 var(--fs-tiny) var(--font-ui);
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--c-outdated);
+  padding: 1px 6px;
+  border-radius: var(--r-chip);
+}
+.outdated-tag {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.outdated-reason {
+  font-size: var(--fs-small);
+  color: var(--c-outdated-text);
+}
+
+.outdated-banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--c-outdated-banner-bg);
+  border: 1px solid var(--c-outdated-banner-border);
+  color: var(--c-outdated-banner-text);
+}
+.outdated-banner .outdated-pill {
+  font-size: var(--fs-small);
+  padding: 3px 8px;
+}
+.outdated-banner > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.outdated-banner strong {
+  font-weight: 600;
+}
+
 /* ---- Run name and study chip --------------------------------------------- */
 
 .run-name {

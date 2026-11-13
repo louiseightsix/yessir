@@ -1,6 +1,6 @@
 ---
 // Run detail: one page per run directory under results/<experiment>/.
-import { DirtyTag, FlawedBanner, RunName, RunStatusBadge, StudyChip } from "../../../../components/badges";
+import { DirtyTag, FlawedBanner, OutdatedBanner, RunName, RunStatusBadge, StudyChip } from "../../../../components/badges";
 import { LossChart } from "../../../../components/charts";
 import { ProgressBar } from "../../../../components/controls";
 import Shell from "../../../../layouts/Shell.astro";
@@ -23,6 +23,7 @@ const runPath = `results/${experiment}/${run.name}/`;
 const studies = exp.studiesByRun.get(run.name) ?? [];
 const running = run.status === "in_progress";
 const flawed = run.status === "flawed";
+const outdated = run.outdatedReason !== null;
 
 // Training progress and stats from train.jsonl.
 const points = run.trainPoints;
@@ -98,6 +99,7 @@ const configCount = Object.keys(run.config).length;
   </header>
 
   {flawed && <FlawedBanner reason={run.flawedReason ?? ""} />}
+  {outdated && <OutdatedBanner reason={run.outdatedReason ?? ""} />}
   {
     running && (
       <div class="running-banner">
@@ -262,7 +264,11 @@ const configCount = Object.keys(run.config).length;
             <div class="notes-body">{run.readmeBody}</div>
           ) : (
             <p class="muted small-text">
-              {flawed ? "No notes beyond the FLAWED line." : "No README.md for this run."}
+              {flawed
+                ? "No notes beyond the FLAWED line."
+                : outdated
+                  ? "No notes beyond the OUTDATED line."
+                  : "No README.md for this run."}
             </p>
           )
         }

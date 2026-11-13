@@ -5,7 +5,7 @@ import { Fragment, useState } from "react";
 import type { Point } from "../lib/chart";
 import type { ChangedSetting, RunStatus } from "../lib/data";
 import { formatDuration, formatLoss, formatValue } from "../lib/format";
-import { DiffChips, DirtyTag, FlawedTag, RunName } from "./badges";
+import { DiffChips, DirtyTag, FlawedTag, OutdatedTag, RunName } from "./badges";
 import { MetricCell, Sparkline } from "./charts";
 import { FilterChips, ProgressBar } from "./controls";
 
@@ -15,6 +15,7 @@ export interface RunRow {
   variant: string | null;
   status: RunStatus;
   flawedReason: string | null;
+  outdatedReason: string | null;
   dirty: boolean;
   changed: ChangedSetting[];
   studies: Array<{ slug: string; href: string }>;
@@ -50,6 +51,7 @@ function matchesSearch(row: RunRow, query: string): boolean {
     row.name,
     row.notes,
     row.flawedReason ?? "",
+    row.outdatedReason ?? "",
     ...row.changed.map((c) => `${c.name}=${formatValue(c.value)}`),
   ]
     .join("\n")
@@ -219,7 +221,7 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
                   </td>
                   <td>
                     <RunName name={r.name} href={r.href} />
-                    {(running || r.dirty || r.flawedReason !== null) && (
+                    {(running || r.dirty || r.flawedReason !== null || r.outdatedReason !== null) && (
                       <div className="run-tags">
                         {running && (
                           <>
@@ -235,6 +237,7 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
                         )}
                         {r.dirty && <DirtyTag />}
                         {r.flawedReason !== null && <FlawedTag reason={r.flawedReason} />}
+                        {r.outdatedReason !== null && <OutdatedTag reason={r.outdatedReason} />}
                       </div>
                     )}
                   </td>

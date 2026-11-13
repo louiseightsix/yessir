@@ -60,6 +60,9 @@
   --c-flawed-row: #FEF6F6;
   --c-flawed-banner-bg: #FEF3F2; --c-flawed-banner-border: #F4B4AE; --c-flawed-banner-text: #7A271A;
   --c-flawed-badge-bg: #FEE4E2;  --c-flawed-badge-fg: #912018;
+  --c-outdated: #475467;        /* OUTDATED pill background */
+  --c-outdated-text: #344054;
+  --c-outdated-banner-bg: #F2F4F7; --c-outdated-banner-border: #D0D5DD; --c-outdated-banner-text: #344054;
   --c-dirty-bg: #FFFBEB; --c-dirty-border: #E8C468; --c-dirty-fg: #854D0E;
   --c-running-banner-bg: #EFF4FF; --c-running-banner-border: #BFD0F7; --c-running-banner-text: #1E3A8A;
 
