@@ -51,7 +51,8 @@ const lossSeries: LossSeries[] = charted.map((e) => ({
   colour: colourOf.get(e)!,
   points: e.run!.trainPoints.map((p) => ({ step: p.step, loss: p.loss })),
 }));
-const totalSteps = Math.max(0, ...found.map((r) => r.totalSteps ?? 0)) || null;
+// From the charted runs only, so a longer flawed run doesn't stretch the x axis.
+const totalSteps = Math.max(0, ...charted.map((e) => e.run!.totalSteps ?? 0)) || null;
 
 // Sweep chart: headline metric against the swept setting, valid runs only, sorted by the setting.
 let sweepPoints: SweepPoint[] = [];

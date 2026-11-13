@@ -80,13 +80,12 @@ export function Sparkline({
   ];
   const lo = safeLog10(min);
   const hi = Math.max(safeLog10(max), lo + 1e-9);
-  const xy = shown
-    .map((p) => {
-      const x = 1 + (p.step / xMax) * (SPARK_W - 2);
-      const y = SPARK_H - 2 - ((safeLog10(p.loss) - lo) / (hi - lo)) * (SPARK_H - 4);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
+  // Points outside a shared domain (e.g. a diverged flawed run) are pinned to the edge.
+  const clampY = (y: number) => Math.min(SPARK_H - 1, Math.max(1, y));
+  const coords = shown.map((p) => ({
+    x: round1(1 + (p.step / xMax) * (SPARK_W - 2)),
+    y: round1(clampY(SPARK_H - 2 - ((safeLog10(p.loss) - lo) / (hi - lo)) * (SPARK_H - 4))),
+  }));
   return (
     <svg
       width={SPARK_W}
@@ -95,13 +94,18 @@ export function Sparkline({
       aria-hidden="true"
       className="sparkline"
     >
-      <polyline
-        points={xy}
-        fill="none"
-        stroke={muted ? "#C4C4C0" : "var(--c-accent)"}
-        strokeWidth={1.4}
-        strokeLinejoin="round"
-      />
+      {shown.length === 1 ? (
+        // A line needs two points; a run with one logged step gets a dot.
+        <circle cx={coords[0].x} cy={coords[0].y} r={1.8} fill={muted ? "#C4C4C0" : "var(--c-accent)"} />
+      ) : (
+        <polyline
+          points={coords.map((c) => `${c.x},${c.y}`).join(" ")}
+          fill="none"
+          stroke={muted ? "#C4C4C0" : "var(--c-accent)"}
+          strokeWidth={1.4}
+          strokeLinejoin="round"
+        />
+      )}
     </svg>
   );
 }
@@ -257,18 +261,23 @@ export function LossChart({
           </g>
         ))}
         <line x1={left} x2={right} y1={bottom} y2={bottom} stroke="#C4C4C0" />
-        {withPoints.map((s, i) => (
-          <polyline
-            key={i}
-            points={downsample(s.points, 500)
-              .map((p) => `${xOf(p.step)},${yOf(p.loss)}`)
-              .join(" ")}
-            fill="none"
-            stroke={s.colour}
-            strokeWidth={1.6}
-            strokeLinejoin="round"
-          />
-        ))}
+        {withPoints.map((s, i) =>
+          // A line needs two points; a run with one logged step gets a dot.
+          s.points.length === 1 ? (
+            <circle key={i} cx={xOf(s.points[0].step)} cy={yOf(s.points[0].loss)} r={3} fill={s.colour} />
+          ) : (
+            <polyline
+              key={i}
+              points={downsample(s.points, 500)
+                .map((p) => `${xOf(p.step)},${yOf(p.loss)}`)
+                .join(" ")}
+              fill="none"
+              stroke={s.colour}
+              strokeWidth={1.6}
+              strokeLinejoin="round"
+            />
+          ),
+        )}
         {showMin && (
           <>
             <circle cx={minX} cy={minY} r={4} fill="#FFFFFF" stroke="#18181B" strokeWidth={1.5} />

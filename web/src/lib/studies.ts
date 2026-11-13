@@ -22,14 +22,19 @@ export function isValid(run: RunData | null): run is RunData {
   return run !== null && run.status === "evaluated";
 }
 
+// Seeds often differ between runs of a sweep, so they never count as the swept setting.
+const IGNORED_FOR_SWEEP = new Set(["seed", "eval_seed"]);
+
 /**
- * The one setting whose value differs across the study's runs, or null if
- * none or several do. Used for "sweeps <param>" and the sweep chart's x axis.
+ * The one setting (other than the seeds) whose value differs across the study's
+ * runs, or null if none or several do. Used for "sweeps <param>" and the sweep
+ * chart's x axis.
  */
 export function sweptSetting(runs: RunData[]): string | null {
   if (runs.length < 2) return null;
   const keys = new Set(runs.flatMap((r) => Object.keys(r.config)));
   const varying = [...keys].filter((k) => {
+    if (IGNORED_FOR_SWEEP.has(k)) return false;
     const values = new Set(runs.map((r) => JSON.stringify(r.config[k])));
     return values.size > 1;
   });

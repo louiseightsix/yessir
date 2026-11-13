@@ -85,7 +85,9 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
   ];
 
   // One log-scale domain for every sparkline, so their heights are comparable.
-  const allLoss = rows.flatMap((r) => r.spark.map((p) => p.loss));
+  // Flawed runs are left out (unless every run is flawed) so a diverged one doesn't flatten the rest.
+  const notFlawed = rows.filter((r) => r.status !== "flawed");
+  const allLoss = (notFlawed.length > 0 ? notFlawed : rows).flatMap((r) => r.spark.map((p) => p.loss));
   const sparkDomain: [number, number] | undefined =
     allLoss.length > 0 ? [Math.min(...allLoss), Math.max(...allLoss)] : undefined;
 
