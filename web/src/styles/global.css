@@ -1,0 +1,74 @@
+/* Base styles shared by every page. Component styles live next to each component. */
+@import "./tokens.css";
+
+body {
+  margin: 0;
+  background: var(--c-ground);
+  color: var(--c-ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+}
+
+a {
+  color: var(--c-accent-strong);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--c-accent-hover);
+  text-decoration: underline;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+h1 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Small uppercase label above a section ("IN PROGRESS · 3"). */
+.eyebrow {
+  margin: 0;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+
+.muted {
+  color: var(--c-muted);
+}
+
+.panel {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-panel);
+}
+
+/* Page header: title and subtitle on the left, a hint or action on the right. */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.page-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.page-header p {
+  margin: 0;
+  color: var(--c-muted);
+}
+.path-hint {
+  font: 400 var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+}

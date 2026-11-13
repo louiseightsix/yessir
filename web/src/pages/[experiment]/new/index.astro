@@ -1,0 +1,20 @@
+---
+// New run: the config builder for an experiment.
+import Shell from "../../../layouts/Shell.astro";
+import { getSiteData } from "../../../lib/data";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.map((e) => ({ params: { experiment: e.name } }));
+}
+
+const { experiment } = Astro.params;
+---
+
+<Shell title="New run" experiment={experiment} section="new">
+  <header class="page-header">
+    <div>
+      <h1>New run</h1>
+      <p>Change a few settings, check the result is valid and new, then paste the command into a terminal.</p>
+    </div>
+  </header>
+</Shell>

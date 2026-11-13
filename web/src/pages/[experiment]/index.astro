@@ -1,0 +1,22 @@
+---
+// Studies (landing page for an experiment).
+import Shell from "../../layouts/Shell.astro";
+import { getExperiment, getSiteData } from "../../lib/data";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.map((e) => ({ params: { experiment: e.name } }));
+}
+
+const { experiment } = Astro.params;
+const exp = getExperiment(experiment);
+---
+
+<Shell title="Studies" experiment={experiment} section="studies">
+  <header class="page-header">
+    <div>
+      <h1>Studies</h1>
+      <p>Research questions for <code>{exp.name}</code> — each groups the runs that answer it.</p>
+    </div>
+    <span class="path-hint">studies/{exp.name}/*.json</span>
+  </header>
+</Shell>

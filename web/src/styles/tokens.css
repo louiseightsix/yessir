@@ -1,0 +1,88 @@
+/* yessir redesign: design tokens.
+   Fonts: Inter (400/500/600/700), JetBrains Mono (400/500/600). */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  /* Type */
+  --font-ui: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --fs-h1: 26px;        /* 700, letter-spacing -0.02em */
+  --fs-section: 15px;   /* 600 */
+  --fs-eyebrow: 12px;   /* 600, uppercase, letter-spacing 0.06em, muted */
+  --fs-body: 14px;
+  --fs-table: 13px;
+  --fs-small: 12px;
+  --fs-tiny: 11px;
+  --fs-metric-tile: 26px; /* mono 600 */
+
+  /* Neutrals */
+  --c-ground: #F6F6F4;
+  --c-panel: #FFFFFF;
+  --c-field: #FAFAF8;
+  --c-border: #E4E4E0;
+  --c-border-strong: #D4D4CF;
+  --c-divider: #EEEEEA;
+  --c-ink: #18181B;
+  --c-ink-2: #27272A;
+  --c-ink-3: #3F3F46;
+  --c-muted: #5E6370;      /* passes 4.5:1 on ground and panel */
+  --c-disabled: #8A8F99;   /* greyed-out numbers on flawed and pending rows */
+
+  /* Accent */
+  --c-accent: #2F5BD3;
+  --c-accent-strong: #1E3F9E;  /* links, active nav, best value */
+  --c-accent-hover: #142C70;
+  --c-accent-tint: #EEF1FB;    /* active nav background */
+  --c-accent-track: #E3E8F6;   /* progress track */
+  --c-accent-soft: #9DB4EC;    /* below-threshold bars */
+  --c-selected-row: #F5F7FE;
+  /* Sequential ramp for sweep series (light to dark) */
+  --c-ramp-1: #A9BDEB;
+  --c-ramp-2: #7E9BE0;
+  --c-ramp-3: #4F75D6;
+  --c-ramp-4: #2F5BD3;
+  --c-ramp-5: #1B3A8F;
+
+  /* Settings changed from default */
+  --c-diff-bg: #EEF0FF;
+  --c-diff-fg: #3730A3;
+  --c-diff-input-border: #8FA2E8;
+
+  /* Study status */
+  --c-draft-bg: #FEF3C7;       --c-draft-fg: #854D0E;
+  --c-progress-bg: #DBEAFE;    --c-progress-fg: #1E40AF;
+  --c-concluded-bg: #DCFCE7;   --c-concluded-fg: #166534;
+  --c-conclusion-box: #F1FAF4; --c-conclusion-border: #BBE5C8; --c-conclusion-text: #14532D;
+
+  /* Run states */
+  --c-flawed: #B42318;          /* FLAWED pill background */
+  --c-flawed-text: #991B1B;
+  --c-flawed-row: #FEF6F6;
+  --c-flawed-banner-bg: #FEF3F2; --c-flawed-banner-border: #F4B4AE; --c-flawed-banner-text: #7A271A;
+  --c-flawed-badge-bg: #FEE4E2;  --c-flawed-badge-fg: #912018;
+  --c-dirty-bg: #FFFBEB; --c-dirty-border: #E8C468; --c-dirty-fg: #854D0E;
+  --c-running-banner-bg: #EFF4FF; --c-running-banner-border: #BFD0F7; --c-running-banner-text: #1E3A8A;
+
+  /* Duplicate warning */
+  --c-dup-bg: #FFFBEB; --c-dup-border: #F0C75E; --c-dup-fg: #78350F;
+
+  /* Validity checks */
+  --c-pass: #15803D;
+  --c-fail: #B42318;
+
+  /* Command block */
+  --c-code-bg: #18181B;
+  --c-code-fg: #E4E7EE;
+
+  /* Radii */
+  --r-panel: 10px;
+  --r-control: 6px;
+  --r-chip: 4px;
+  --r-pill: 999px;
+
+  /* Spacing */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 40px;
+  --content-pad: 28px 40px 56px;
+  --sidebar-w: 232px;
+  --row-min-h: 44px;
+}
