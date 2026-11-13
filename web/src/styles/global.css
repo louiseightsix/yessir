@@ -3,6 +3,7 @@
 @import "./components.css";
 @import "./tables.css";
 @import "./studies.css";
+@import "./builder.css";
 
 body {
   margin: 0;

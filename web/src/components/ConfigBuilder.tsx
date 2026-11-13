@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { DiffChips } from "./badges";
+import { SegmentedControl } from "./controls";
 
 export interface FieldSchema {
   name: string;
@@ -29,8 +31,9 @@ export interface ExistingRunConfig {
 }
 
 interface Props {
-  schemas: Record<string, ExperimentSchema>;
-  existingRuns: Record<string, ExistingRunConfig[]>;
+  experiment: string;
+  schema: ExperimentSchema;
+  existingRuns: ExistingRunConfig[];
 }
 
 const NONE_SENTINEL = "__NONE__";
@@ -41,10 +44,111 @@ const SYMBOL_SET_LENGTHS: Record<string, number> = {
   hex: 16,
 };
 
+// ---------------------------------------------------------------------------
+// Validation: a checklist instead of the first error
+// ---------------------------------------------------------------------------
+
+interface Check {
+  ok: boolean;
+  text: string;
+}
+
 interface ValidationResult {
   valid: boolean;
+  /** Shown in the validity card: every failing check, plus the cross-field rules even when they pass. */
+  checks: Check[];
+  /** Derived values, e.g. "d_model=512 · pool=240". */
   summary?: string;
-  error?: string;
+}
+
+/** Per-field problems: half-typed numbers, None where not allowed, non-integers. */
+function fieldChecks(
+  fields: FieldSchema[],
+  values: Record<string, unknown>,
+  drafts: Record<string, string>,
+): Check[] {
+  const failures: Check[] = [];
+  for (const field of fields) {
+    if (field.name in drafts) {
+      failures.push({ ok: false, text: `${field.name}: enter a valid ${field.type}` });
+      continue;
+    }
+    const v = values[field.name];
+    if (v === null && !field.is_optional) {
+      failures.push({ ok: false, text: `${field.name} cannot be None` });
+    } else if (field.type === "int" && v !== null && (typeof v !== "number" || !Number.isInteger(v))) {
+      failures.push({ ok: false, text: `${field.name} must be an integer, got ${String(v)}` });
+    }
+  }
+  return failures;
+}
+
+/**
+ * The sir_yes_sir rules, mirroring `experiments/sir_yes_sir/config.py` (keep in sync).
+ * Cross-field rules are always listed; single-field range rules only when they fail.
+ */
+function sirYesSirChecks(values: Record<string, unknown>): { checks: Check[]; summary: string } {
+  const always: Check[] = [];
+  const onlyIfFailing: Check[] = [];
+
+  const symbolSet = String(values.symbol_set ?? "all");
+  const fullPoolLen = SYMBOL_SET_LENGTHS[symbolSet] ?? 240;
+  const symbolPoolSize = values.symbol_pool_size as number | null;
+  always.push({
+    ok: symbolPoolSize === null || (symbolPoolSize >= 2 && symbolPoolSize <= fullPoolLen),
+    text:
+      symbolPoolSize === null
+        ? `symbol_pool_size None uses all of '${symbolSet}' (${fullPoolLen})`
+        : `symbol_pool_size ${symbolPoolSize} within 2..len('${symbolSet}') ${fullPoolLen}`,
+  });
+  const poolLen = symbolPoolSize !== null ? symbolPoolSize : fullPoolLen;
+
+  const alphabetSize = Number(values.alphabet_size);
+  always.push({
+    ok: alphabetSize >= 2 && alphabetSize <= poolLen,
+    text: `alphabet_size ${alphabetSize} within 2..${poolLen} (symbol pool)`,
+  });
+
+  const embeddingMode = String(values.embedding_mode);
+  const dPosition = Number(values.d_position);
+  const usesPe = embeddingMode === "token_type_pe";
+  always.push({
+    ok: dPosition >= 0 && dPosition % 2 === 0 && (usesPe ? dPosition > 0 : dPosition === 0),
+    text: usesPe
+      ? `d_position ${dPosition} is even and > 0 ('${embeddingMode}')`
+      : `d_position ${dPosition} is 0 ('${embeddingMode}' has no positions)`,
+  });
+
+  const dScratch = Number(values.d_scratch);
+  const nHeads = Number(values.n_heads);
+  const dTokenType = embeddingMode !== "nope" ? 16 : 0;
+  const dModel = 256 + dTokenType + dPosition + dScratch;
+  always.push({
+    ok: nHeads > 0 && dModel % nHeads === 0,
+    text: `n_heads ${nHeads} divides d_model ${dModel}`,
+  });
+
+  const seed = Number(values.seed);
+  const evalSeed = Number(values.eval_seed);
+  always.push({ ok: seed !== evalSeed, text: `seed ${seed} ≠ eval_seed ${evalSeed}` });
+
+  const atLeast = (name: string, min: number) => {
+    const v = Number(values[name]);
+    if (!(v >= min)) onlyIfFailing.push({ ok: false, text: `${name} must be >= ${min}, got ${v}` });
+  };
+  atLeast("x_length", 1);
+  atLeast("d_scratch", 0);
+  atLeast("n_layers", 1);
+  atLeast("n_heads", 1);
+  atLeast("d_ff", 1);
+  atLeast("steps", 1);
+  atLeast("batch_size", 1);
+  atLeast("num_eval_problems", 1);
+  atLeast("eval_batch_size", 1);
+  const lr = Number(values.lr);
+  if (!(lr > 0)) onlyIfFailing.push({ ok: false, text: `lr must be > 0, got ${lr}` });
+
+  return { checks: [...onlyIfFailing, ...always], summary: `d_model=${dModel} · pool=${poolLen}` };
 }
 
 function validateConfig(
@@ -53,133 +157,19 @@ function validateConfig(
   values: Record<string, unknown>,
   drafts: Record<string, string>,
 ): ValidationResult {
-  for (const field of fields) {
-    if (field.name in drafts) {
-      return {
-        valid: false,
-        error: `${field.name}: enter a valid ${field.type}`,
-      };
-    }
-    const v = values[field.name];
-    if (v === null && !field.is_optional) {
-      return { valid: false, error: `${field.name} cannot be None` };
-    }
-    if (field.type === "int" && v !== null && (!Number.isInteger(v) || typeof v !== "number")) {
-      return { valid: false, error: `${field.name} must be an integer, got ${String(v)}` };
-    }
-  }
-
+  const failures = fieldChecks(fields, values, drafts);
+  // Cross-field rules need every field to hold a real value first.
+  if (failures.length > 0) return { valid: false, checks: failures };
   if (expName === "sir_yes_sir") {
-    const symbolSet = String(values.symbol_set ?? "all");
-    const fullPoolLen = SYMBOL_SET_LENGTHS[symbolSet] ?? 240;
-    const symbolPoolSize = values.symbol_pool_size as number | null;
-    if (
-      symbolPoolSize !== null &&
-      (symbolPoolSize < 2 || symbolPoolSize > fullPoolLen)
-    ) {
-      return {
-        valid: false,
-        error: `symbol_pool_size must be in 2..${fullPoolLen} for symbol_set='${symbolSet}', got ${symbolPoolSize}`,
-      };
-    }
-    const poolLen = symbolPoolSize !== null ? symbolPoolSize : fullPoolLen;
-    const alphabetSize = Number(values.alphabet_size);
-    if (alphabetSize < 2 || alphabetSize > poolLen) {
-      return {
-        valid: false,
-        error: `alphabet_size must be in 2..${poolLen} (size of symbol_pool), got ${alphabetSize}`,
-      };
-    }
-    const xLength = Number(values.x_length);
-    if (xLength < 1) {
-      return { valid: false, error: `x_length must be >= 1, got ${xLength}` };
-    }
-    const dPosition = Number(values.d_position);
-    if (dPosition < 0 || dPosition % 2 !== 0) {
-      return {
-        valid: false,
-        error: `d_position must be a non-negative even int, got ${dPosition}`,
-      };
-    }
-    const embeddingMode = String(values.embedding_mode);
-    if (embeddingMode === "token_type_pe" && dPosition === 0) {
-      return {
-        valid: false,
-        error: "d_position must be > 0 when embedding_mode is 'token_type_pe'",
-      };
-    }
-    if (embeddingMode !== "token_type_pe" && dPosition !== 0) {
-      return {
-        valid: false,
-        error: `d_position must be 0 when embedding_mode is '${embeddingMode}', got ${dPosition}`,
-      };
-    }
-    const dScratch = Number(values.d_scratch);
-    if (dScratch < 0) {
-      return { valid: false, error: `d_scratch must be >= 0, got ${dScratch}` };
-    }
-    const nLayers = Number(values.n_layers);
-    if (nLayers <= 0) {
-      return { valid: false, error: `n_layers must be > 0, got ${nLayers}` };
-    }
-    const nHeads = Number(values.n_heads);
-    if (nHeads <= 0) {
-      return { valid: false, error: `n_heads must be > 0, got ${nHeads}` };
-    }
-    const dTokenType = embeddingMode !== "nope" ? 16 : 0;
-    const dModel = 256 + dTokenType + dPosition + dScratch;
-    if (dModel % nHeads !== 0) {
-      return {
-        valid: false,
-        error: `d_model (${dModel}) must be divisible by n_heads (${nHeads})`,
-      };
-    }
-    const dFf = Number(values.d_ff);
-    if (dFf <= 0) {
-      return { valid: false, error: `d_ff must be > 0, got ${dFf}` };
-    }
-    const steps = Number(values.steps);
-    if (steps < 1) {
-      return { valid: false, error: `steps must be >= 1, got ${steps}` };
-    }
-    const batchSize = Number(values.batch_size);
-    if (batchSize < 1) {
-      return { valid: false, error: `batch_size must be >= 1, got ${batchSize}` };
-    }
-    const lr = Number(values.lr);
-    if (!(lr > 0)) {
-      return { valid: false, error: `lr must be > 0, got ${lr}` };
-    }
-    const numEvalProblems = Number(values.num_eval_problems);
-    if (numEvalProblems < 1) {
-      return {
-        valid: false,
-        error: `num_eval_problems must be >= 1, got ${numEvalProblems}`,
-      };
-    }
-    const evalBatchSize = Number(values.eval_batch_size);
-    if (evalBatchSize < 1) {
-      return {
-        valid: false,
-        error: `eval_batch_size must be >= 1, got ${evalBatchSize}`,
-      };
-    }
-    const seed = Number(values.seed);
-    const evalSeed = Number(values.eval_seed);
-    if (evalSeed === seed) {
-      return {
-        valid: false,
-        error: `eval_seed (${evalSeed}) must differ from training seed (${seed})`,
-      };
-    }
-    return {
-      valid: true,
-      summary: `d_model=${dModel}, symbol_pool_size=${poolLen}`,
-    };
+    const { checks, summary } = sirYesSirChecks(values);
+    return { valid: checks.every((c) => c.ok), checks, summary };
   }
-
-  return { valid: true };
+  return { valid: true, checks: [] };
 }
+
+// ---------------------------------------------------------------------------
+// Command line
+// ---------------------------------------------------------------------------
 
 function formatCliFlag(field: FieldSchema, value: unknown): string {
   const flag = `--${field.name.replaceAll("_", "-")}`;
@@ -200,293 +190,304 @@ function configsEqual(
   return fields.every((f) => a[f.name] === b[f.name]);
 }
 
-export default function ConfigBuilder({ schemas, existingRuns }: Props) {
-  const expNames = Object.keys(schemas);
-  const [selectedExp, setSelectedExp] = useState<string>(expNames[0] ?? "");
-  const [selectedVariantByExp, setSelectedVariantByExp] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      Object.entries(schemas).map(([name, schema]) => [name, schema.variants[0]?.name ?? ""]),
-    ),
-  );
-  const [valuesByExp, setValuesByExp] = useState<Record<string, Record<string, unknown>>>(() =>
-    Object.fromEntries(
-      Object.entries(schemas).map(([name, schema]) => [
-        name,
-        { ...(schema.variants[0]?.default_config ?? {}) },
-      ]),
-    ),
-  );
+/** Variant defaults overlaid with a past run's values for the fields this variant has. */
+function valuesFromRun(variant: VariantSchema, run: ExistingRunConfig): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...variant.default_config };
+  for (const f of variant.fields) {
+    if (f.name in run.config) next[f.name] = run.config[f.name];
+  }
+  return next;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export default function ConfigBuilder({ experiment, schema, existingRuns }: Props) {
+  const [variantName, setVariantName] = useState<string>(schema.variants[0]?.name ?? "");
+  const [values, setValues] = useState<Record<string, unknown>>(() => ({
+    ...(schema.variants[0]?.default_config ?? {}),
+  }));
   // Holds raw text for any numeric input that is currently empty/mid-edit so
   // backspacing all digits works naturally without snapping back to the old number.
-  const [draftsByExp, setDraftsByExp] = useState<Record<string, Record<string, string>>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [startFrom, setStartFrom] = useState("");
   const [includeDefaults, setIncludeDefaults] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const schema = schemas[selectedExp];
-  if (!schema || schema.variants.length === 0) {
-    return <p>No experiments registered.</p>;
+  // `?from=<run_name>` (from a run's "New run from this config") preloads that run.
+  // Done after the first render so the server HTML and the browser's first render match.
+  useEffect(() => {
+    const from = new URLSearchParams(window.location.search).get("from");
+    if (from) loadRun(from);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (schema.variants.length === 0) {
+    return <p>No variants registered for this experiment.</p>;
   }
 
-  const activeVariantName = selectedVariantByExp[selectedExp] ?? schema.variants[0].name;
-  const activeVariant =
-    schema.variants.find((v) => v.name === activeVariantName) ?? schema.variants[0];
+  const activeVariant = schema.variants.find((v) => v.name === variantName) ?? schema.variants[0];
 
-  const values = valuesByExp[selectedExp] ?? activeVariant.default_config;
-  const drafts = draftsByExp[selectedExp] ?? {};
-
-  function selectVariant(variantName: string) {
-    const targetVariant =
-      schema.variants.find((v) => v.name === variantName) ?? schema.variants[0];
-    setSelectedVariantByExp((prev) => ({ ...prev, [selectedExp]: targetVariant.name }));
-    setValuesByExp((prev) => {
-      const current = prev[selectedExp] ?? {};
-      const next: Record<string, unknown> = { ...targetVariant.default_config };
-      for (const f of targetVariant.fields) {
-        if (f.name in current) {
-          next[f.name] = current[f.name];
-        }
+  function selectVariant(name: string) {
+    const target = schema.variants.find((v) => v.name === name) ?? schema.variants[0];
+    setVariantName(target.name);
+    // Keep the values of fields the new variant also has.
+    setValues((current) => {
+      const next: Record<string, unknown> = { ...target.default_config };
+      for (const f of target.fields) {
+        if (f.name in current) next[f.name] = current[f.name];
       }
-      return { ...prev, [selectedExp]: next };
+      return next;
     });
+    setStartFrom("");
+    setCopied(false);
+  }
+
+  function loadRun(runName: string) {
+    const run = existingRuns.find((r) => r.name === runName);
+    if (!run) return;
+    const variant = schema.variants.find((v) => v.name === run.variant) ?? schema.variants[0];
+    setVariantName(variant.name);
+    setValues(valuesFromRun(variant, run));
+    setDrafts({});
+    setStartFrom(runName);
     setCopied(false);
   }
 
   function setFieldValue(fieldName: string, value: unknown) {
-    setValuesByExp((prev) => ({
-      ...prev,
-      [selectedExp]: {
-        ...(prev[selectedExp] ?? activeVariant.default_config),
-        [fieldName]: value,
-      },
-    }));
-    setDraftsByExp((prev) => {
-      const expDrafts = { ...(prev[selectedExp] ?? {}) };
-      delete expDrafts[fieldName];
-      return { ...prev, [selectedExp]: expDrafts };
+    setValues((prev) => ({ ...prev, [fieldName]: value }));
+    setDrafts((prev) => {
+      const next = { ...prev };
+      delete next[fieldName];
+      return next;
     });
     setCopied(false);
   }
 
   function handleNumericInput(field: FieldSchema, raw: string) {
     setCopied(false);
-    if (raw.trim() === "") {
-      setDraftsByExp((prev) => ({
-        ...prev,
-        [selectedExp]: { ...(prev[selectedExp] ?? {}), [field.name]: raw },
-      }));
+    // An optional number left empty means None.
+    if (raw.trim() === "" && field.is_optional) {
+      setFieldValue(field.name, null);
       return;
     }
     const parsed = Number(raw);
-    if (Number.isNaN(parsed) || (field.type === "int" && !Number.isInteger(parsed))) {
-      setDraftsByExp((prev) => ({
-        ...prev,
-        [selectedExp]: { ...(prev[selectedExp] ?? {}), [field.name]: raw },
-      }));
+    if (raw.trim() === "" || Number.isNaN(parsed) || (field.type === "int" && !Number.isInteger(parsed))) {
+      setDrafts((prev) => ({ ...prev, [field.name]: raw }));
       return;
     }
     setFieldValue(field.name, parsed);
   }
 
   function resetToDefaults() {
-    setValuesByExp((prev) => ({
-      ...prev,
-      [selectedExp]: { ...activeVariant.default_config },
-    }));
-    setDraftsByExp((prev) => ({ ...prev, [selectedExp]: {} }));
+    setValues({ ...activeVariant.default_config });
+    setDrafts({});
+    setStartFrom("");
     setCopied(false);
   }
 
-  const validation = validateConfig(selectedExp, activeVariant.fields, values, drafts);
+  const validation = validateConfig(experiment, activeVariant.fields, values, drafts);
+
+  const isChanged = (f: FieldSchema) => f.name in drafts || values[f.name] !== f.default;
+  const changed = activeVariant.fields
+    .filter(isChanged)
+    .map((f) => ({ name: f.name, value: f.name in drafts ? drafts[f.name] : values[f.name], default: f.default }));
 
   const flags = activeVariant.fields
     .filter((f) => includeDefaults || values[f.name] !== f.default)
     .map((f) => formatCliFlag(f, values[f.name]));
-  const cliCommand = `./yessir.sh run ${selectedExp} ${activeVariant.name}${flags.length > 0 ? " " + flags.join(" ") : ""}`;
+  const commandHead = `./yessir.sh run ${experiment} ${activeVariant.name}`;
+  // Shown one flag per line; copied as a single line.
+  const shownCommand = [commandHead, ...flags].join(" \\\n  ");
+  const cliCommand = [commandHead, ...flags].join(" ");
 
   const matchingRuns = validation.valid
-    ? (existingRuns[selectedExp] ?? [])
-        .filter(
-          (run) =>
-            run.variant === activeVariant.name &&
-            configsEqual(activeVariant.fields, values, run.config),
-        )
+    ? existingRuns
+        .filter((run) => run.variant === activeVariant.name && configsEqual(activeVariant.fields, values, run.config))
         .map((run) => run.name)
     : [];
 
   async function copyCommand() {
-    await navigator.clipboard.writeText(cliCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(cliCommand);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access refused (e.g. not https): leave the label as it was.
+    }
   }
 
   return (
-    <div className="config-builder">
-      <div className="builder-toolbar">
-        <label>
-          <strong>Experiment: </strong>
-          <select
-            value={selectedExp}
-            onChange={(e) => {
-              setSelectedExp(e.target.value);
-              setCopied(false);
-            }}
-          >
-            {expNames.map((name) => (
-              <option key={name} value={name}>
-                {name}
+    <div className="builder">
+      <div className="panel builder-toolbar">
+        <div className="toolbar-item">
+          Variant
+          <SegmentedControl
+            label="Variant"
+            options={schema.variants.map((v) => ({ value: v.name, label: v.name }))}
+            selected={activeVariant.name}
+            onSelect={selectVariant}
+          />
+        </div>
+        <span className="muted variant-description">{activeVariant.description}</span>
+        <label className="inline-select">
+          Start from
+          <select value={startFrom} onChange={(e) => (e.target.value ? loadRun(e.target.value) : resetToDefaults())}>
+            <option value="">variant defaults</option>
+            {existingRuns.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.name}
               </option>
             ))}
           </select>
         </label>
-        <label>
-          <strong>Variant: </strong>
-          <select
-            value={activeVariant.name}
-            onChange={(e) => selectVariant(e.target.value)}
-          >
-            {schema.variants.map((v) => (
-              <option key={v.name} value={v.name}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" onClick={resetToDefaults}>
+        <button type="button" className="button-secondary small-button" onClick={resetToDefaults}>
           Reset to defaults
         </button>
       </div>
 
-      <p className="meta">
-        {schema.description} — <code>{activeVariant.name}</code>: {activeVariant.description}
-      </p>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Setting</th>
-            <th>Value</th>
-            <th>Default</th>
-            <th>Allowed / Range</th>
-          </tr>
-        </thead>
-        <tbody>
-          {activeVariant.fields.map((field) => {
-            const val = values[field.name];
-            const hasDraft = field.name in drafts;
-            const isNonDefault = hasDraft || val !== field.default;
-            return (
-              <tr key={field.name} className={isNonDefault ? "non-default" : undefined}>
-                <th>
-                  <code>{field.name}</code>
-                </th>
-                <td>
-                  {field.choices !== null ? (
-                    <select
-                      value={val === null ? NONE_SENTINEL : String(val)}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        if (raw === NONE_SENTINEL) {
-                          setFieldValue(field.name, null);
-                        } else if (field.type === "bool") {
-                          setFieldValue(field.name, raw === "true");
-                        } else {
-                          setFieldValue(field.name, raw);
-                        }
-                      }}
-                    >
-                      {field.choices.map((choice) => (
-                        <option key={String(choice)} value={String(choice)}>
-                          {String(choice)}
-                        </option>
-                      ))}
-                      {field.is_optional && <option value={NONE_SENTINEL}>None</option>}
-                    </select>
-                  ) : field.type === "int" || field.type === "float" ? (
-                    <span className="numeric-control">
-                      {field.is_optional && (
-                        <label className="none-toggle">
-                          <input
-                            type="checkbox"
-                            checked={!hasDraft && val === null}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFieldValue(field.name, null);
-                              } else {
-                                setFieldValue(
-                                  field.name,
-                                  typeof field.default === "number" ? field.default : 2,
-                                );
-                              }
-                            }}
-                          />{" "}
-                          None
-                        </label>
-                      )}
-                      {(hasDraft || val !== null) && (
-                        <input
-                          type="number"
-                          step={field.step}
-                          value={hasDraft ? drafts[field.name] : typeof val === "number" ? val : ""}
-                          onChange={(e) => handleNumericInput(field, e.target.value)}
-                        />
-                      )}
-                    </span>
-                  ) : (
-                    <input
-                      type="text"
-                      value={val === null ? "" : String(val)}
-                      onChange={(e) => setFieldValue(field.name, e.target.value)}
-                    />
-                  )}
-                </td>
-                <td>
-                  <code>{field.default === null ? "None" : String(field.default)}</code>
-                </td>
-                <td>
-                  <code>{field.domain}</code>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {validation.valid ? (
-        <p className="status-valid">
-          <strong>Status: VALID</strong>
-          {validation.summary ? ` (${validation.summary})` : ""}
-        </p>
-      ) : (
-        <p className="status-invalid">
-          <strong>Status: INVALID</strong> — {validation.error}
-        </p>
-      )}
-
-      {matchingRuns.length > 0 && (
-        <p className="duplicate-warning">
-          Matches existing {matchingRuns.length === 1 ? "run" : "runs"}:{" "}
-          <code>{matchingRuns.join(", ")}</code>
-        </p>
-      )}
-
-      <div className="cli-output">
-        <div className="cli-header">
-          <strong>CLI command</strong>
-          <label className="meta">
-            <input
-              type="checkbox"
-              checked={includeDefaults}
-              onChange={(e) => setIncludeDefaults(e.target.checked)}
-            />{" "}
-            Include default flags
-          </label>
-          <button type="button" onClick={copyCommand} disabled={!validation.valid}>
-            {copied ? "Copied!" : "Copy command"}
-          </button>
+      <div className="builder-columns">
+        <div className="panel builder-form">
+          <div className="builder-rows">
+            {activeVariant.fields.map((field) => {
+              const val = values[field.name];
+              const hasDraft = field.name in drafts;
+              const fieldChanged = isChanged(field);
+              const id = `field-${field.name}`;
+              return (
+                <div key={field.name} className={`field-row${fieldChanged ? " is-changed" : ""}`}>
+                  <label htmlFor={id} className="field-name">
+                    <span className="field-dot" aria-hidden="true" />
+                    {field.name}
+                  </label>
+                  <div className="field-control">
+                    {field.choices !== null ? (
+                      <SegmentedControl
+                        label={field.name}
+                        size="small"
+                        options={[
+                          ...field.choices.map((c) => ({ value: String(c), label: String(c) })),
+                          ...(field.is_optional ? [{ value: NONE_SENTINEL, label: "None" }] : []),
+                        ]}
+                        selected={val === null ? NONE_SENTINEL : String(val)}
+                        onSelect={(raw) => {
+                          if (raw === NONE_SENTINEL) setFieldValue(field.name, null);
+                          else setFieldValue(field.name, field.choices!.find((c) => String(c) === raw));
+                        }}
+                      />
+                    ) : field.type === "int" || field.type === "float" ? (
+                      <input
+                        id={id}
+                        type="number"
+                        step={field.step}
+                        placeholder={field.is_optional ? "None" : undefined}
+                        value={hasDraft ? drafts[field.name] : typeof val === "number" ? val : ""}
+                        onChange={(e) => handleNumericInput(field, e.target.value)}
+                      />
+                    ) : (
+                      <input
+                        id={id}
+                        type="text"
+                        value={val === null ? "" : String(val)}
+                        onChange={(e) => setFieldValue(field.name, e.target.value)}
+                      />
+                    )}
+                    {fieldChanged && (
+                      <button
+                        type="button"
+                        className="field-reset"
+                        aria-label={`Reset ${field.name} to default`}
+                        onClick={() => setFieldValue(field.name, field.default)}
+                      >
+                        ↺ reset
+                      </button>
+                    )}
+                  </div>
+                  <span className="field-meta">default {field.default === null ? "None" : String(field.default)}</span>
+                  <span className="field-meta">{field.domain}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <pre>
-          <code>{cliCommand}</code>
-        </pre>
+
+        <aside aria-label="Run summary" className="builder-side">
+          <section className="panel side-card">
+            <h2 className="section-heading">
+              {changed.length} {changed.length === 1 ? "change" : "changes"} from {activeVariant.name} defaults
+            </h2>
+            {changed.length > 0 ? (
+              <DiffChips changed={changed} />
+            ) : (
+              <span className="muted small-text">Nothing changed — this is the variant baseline.</span>
+            )}
+          </section>
+
+          <section className={`side-card validity ${validation.valid ? "is-valid" : "is-invalid"}`}>
+            <div className="validity-head">
+              <h2 className="section-heading">{validation.valid ? "Valid" : "Invalid — fix before running"}</h2>
+              {validation.summary && <span className="validity-summary">{validation.summary}</span>}
+            </div>
+            {validation.checks.length > 0 && (
+              <ul className="checklist">
+                {validation.checks.map((c, i) => (
+                  <li key={i}>
+                    <span aria-hidden="true" className={c.ok ? "check-pass" : "check-fail"}>
+                      {c.ok ? "✓" : "✕"}
+                    </span>
+                    <span>
+                      <span className="visually-hidden">{c.ok ? "Passes: " : "Fails: "}</span>
+                      {c.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {validation.valid &&
+            (matchingRuns.length > 0 ? (
+              <section role="status" className="side-card duplicate-card">
+                <h2 className="section-heading">Already run</h2>
+                <p>
+                  This exact config matches{" "}
+                  {matchingRuns.map((name, i) => (
+                    <span key={name}>
+                      {i > 0 && ", "}
+                      <a href={`/${experiment}/runs/${name}/`}>{name}</a>
+                    </span>
+                  ))}
+                  . Change something, or rerun on purpose with a new seed.
+                </p>
+              </section>
+            ) : (
+              <section role="status" className="panel side-card new-config-card">
+                <strong>New config</strong> — no existing run matches.
+              </section>
+            ))}
+
+          <section className="side-card command-card">
+            <div className="command-head">
+              <h2 className="section-heading">Command</h2>
+              <button type="button" onClick={copyCommand} disabled={!validation.valid}>
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <pre>{shownCommand}</pre>
+            <label className="command-defaults">
+              <input
+                type="checkbox"
+                checked={includeDefaults}
+                onChange={(e) => {
+                  setIncludeDefaults(e.target.checked);
+                  setCopied(false);
+                }}
+              />
+              Include default flags
+            </label>
+          </section>
+        </aside>
       </div>
     </div>
   );

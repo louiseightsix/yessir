@@ -1,13 +1,20 @@
 ---
-// New run: the config builder for an experiment.
+// New run: the config builder for an experiment. `?from=<run_name>` preloads a past run.
+import ConfigBuilder, { type ExistingRunConfig } from "../../../components/ConfigBuilder";
 import Shell from "../../../layouts/Shell.astro";
-import { getSiteData } from "../../../lib/data";
+import { getExperiment, getSiteData } from "../../../lib/data";
 
 export function getStaticPaths() {
   return getSiteData().experiments.map((e) => ({ params: { experiment: e.name } }));
 }
 
 const { experiment } = Astro.params;
+const exp = getExperiment(experiment);
+
+// Past runs the builder can start from and check for duplicates against.
+const existingRuns: ExistingRunConfig[] = exp.runs
+  .filter((run) => Object.keys(run.config).length > 0)
+  .map((run) => ({ name: run.name, variant: run.variant ?? undefined, config: run.config }));
 ---
 
 <Shell title="New run" experiment={experiment} section="new">
@@ -17,4 +24,15 @@ const { experiment } = Astro.params;
       <p>Change a few settings, check the result is valid and new, then paste the command into a terminal.</p>
     </div>
   </header>
+
+  {
+    exp.schema ? (
+      <ConfigBuilder client:load experiment={experiment} schema={exp.schema} existingRuns={existingRuns} />
+    ) : (
+      <p class="panel empty-panel">
+        <code>{experiment}</code> isn't in the schema export (<code>python3 -m experiments.web_export</code>), so
+        there's no config to build.
+      </p>
+    )
+  }
 </Shell>
