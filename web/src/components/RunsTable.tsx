@@ -39,11 +39,21 @@ interface Props {
   studySlugs: string[];
 }
 
-type StatusFilter = "all" | RunStatus;
+/**
+ * "outdated" isn't a RunStatus: an outdated run is also evaluated or running.
+ * So its chip overlaps the others, and the chip counts don't add up to All.
+ */
+type StatusFilter = "all" | RunStatus | "outdated";
 const PAGE_SIZE = 50;
 /** Study filter values besides a slug. */
 const ANY_STUDY = "__any__";
 const NO_STUDY = "__none__";
+
+function matchesStatus(row: RunRow, status: StatusFilter): boolean {
+  if (status === "all") return true;
+  if (status === "outdated") return row.outdatedReason !== null;
+  return row.status === status;
+}
 
 function matchesSearch(row: RunRow, query: string): boolean {
   if (!query) return true;
@@ -75,15 +85,16 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
       (study === ANY_STUDY ||
         (study === NO_STUDY ? r.studies.length === 0 : r.studies.some((s) => s.slug === study))),
   );
-  const filtered = otherFiltersMatch.filter((r) => status === "all" || r.status === status);
+  const filtered = otherFiltersMatch.filter((r) => matchesStatus(r, status));
   const shown = filtered.slice(0, shownCount);
 
-  const countOf = (s: RunStatus) => otherFiltersMatch.filter((r) => r.status === s).length;
+  const countOf = (s: StatusFilter) => otherFiltersMatch.filter((r) => matchesStatus(r, s)).length;
   const statusOptions = [
     { value: "all" as const, label: "All", count: otherFiltersMatch.length },
     { value: "evaluated" as const, label: "Evaluated", count: countOf("evaluated") },
     { value: "in_progress" as const, label: "Running", count: countOf("in_progress") },
     { value: "flawed" as const, label: "Flawed", count: countOf("flawed") },
+    { value: "outdated" as const, label: "Outdated", count: countOf("outdated") },
   ];
 
   // One log-scale domain for every sparkline, so their heights are comparable.
