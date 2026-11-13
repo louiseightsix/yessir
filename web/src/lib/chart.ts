@@ -26,6 +26,8 @@ export function linearTicks(max: number, count = 4): number[] {
 /**
  * Log-scale ticks inside [min, max]. Wide ranges get powers of ten (0.01, 0.1, 1, 10);
  * narrow ones (under two decades) also get 2× and 5× so the axis still has labels.
+ * If that still gives fewer than two (e.g. 10.9 to 16.6), fall back to evenly
+ * spaced round numbers (12, 14, 16).
  */
 export function logTicks(min: number, max: number): number[] {
   const lo = Math.floor(Math.log10(min));
@@ -38,7 +40,11 @@ export function logTicks(min: number, max: number): number[] {
       if (v >= min && v <= max) ticks.push(v);
     }
   }
-  return ticks;
+  if (ticks.length >= 2) return ticks;
+  const step = niceStep(max - min, 3);
+  const even: number[] = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) even.push(Number(v.toPrecision(12)));
+  return even;
 }
 
 /**

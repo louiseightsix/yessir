@@ -1,0 +1,566 @@
+---
+// Run detail: one page per run directory under results/<experiment>/.
+import { DirtyTag, FlawedBanner, RunName, RunStatusBadge, StudyChip } from "../../../../components/badges";
+import { LossChart } from "../../../../components/charts";
+import { ProgressBar } from "../../../../components/controls";
+import Shell from "../../../../layouts/Shell.astro";
+import { argMin } from "../../../../lib/chart";
+import { getExperiment, getSiteData, variantDefaults } from "../../../../lib/data";
+import { formatDuration, formatLoss, formatMetric, formatValue, splitRunName } from "../../../../lib/format";
+
+export function getStaticPaths() {
+  return getSiteData().experiments.flatMap((e) =>
+    e.runs.map((r) => ({ params: { experiment: e.name, run: r.name } })),
+  );
+}
+
+const { experiment, run: runName } = Astro.params;
+const exp = getExperiment(experiment);
+const run = exp.runsByName.get(runName);
+if (!run) throw new Error(`unknown run: ${runName}`);
+
+const runPath = `results/${experiment}/${run.name}/`;
+const studies = exp.studiesByRun.get(run.name) ?? [];
+const running = run.status === "in_progress";
+const flawed = run.status === "flawed";
+
+// Training progress and stats from train.jsonl.
+const points = run.trainPoints;
+const first = points[0];
+const last = points.at(-1);
+const minPoint = points[argMin(points)];
+const progress = last && run.totalSteps ? last.step / run.totalSteps : null;
+// ETA: average seconds per step so far × steps still to go.
+const secondsLeft =
+  last && run.totalSteps && last.step > 0
+    ? (last.elapsed_sec / last.step) * (run.totalSteps - last.step)
+    : null;
+
+// Metric tiles: the run's own metrics, or the experiment's metric names as
+// "pending" placeholders while it's still training.
+const metricNames = run.evalMetrics ? Object.keys(run.evalMetrics) : exp.metricNames;
+
+// Config split: changed settings first, the rest folded away.
+const defaults = variantDefaults(exp.schema, run.variant);
+const changedNames = new Set(run.changed.map((c) => c.name));
+const unchanged = Object.entries(run.config).filter(([k]) => !changedNames.has(k));
+const configCount = Object.keys(run.config).length;
+---
+
+<Shell title={splitRunName(run.name).short} experiment={experiment} section="runs">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href={`/${experiment}/runs/`}>Runs</a>
+    <span aria-hidden="true">/</span>
+    <span class="mono">{splitRunName(run.name).short}</span>
+  </nav>
+
+  <header class="run-header">
+    <div class="run-header-main">
+      <h1 class="run-title"><RunName name={run.name} /></h1>
+      <div class="run-meta">
+        <RunStatusBadge status={run.status} />
+        {
+          run.variant && (
+            <>
+              <span class="muted">variant</span>
+              <code class="meta-code">{run.variant}</code>
+            </>
+          )
+        }
+        {
+          run.meta?.git_short_sha && (
+            <>
+              <span class="muted">commit</span>
+              <code class="meta-code">{run.meta.git_short_sha}</code>
+              {run.meta.git_commit_date && <span class="muted">{run.meta.git_commit_date}</span>}
+            </>
+          )
+        }
+        {run.meta?.git_dirty && <DirtyTag />}
+      </div>
+    </div>
+    <div class="run-actions">
+      <button type="button" class="button-secondary" id="copy-run-path" data-path={runPath}>
+        Copy run path
+      </button>
+      <a class="button-primary" href={`/${experiment}/new/?from=${encodeURIComponent(run.name)}`}>
+        New run from this config
+      </a>
+    </div>
+  </header>
+
+  {flawed && <FlawedBanner reason={run.flawedReason ?? ""} />}
+  {
+    running && (
+      <div class="running-banner">
+        <span class="running-dot" aria-hidden="true" />
+        <strong>Training in progress</strong>
+        <span>
+          step {last?.step ?? 0}
+          {run.totalSteps !== null && ` of ${run.totalSteps}`}
+          {secondsLeft !== null && ` · about ${formatDuration(secondsLeft)} left`} · no <code>eval.json</code> yet
+        </span>
+        {progress !== null && (
+          <span class="running-banner-bar">
+            <ProgressBar fraction={progress} />
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  {
+    studies.length > 0 && (
+      <div class="in-studies">
+        In studies
+        {studies.map((s) => (
+          <StudyChip slug={s.slug} label={s.label} href={`/${experiment}/studies/${s.slug}/`} />
+        ))}
+      </div>
+    )
+  }
+
+  <div class="run-columns">
+    <div class="run-main">
+      <section aria-labelledby="eval-heading" class="eval-section">
+        <h2 id="eval-heading" class="eyebrow">
+          Evaluation <span class="eyebrow-file">eval.json</span>
+        </h2>
+        {
+          metricNames.length === 0 ? (
+            <p class="muted">No <code>eval.json</code> yet.</p>
+          ) : (
+            <div class="metric-tiles">
+              {metricNames.map((name) => {
+                const value = run.evalMetrics?.[name];
+                const has = typeof value === "number";
+                const inRange = has && value >= 0 && value <= 1;
+                return (
+                  <div class:list={["panel", "metric-tile", { "is-muted": flawed || !has }]}>
+                    <span class="metric-tile-name">{name}</span>
+                    <span class="metric-tile-value">{formatMetric(value)}</span>
+                    <div class="metric-tile-track">
+                      {inRange && <div style={`width: ${(value * 100).toFixed(1)}%`} />}
+                    </div>
+                    {!has && <span class="muted small-text">pending eval</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        }
+      </section>
+
+      <section class="panel training-panel" aria-label="Training">
+        <LossChart
+          client:load
+          title="Training loss"
+          titleNote="train.jsonl"
+          series={[{ label: run.name, colour: "#2F5BD3", points: points.map((p) => ({ step: p.step, loss: p.loss })) }]}
+          totalSteps={run.totalSteps}
+        />
+        {
+          last && (
+            <dl class="training-stats">
+              <div>
+                <dt>step</dt>
+                <dd>
+                  {last.step}
+                  {run.totalSteps !== null && ` / ${run.totalSteps}`}
+                </dd>
+              </div>
+              <div>
+                <dt>loss first → last</dt>
+                <dd>
+                  {formatLoss(first.loss)} → {formatLoss(last.loss)}
+                </dd>
+              </div>
+              <div>
+                <dt>min</dt>
+                <dd>
+                  {formatLoss(minPoint.loss)} @ {minPoint.step}
+                </dd>
+              </div>
+              <div>
+                <dt>elapsed</dt>
+                <dd>{formatDuration(last.elapsed_sec)}</dd>
+              </div>
+            </dl>
+          )
+        }
+      </section>
+    </div>
+
+    <div class="run-side">
+      <section class="panel config-panel" aria-labelledby="config-heading">
+        <div class="config-head">
+          <h2 id="config-heading" class="section-heading">
+            Config <span class="eyebrow-file">config.json</span>
+          </h2>
+          <span class="muted small-text">{run.changed.length} of {configCount} changed</span>
+        </div>
+        {
+          run.changed.length > 0 && (
+            <div class="config-changed">
+              <span class="config-changed-title">Changed from {run.variant ?? "variant"} defaults</span>
+              {run.changed.map((c) => (
+                <div class="config-changed-row">
+                  <span class="config-name">{c.name}</span>
+                  <span>
+                    <span class="config-old">{formatValue(c.default)}</span>{" "}
+                    <span class="muted" aria-hidden="true">
+                      →
+                    </span>
+                    <span class="visually-hidden">changed to</span>{" "}
+                    <span class="config-new">{formatValue(c.value)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+        }
+        {
+          unchanged.length > 0 && (
+            <details class="config-rest">
+              <summary>
+                {unchanged.length} {unchanged.length === 1 ? "setting" : "settings"} at default
+              </summary>
+              <table>
+                <tbody>
+                  {unchanged.map(([k, v]) => (
+                    <tr>
+                      <th scope="row">{k}</th>
+                      <td>
+                        {formatValue(v)}
+                        {!(k in defaults) && <span class="muted"> (no default)</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )
+        }
+      </section>
+
+      <section class="panel notes-panel" aria-labelledby="notes-heading">
+        <h2 id="notes-heading" class="section-heading">
+          Notes <span class="eyebrow-file">README.md</span>
+        </h2>
+        {
+          run.readmeBody ? (
+            <div class="notes-body">{run.readmeBody}</div>
+          ) : (
+            <p class="muted small-text">No README.md for this run.</p>
+          )
+        }
+      </section>
+    </div>
+  </div>
+</Shell>
+
+<script>
+  // "Copy run path": put results/<experiment>/<run>/ on the clipboard.
+  const button = document.getElementById("copy-run-path") as HTMLButtonElement | null;
+  button?.addEventListener("click", async () => {
+    const original = button.textContent;
+    try {
+      await navigator.clipboard.writeText(button.dataset.path ?? "");
+      button.textContent = "Copied";
+    } catch {
+      // The browser can refuse clipboard access (e.g. a page not served over https).
+      button.textContent = "Couldn't copy";
+    }
+    setTimeout(() => (button.textContent = original), 1500);
+  });
+</script>
+
+<style>
+  .breadcrumb {
+    display: flex;
+    gap: 6px;
+    font-size: var(--fs-table);
+    color: var(--c-muted);
+  }
+  .breadcrumb .mono {
+    color: var(--c-ink);
+  }
+
+  .run-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .run-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+  .run-title {
+    font: 500 22px var(--font-mono);
+    letter-spacing: -0.02em;
+    word-break: break-all;
+  }
+  /* RunName is a React component, so reach it with :global. */
+  .run-title :global(.run-name) {
+    font-size: inherit;
+  }
+  .run-title :global(.run-name-short) {
+    font-weight: 700;
+  }
+  .run-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-table);
+  }
+  .meta-code {
+    font: 500 var(--fs-small) var(--font-mono);
+    padding: 1px 6px;
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--r-chip);
+  }
+  .run-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .running-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: var(--c-running-banner-bg);
+    border: 1px solid var(--c-running-banner-border);
+    color: var(--c-running-banner-text);
+    font-size: 14px;
+  }
+  .running-banner strong {
+    font-weight: 600;
+  }
+  .running-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--c-accent);
+  }
+  .running-banner-bar {
+    flex: 1 1 120px;
+    max-width: 260px;
+  }
+  .running-banner-bar :global(.progress-track),
+  .running-banner-bar :global(.progress-fill) {
+    height: 6px;
+    border-radius: 3px;
+  }
+  .running-banner-bar :global(.progress-track) {
+    background: #d5e0fa;
+  }
+
+  .in-studies {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-table);
+    color: var(--c-muted);
+  }
+  .in-studies :global(.study-chip) {
+    padding: 3px 10px;
+    font-size: var(--fs-small);
+  }
+
+  .run-columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-start;
+  }
+  .run-main {
+    flex: 999 1 600px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .run-side {
+    flex: 1 1 340px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .eyebrow-file {
+    font: 400 var(--fs-small) var(--font-mono);
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--c-muted);
+  }
+  .section-heading {
+    margin: 0;
+    font-size: var(--fs-section);
+    font-weight: 600;
+  }
+
+  .eval-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .metric-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .metric-tile {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .metric-tile-name {
+    font: 500 var(--fs-small) var(--font-mono);
+    color: var(--c-muted);
+  }
+  .metric-tile-value {
+    font: 600 var(--fs-metric-tile) var(--font-mono);
+    letter-spacing: -0.02em;
+  }
+  .metric-tile.is-muted .metric-tile-value {
+    color: var(--c-disabled);
+  }
+  .metric-tile-track {
+    height: 4px;
+    background: var(--c-divider);
+    border-radius: 2px;
+  }
+  .metric-tile-track > div {
+    height: 4px;
+    background: var(--c-accent);
+    border-radius: 2px;
+  }
+  .metric-tile.is-muted .metric-tile-track > div {
+    background: var(--c-border-strong);
+  }
+
+  .training-panel {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .training-stats {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--c-divider);
+  }
+  .training-stats div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .training-stats dt {
+    font-size: var(--fs-small);
+    color: var(--c-muted);
+  }
+  .training-stats dd {
+    margin: 0;
+    font: 500 14px var(--font-mono);
+  }
+
+  .config-panel {
+    overflow: hidden;
+  }
+  .config-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--c-divider);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .config-changed {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #f7f8fe;
+  }
+  .config-changed-title {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--c-diff-fg);
+  }
+  .config-changed-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font: var(--fs-table) var(--font-mono);
+  }
+  .config-name {
+    font-weight: 600;
+  }
+  .config-old {
+    color: var(--c-muted);
+    text-decoration: line-through;
+  }
+  .config-new {
+    font-weight: 700;
+    color: var(--c-diff-fg);
+  }
+  .config-rest {
+    padding: 4px 16px 12px;
+  }
+  /* Keep summary's default display so the disclosure triangle still shows. */
+  .config-rest summary {
+    cursor: pointer;
+    padding: 11px 0;
+    font-size: var(--fs-table);
+    color: var(--c-ink-3);
+  }
+  .config-rest table {
+    width: 100%;
+    border-collapse: collapse;
+    font: var(--fs-small) var(--font-mono);
+  }
+  .config-rest tr {
+    border-top: 1px solid #f0f0ec;
+  }
+  .config-rest th {
+    text-align: left;
+    font-weight: 400;
+    color: var(--c-muted);
+    padding: 5px 0;
+  }
+  .config-rest td {
+    text-align: right;
+    padding: 5px 0;
+  }
+
+  .notes-panel {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  /* README.md shown as plain text with its line breaks (no Markdown renderer yet). */
+  .notes-body {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--c-ink-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>

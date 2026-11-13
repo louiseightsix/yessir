@@ -264,8 +264,13 @@
   gap: 8px;
 }
 .chart-title {
+  margin: 0;
   font-size: var(--fs-section);
   font-weight: 600;
+}
+.chart-title-note {
+  font: 400 var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
 }
 .chart-tick {
   font: 11px var(--font-mono);

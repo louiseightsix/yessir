@@ -1,5 +1,5 @@
 // Numbers and SVG charts: MetricCell, Sparkline, LossChart.
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import {
   argMin,
   downsample,
@@ -133,6 +133,7 @@ export function LossChart({
   series,
   totalSteps,
   title,
+  titleNote,
   width = 720,
   height = 250,
   markMin,
@@ -140,8 +141,11 @@ export function LossChart({
   series: LossSeries[];
   /** x axis runs to this, so an in-progress run stops part-way across. */
   totalSteps?: number | null;
-  /** Shown left of the toggle, e.g. "Training loss". */
-  title?: ReactNode;
+  /** Heading left of the toggle, e.g. "Training loss". Plain strings, because
+   *  Astro pages can't pass JSX into a client-side island. */
+  title?: string;
+  /** Muted mono note after the title, e.g. "train.jsonl". */
+  titleNote?: string;
   width?: number;
   height?: number;
   /** Mark the minimum point. Defaults to on for a single series. */
@@ -150,7 +154,10 @@ export function LossChart({
   const [scale, setScale] = useState<Scale>("log");
   const header = (
     <div className="chart-header">
-      <div className="chart-title">{title}</div>
+      <h2 className="chart-title">
+        {title}
+        {titleNote && <span className="chart-title-note"> {titleNote}</span>}
+      </h2>
       <SegmentedControl
         label="Y axis scale"
         size="small"
