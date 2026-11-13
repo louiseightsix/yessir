@@ -40,10 +40,12 @@ interface Props {
 }
 
 /**
+ * "current" is every run that is neither flawed nor outdated.
+ * "evaluated" leaves out outdated runs too.
  * "outdated" isn't a RunStatus: an outdated run is also evaluated or running.
- * So its chip overlaps the others, and the chip counts don't add up to All.
+ * So the Running chip overlaps Outdated, and the counts don't add up to All.
  */
-type StatusFilter = "all" | RunStatus | "outdated";
+type StatusFilter = "current" | "all" | RunStatus | "outdated";
 const PAGE_SIZE = 50;
 /** Study filter values besides a slug. */
 const ANY_STUDY = "__any__";
@@ -51,7 +53,10 @@ const NO_STUDY = "__none__";
 
 function matchesStatus(row: RunRow, status: StatusFilter): boolean {
   if (status === "all") return true;
+  if (status === "current") return row.status !== "flawed" && row.outdatedReason === null;
   if (status === "outdated") return row.outdatedReason !== null;
+  // A flawed run never has status "evaluated", so only outdated runs need leaving out here.
+  if (status === "evaluated") return row.status === "evaluated" && row.outdatedReason === null;
   return row.status === status;
 }
 
@@ -71,7 +76,7 @@ function matchesSearch(row: RunRow, query: string): boolean {
 
 export default function RunsTable({ rows, metricNames, headlineMetric, variants, studySlugs }: Props) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  const [status, setStatus] = useState<StatusFilter>("current");
   const [variant, setVariant] = useState("all");
   const [study, setStudy] = useState(ANY_STUDY);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -90,11 +95,12 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
 
   const countOf = (s: StatusFilter) => otherFiltersMatch.filter((r) => matchesStatus(r, s)).length;
   const statusOptions = [
-    { value: "all" as const, label: "All", count: otherFiltersMatch.length },
+    { value: "current" as const, label: "Current", count: countOf("current") },
     { value: "evaluated" as const, label: "Evaluated", count: countOf("evaluated") },
     { value: "in_progress" as const, label: "Running", count: countOf("in_progress") },
     { value: "flawed" as const, label: "Flawed", count: countOf("flawed") },
     { value: "outdated" as const, label: "Outdated", count: countOf("outdated") },
+    { value: "all" as const, label: "All", count: otherFiltersMatch.length },
   ];
 
   // One log-scale domain for every sparkline, so their heights are comparable.
