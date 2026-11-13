@@ -1,0 +1,8 @@
+{
+  "title": "Seed stability of zero-shot base transfer",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "When identical configurations reach ~100% in-domain exact_match across multiple random seeds, how stable is their zero-shot transfer to unseen bases (B = 3 interpolation and B = 12 extrapolation), and how much of the OOD variance comes from random initialisation vs. checkpoint timing?",
+  "runs": [],
+  "conclusion": null
+}
