@@ -2,13 +2,14 @@
 
 import json
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from yessir.artefacts import GitInfo
+from yessir.artefacts import GitInfo, get_git_info
 from yessir.experiment import Experiment, ExperimentConfig, ExperimentVariant
 from yessir.vertex import (
     VertexJobRecord,
@@ -19,6 +20,7 @@ from yessir.vertex import (
     cmd_pull,
     cmd_submit,
     find_local_vertex_runs,
+    is_commit_pushed_to_remote,
     load_vertex_settings,
     read_vertex_json,
     run_vertex_cli,
@@ -107,7 +109,7 @@ typo_key = 123
         load_vertex_settings(bad_key)
 
 
-def test_build_custom_job_spec():
+def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
     settings = _sample_settings()
     spec = build_custom_job_spec(
         settings=settings,
@@ -124,6 +126,9 @@ def test_build_custom_job_spec():
     }
     container = pool["containerSpec"]
     assert container["imageUri"] == settings.image_uri
+    fuse_dir = (
+        "/gcs/test-yessir-bucket/results/sir_yes_sir/2026-11-12-953e4d9-amber-falcon"
+    )
     assert container["env"] == [
         {
             "name": "YESSIR_GIT_SHA",
@@ -133,18 +138,71 @@ def test_build_custom_job_spec():
             "name": "YESSIR_REPO_URL",
             "value": "https://github.com/louiseightsix/yessir.git",
         },
+        {
+            "name": "YESSIR_LOCAL_OUT_DIR",
+            "value": "/workspace/output",
+        },
+        {
+            "name": "YESSIR_GCS_OUT_DIR",
+            "value": fuse_dir,
+        },
     ]
-    fuse_dir = (
-        "/gcs/test-yessir-bucket/results/sir_yes_sir/2026-11-12-953e4d9-amber-falcon"
-    )
     assert container["args"] == [
         "sir_yes_sir",
         "sm_mh",
         "--config",
         f"{fuse_dir}/config.json",
         "--out-dir",
-        fuse_dir,
+        "/workspace/output",
     ]
+
+
+def test_get_git_info_ignores_untracked_files_in_results(tmp_path: Path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    (tmp_path / "code.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / ".keep").write_text("", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init", "--quiet"], cwd=tmp_path, check=True)
+
+    # New run files under results/ do not make the tree dirty.
+    new_run = tmp_path / "results" / "sir_yes_sir" / "2026-11-12-abcdef0-amber-falcon"
+    new_run.mkdir(parents=True)
+    (new_run / "config.json").write_text("{}\n", encoding="utf-8")
+    assert get_git_info(tmp_path).dirty is False
+
+    # Modifying code outside results/ DOES make the tree dirty.
+    (tmp_path / "code.py").write_text("x = 2\n", encoding="utf-8")
+    assert get_git_info(tmp_path).dirty is True
+
+
+def test_is_commit_pushed_to_remote_checks_repo_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    sha = "953e4d9abe8aaa741cb41ecb831b173f59b30f8a"
+    other_head = "1111111111111111111111111111111111111111"
+    seen_urls: list[str] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:4] == ["git", "ls-remote", "--heads", "--tags"]:
+            seen_urls.append(cmd[4])
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=f"{other_head}\trefs/heads/main\n", stderr=""
+            )
+        if cmd[:3] == ["git", "merge-base", "--is-ancestor"]:
+            assert cmd[3] == sha and cmd[4] == other_head
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert is_commit_pushed_to_remote(
+        sha, "https://github.com/custom/fork.git", repo_dir=tmp_path
+    )
+    assert seen_urls == ["https://github.com/custom/fork.git"]
 
 
 def test_cmd_submit_writes_local_config_and_vertex_json(
@@ -163,9 +221,12 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append(list(cmd))
-        if cmd[:3] == ["git", "branch", "-r"]:
+        if cmd[:4] == ["git", "ls-remote", "--heads", "--tags"]:
             return subprocess.CompletedProcess(
-                cmd, 0, stdout="  origin/main\n", stderr=""
+                cmd,
+                0,
+                stdout=f"{fake_git.commit_sha}\trefs/heads/main\n",
+                stderr="",
             )
         if cmd[:3] == ["gcloud", "storage", "cp"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -209,7 +270,7 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     assert find_local_vertex_runs(tmp_path) == [(run_dir, record)]
 
 
-def test_cmd_submit_rejects_dirty_or_unpushed_commits(
+def test_cmd_submit_runs_git_checks_before_interactive_editor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     settings = _sample_settings()
@@ -220,34 +281,135 @@ def test_cmd_submit_rejects_dirty_or_unpushed_commits(
         commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         dirty=True,
     )
-    with pytest.raises(RuntimeError, match="uncommitted changes"):
+    editor_called = False
+
+    def _fail_if_called(*args: Any, **kwargs: Any) -> Any:
+        nonlocal editor_called
+        editor_called = True
+        raise AssertionError("interactive editor should not be opened on dirty tree")
+
+    monkeypatch.setattr("yessir.tui.interactive_edit_config", _fail_if_called)
+
+    with pytest.raises(RuntimeError, match="uncommitted code changes"):
         cmd_submit(
             [exp],
-            ["sir_yes_sir", "sm_mh", "--steps", "10"],
+            ["sir_yes_sir", "sm_mh", "-i"],
             settings=settings,
             results_root=tmp_path,
             git_info=dirty_git,
-            interactive=False,
+            interactive=True,
         )
+    assert editor_called is False
 
-    clean_git = GitInfo(
+
+def test_cmd_submit_opens_editor_by_default_when_invoked_from_cli_tty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings_file = tmp_path / "vertex.toml"
+    settings_file.write_text(
+        """
+project = "test-gcp-project"
+region = "us-central1"
+bucket = "test-yessir-bucket"
+image_uri = "us-central1-docker.pkg.dev/test-gcp-project/yessir/runner:latest"
+""",
+        encoding="utf-8",
+    )
+    exp = _make_sample_experiment()
+    editor_calls: list[str] = []
+
+    def _fake_editor(experiment: Experiment, **kwargs: Any) -> None:
+        editor_calls.append(experiment.name)
+        # Cancel run after verifying editor opened
+
+    monkeypatch.setattr("yessir.tui.interactive_edit_config", _fake_editor)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["yessir.vertex", "submit", "sir_yes_sir", "--allow-dirty", "--allow-unpushed"],
+    )
+
+    run_vertex_cli(
+        [exp],
+        None,  # Simulates `main()` passing `argv=None`
+        settings_path=settings_file,
+        results_root=tmp_path,
+    )
+    assert editor_calls == ["sir_yes_sir"]
+
+
+def test_cmd_submit_leaves_no_local_files_and_surfaces_stderr_when_gcloud_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    settings = _sample_settings()
+    exp = _make_sample_experiment()
+    fake_git = GitInfo(
         commit_date="2026-11-12",
         short_sha="953e4d9",
         commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         dirty=False,
     )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""),
-    )
-    with pytest.raises(RuntimeError, match="not on any origin/\\* branch"):
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:4] == ["git", "ls-remote", "--heads", "--tags"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout=f"{fake_git.commit_sha}\trefs/heads/main\n", stderr=""
+            )
+        if cmd[:3] == ["gcloud", "storage", "cp"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:4] == ["gcloud", "ai", "custom-jobs", "create"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr="ERROR: (gcloud.ai.custom-jobs.create) PERMISSION_DENIED: Vertex AI API has not been used",
+            )
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    with pytest.raises(RuntimeError, match="PERMISSION_DENIED"):
         cmd_submit(
             [exp],
             ["sir_yes_sir", "sm_mh", "--steps", "10"],
             settings=settings,
             results_root=tmp_path,
-            git_info=clean_git,
+            git_info=fake_git,
+            interactive=False,
+        )
+
+    assert "PERMISSION_DENIED" in capsys.readouterr().err
+    # No phantom run directory or config.json left behind in results_root.
+    assert list(tmp_path.glob("*/*")) == []
+
+
+def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
+    settings = _sample_settings()
+    exp = _make_sample_experiment()
+    with pytest.raises(ValueError, match="--out-dir is not supported"):
+        cmd_submit(
+            [exp],
+            [
+                "sir_yes_sir",
+                "sm_mh",
+                "--steps",
+                "10",
+                "--out-dir",
+                str(tmp_path / "custom"),
+            ],
+            settings=settings,
+            results_root=tmp_path,
+            interactive=False,
+        )
+    with pytest.raises(ValueError, match="Cannot submit a Vertex job with --no-save"):
+        cmd_submit(
+            [exp],
+            ["sir_yes_sir", "sm_mh", "--steps", "10", "--no-save"],
+            settings=settings,
+            results_root=tmp_path,
             interactive=False,
         )
 

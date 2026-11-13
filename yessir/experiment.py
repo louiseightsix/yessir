@@ -272,15 +272,21 @@ def _resolve_experiment(
     *,
     argv: Sequence[str] | None,
     interactive: bool | None,
+    default_interactive_on_tty: bool | None = None,
     results_root: Path | None = None,
     git_info: Any = None,
 ) -> ResolvedExperimentRun | None:
+    tty_default = (
+        default_interactive_on_tty
+        if default_interactive_on_tty is not None
+        else (argv is None)
+    ) and sys.stdin.isatty()
     variant_name: str | None = getattr(args, "variant", None)
     if variant_name is None:
         should_edit = (
             interactive
             if interactive is not None
-            else (args.interactive or (argv is None and sys.stdin.isatty()))
+            else (args.interactive or tty_default)
         )
         if not should_edit:
             exp_parser.print_help()
@@ -299,10 +305,7 @@ def _resolve_experiment(
         should_edit = (
             interactive
             if interactive is not None
-            else (
-                args.interactive
-                or (argv is None and sys.stdin.isatty() and not has_flags)
-            )
+            else (args.interactive or (tty_default and not has_flags))
         )
         chosen_config = build_config_from_args(chosen_variant.config_cls, args)
         if should_edit:
@@ -374,6 +377,7 @@ def resolve_experiments_cli(
     argv: Sequence[str] | None = None,
     *,
     interactive: bool | None = None,
+    default_interactive_on_tty: bool | None = None,
     prog: str = "./yessir.sh run",
     results_root: Path | None = None,
     git_info: Any = None,
@@ -419,6 +423,7 @@ def resolve_experiments_cli(
         args,
         argv=argv,
         interactive=interactive,
+        default_interactive_on_tty=default_interactive_on_tty,
         results_root=results_root,
         git_info=git_info,
     )

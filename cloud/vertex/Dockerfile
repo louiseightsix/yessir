@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.6 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /bin/
 
 # Pre-create the Python 3.12 virtual environment and cache/install locked runtime
 # dependencies (`torch`, `numpy`, `petname`) at image build time.

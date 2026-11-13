@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import datetime
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,7 @@ from yessir.artefacts import GitInfo, get_git_info, write_config_json
 from yessir.experiment import Experiment, resolve_experiments_cli
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_CONTAINER_LOCAL_OUT_DIR = "/workspace/output"
 _PLACEHOLDERS = frozenset(
     {
         "your-gcp-project-id",
@@ -157,10 +159,11 @@ def build_custom_job_spec(
 ) -> dict[str, Any]:
     """Build the Vertex AI `CustomJobSpec` payload (`workerPoolSpecs`) for `gcloud ai custom-jobs create`.
 
-    Vertex AI mounts Cloud Storage buckets at `/gcs/<bucket>` inside the container via
-    Cloud Storage FUSE, so passing `--config` and `--out-dir` under `/gcs/<bucket>/...`
-    lets the experiment read its config and stream `train.jsonl` / `eval.json` directly
-    to GCS without any GCS-specific code inside the experiment itself.
+    Why `--out-dir` points to local container disk (`/workspace/output`) instead of `/gcs/...`:
+    `MetricsLogger` opens, appends, and closes `train.jsonl` on every step. On Cloud Storage FUSE,
+    each close re-uploads the entire object (O(steps^2) network traffic). Writing to local container
+    disk during training and syncing `/workspace/output` to `/gcs/<bucket>/...` on exit via
+    `entrypoint.sh` keeps per-step logging O(1).
     """
     fuse_run_dir = f"/gcs/{settings.bucket}/results/{experiment_name}/{run_name}"
     machine_spec: dict[str, Any] = {"machineType": settings.machine_type}
@@ -178,6 +181,11 @@ def build_custom_job_spec(
                     "env": [
                         {"name": "YESSIR_GIT_SHA", "value": git_commit_sha},
                         {"name": "YESSIR_REPO_URL", "value": settings.repo_url},
+                        {
+                            "name": "YESSIR_LOCAL_OUT_DIR",
+                            "value": _CONTAINER_LOCAL_OUT_DIR,
+                        },
+                        {"name": "YESSIR_GCS_OUT_DIR", "value": fuse_run_dir},
                     ],
                     "args": [
                         experiment_name,
@@ -185,7 +193,7 @@ def build_custom_job_spec(
                         "--config",
                         f"{fuse_run_dir}/config.json",
                         "--out-dir",
-                        fuse_run_dir,
+                        _CONTAINER_LOCAL_OUT_DIR,
                     ],
                 },
             }
@@ -193,15 +201,20 @@ def build_custom_job_spec(
     }
 
 
-def is_commit_pushed_to_origin(
+def is_commit_pushed_to_remote(
     commit_sha: str,
+    repo_url: str,
     *,
     repo_dir: Path = _REPO_ROOT,
 ) -> bool:
-    """Return `True` if `commit_sha` is reachable from at least one `origin/*` remote-tracking branch."""
+    """Return `True` if `commit_sha` is reachable from any branch or tag on `repo_url`.
+
+    Queries `repo_url` directly with `git ls-remote --heads --tags` rather than relying on
+    potentially stale local `origin/*` tracking refs or assuming `origin` matches `repo_url`.
+    """
     try:
         res = subprocess.run(
-            ["git", "branch", "-r", "--contains", commit_sha],
+            ["git", "ls-remote", "--heads", "--tags", repo_url],
             cwd=repo_dir,
             capture_output=True,
             text=True,
@@ -209,8 +222,52 @@ def is_commit_pushed_to_origin(
         )
     except (OSError, subprocess.CalledProcessError):
         return False
-    branches = [line.strip() for line in res.stdout.splitlines() if line.strip()]
-    return any(b.startswith("origin/") for b in branches)
+
+    remote_shas: list[str] = []
+    for line in res.stdout.splitlines():
+        parts = line.strip().split()
+        if parts:
+            remote_shas.append(parts[0])
+
+    if commit_sha in remote_shas:
+        return True
+
+    for remote_sha in remote_shas:
+        anc = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit_sha, remote_sha],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if anc.returncode == 0:
+            return True
+    return False
+
+
+def _run_checked(
+    cmd: Sequence[str],
+    *,
+    cwd: Path | None = None,
+) -> str:
+    """Run `cmd`, returning `stdout` and surfacing `stderr`/`stdout` in a `RuntimeError` on failure."""
+    res = subprocess.run(
+        list(cmd),
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout or "").strip()
+        if detail:
+            print(detail, file=sys.stderr)
+        cmd_str = " ".join(cmd)
+        raise RuntimeError(
+            f"Command failed (exit {res.returncode}): {cmd_str}"
+            + (f"\n{detail}" if detail else "")
+        )
+    return res.stdout
 
 
 def cmd_build_image(
@@ -276,6 +333,18 @@ def cmd_build_image(
         subprocess.run(cmd, cwd=repo_dir, check=True)
 
 
+def _check_no_disallowed_submit_flags(exp_argv: Sequence[str]) -> None:
+    """Reject `--out-dir` and `--no-save` on `vertex submit` so all Vertex runs live under `results/`."""
+    for token in exp_argv:
+        if token == "--no-save":
+            raise ValueError("Cannot submit a Vertex job with --no-save")
+        if token == "--out-dir" or token.startswith("--out-dir="):
+            raise ValueError(
+                "--out-dir is not supported with `vertex submit`; runs are always created "
+                "under results/<experiment>/<run_name> so `vertex list` and `vertex pull` can track them."
+            )
+
+
 def cmd_submit(
     experiments: Sequence[Experiment],
     argv: Sequence[str],
@@ -285,8 +354,9 @@ def cmd_submit(
     repo_dir: Path = _REPO_ROOT,
     git_info: GitInfo | None = None,
     interactive: bool | None = None,
+    default_interactive_on_tty: bool = False,
 ) -> VertexJobRecord | None:
-    """Resolve experiment config, create local run dir, upload config to GCS, and submit a Vertex Custom Job."""
+    """Resolve experiment config, upload config to GCS, submit a Vertex Custom Job, and record local run files."""
     wrapper = argparse.ArgumentParser(add_help=False)
     wrapper.add_argument("--machine-type", default=None)
     wrapper.add_argument("--accelerator-type", default=None)
@@ -299,9 +369,10 @@ def cmd_submit(
     wrapper.add_argument(
         "--allow-unpushed",
         action="store_true",
-        help="Allow submitting even if HEAD does not appear on an origin/* remote-tracking branch",
+        help="Allow submitting even if HEAD is not pushed to the remote repo_url",
     )
     vertex_args, exp_argv = wrapper.parse_known_args(argv)
+    _check_no_disallowed_submit_flags(exp_argv)
 
     effective_settings = dataclasses.replace(
         settings,
@@ -319,51 +390,41 @@ def cmd_submit(
     )
 
     info = git_info if git_info is not None else get_git_info(repo_dir)
+    wants_help = not exp_argv or any(a in ("-h", "--help") for a in exp_argv)
+    if not wants_help:
+        if info.dirty and not vertex_args.allow_dirty:
+            raise RuntimeError(
+                "Local working tree has uncommitted code changes (outside results/). "
+                "Commit and push your changes so the remote Vertex container runs the exact "
+                "same code, or pass --allow-dirty."
+            )
+        if not vertex_args.allow_unpushed and not is_commit_pushed_to_remote(
+            info.commit_sha,
+            effective_settings.repo_url,
+            repo_dir=repo_dir,
+        ):
+            raise RuntimeError(
+                f"Commit {info.short_sha} ({info.commit_sha}) is not pushed to "
+                f"{effective_settings.repo_url}. Run `git push` before submitting so the "
+                f"Vertex container can fetch it, or pass --allow-unpushed."
+            )
+
     resolved = resolve_experiments_cli(
         experiments,
         exp_argv,
         interactive=interactive,
+        default_interactive_on_tty=default_interactive_on_tty,
         prog="./yessir.sh vertex submit",
         results_root=results_root,
         git_info=info,
     )
-    if resolved is None:
+    if resolved is None or resolved.out_dir is None:
         return None
-    if resolved.out_dir is None:
-        raise ValueError("Cannot submit a Vertex job with --no-save")
-
-    if info.dirty and not vertex_args.allow_dirty:
-        raise RuntimeError(
-            "Local working tree has uncommitted changes. Commit and push your changes "
-            "so the remote Vertex container runs the exact same code, or pass --allow-dirty."
-        )
-    if not vertex_args.allow_unpushed and not is_commit_pushed_to_origin(
-        info.commit_sha, repo_dir=repo_dir
-    ):
-        raise RuntimeError(
-            f"Commit {info.short_sha} ({info.commit_sha}) is not on any origin/* branch. "
-            f"Run `git push` before submitting so the Vertex container can fetch it from GitHub, "
-            f"or pass --allow-unpushed."
-        )
 
     out_dir = resolved.out_dir
-
     run_name = out_dir.name
     display_name = f"{resolved.experiment.name}-{run_name}"
     gcs_run_uri = f"gs://{effective_settings.bucket}/results/{resolved.experiment.name}/{run_name}"
-
-    config_path = write_config_json(
-        out_dir,
-        experiment_name=resolved.experiment.name,
-        variant_name=resolved.variant.name,
-        config=resolved.config,
-        git_info=info,
-    )
-
-    subprocess.run(
-        ["gcloud", "storage", "cp", str(config_path), f"{gcs_run_uri}/config.json"],
-        check=True,
-    )
 
     job_spec = build_custom_job_spec(
         settings=effective_settings,
@@ -373,15 +434,28 @@ def cmd_submit(
         git_commit_sha=info.commit_sha,
     )
 
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".json",
-        prefix="yessir-vertex-job-",
-        encoding="utf-8",
-    ) as tmp:
-        json.dump(job_spec, tmp, indent=2)
-        tmp.flush()
-        res = subprocess.run(
+    with tempfile.TemporaryDirectory(prefix="yessir-vertex-stage-") as stage_str:
+        stage_dir = Path(stage_str)
+        staged_config = write_config_json(
+            stage_dir,
+            experiment_name=resolved.experiment.name,
+            variant_name=resolved.variant.name,
+            config=resolved.config,
+            git_info=info,
+        )
+        _run_checked(
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                str(staged_config),
+                f"{gcs_run_uri}/config.json",
+            ]
+        )
+
+        job_spec_path = stage_dir / "job_spec.json"
+        job_spec_path.write_text(json.dumps(job_spec, indent=2), encoding="utf-8")
+        stdout = _run_checked(
             [
                 "gcloud",
                 "ai",
@@ -394,15 +468,15 @@ def cmd_submit(
                 "--display-name",
                 display_name,
                 "--config",
-                tmp.name,
+                str(job_spec_path),
                 "--format=json",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
+            ]
         )
 
-    created = json.loads(res.stdout) if res.stdout.strip() else {}
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(staged_config, out_dir / "config.json")
+
+    created = json.loads(stdout) if stdout.strip() else {}
     job_name = str(created.get("name", ""))
     job_id = job_name.rsplit("/", 1)[-1] if "/" in job_name else job_name
     submitted_at = str(
@@ -441,7 +515,7 @@ def cmd_list(
     results_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     """List all Vertex AI Custom Jobs (including historical ones) paired with local run directories."""
-    res = subprocess.run(
+    stdout = _run_checked(
         [
             "gcloud",
             "ai",
@@ -452,14 +526,9 @@ def cmd_list(
             "--region",
             settings.region,
             "--format=json",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
+        ]
     )
-    remote_jobs: list[dict[str, Any]] = (
-        json.loads(res.stdout) if res.stdout.strip() else []
-    )
+    remote_jobs: list[dict[str, Any]] = json.loads(stdout) if stdout.strip() else []
 
     local_by_job_name: dict[str, tuple[Path, VertexJobRecord]] = {}
     local_by_display: dict[str, tuple[Path, VertexJobRecord]] = {}
@@ -554,7 +623,8 @@ def run_vertex_cli(
     results_root: Path | None = None,
 ) -> None:
     """CLI entry point for `./yessir.sh vertex <subcommand>`."""
-    args_list = list(argv) if argv is not None else None
+    from_cli = argv is None
+    args_list = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog="./yessir.sh vertex",
         description="Manage Vertex AI Custom Jobs and results for yessir experiments.",
@@ -600,13 +670,14 @@ def run_vertex_cli(
         help="Re-pull runs even if eval.json already exists locally",
     )
 
-    if args_list is not None and len(args_list) > 0 and args_list[0] == "submit":
+    if len(args_list) > 0 and args_list[0] == "submit":
         settings = load_vertex_settings(settings_path)
         cmd_submit(
             experiments,
             args_list[1:],
             settings=settings,
             results_root=results_root,
+            default_interactive_on_tty=from_cli,
         )
         return
 
@@ -634,7 +705,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Entry point for `python -m yessir.vertex`."""
     from experiments.__main__ import EXPERIMENTS
 
-    run_vertex_cli(EXPERIMENTS, argv if argv is not None else sys.argv[1:])
+    run_vertex_cli(EXPERIMENTS, argv)
 
 
 if __name__ == "__main__":
