@@ -1,0 +1,25 @@
+# Runs lint, typecheck and tests on every pull request (and on pushes to main).
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Installs uv; the Python version comes from .python-version.
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Lint and typecheck
+        run: ./yessir.sh check
+
+      # Convergence tests are hardware-sensitive; run them locally instead.
+      - name: Test
+        run: ./yessir.sh test -m "not convergence"
