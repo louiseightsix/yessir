@@ -4,6 +4,8 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.evaluation import EvalMetrics
 from yessir.artefacts import write_config_json, write_eval_json
@@ -11,7 +13,7 @@ from yessir.dataset import LabelledExample
 from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
-from yessir.training import seed_everything, train
+from yessir.training import resolve_device, seed_everything, train
 
 
 def train_and_evaluate(
@@ -24,15 +26,17 @@ def train_and_evaluate(
     train_dataset: Iterable[LabelledExample],
     eval_dataset: Iterable[LabelledExample],
     evaluate_fn: Callable[..., EvalMetrics],
+    device: str | torch.device | None = None,
 ) -> dict[str, Any]:
     """Run training, evaluation, and artefact logging for one `sir_yes_sir` variant."""
+    resolved_device = resolve_device(device)
     tag = f"[sir_yes_sir:{variant_name}]"
     dest = str(out_dir) if out_dir is not None else "no-save"
     print(
         f"{tag} Starting run: B={config.alphabet_size}, L={config.x_length}, "
         f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, steps={config.steps}, batch_size={config.batch_size}, "
-        f"lr={config.lr}, seed={config.seed} -> {dest}",
+        f"lr={config.lr}, seed={config.seed}, device={resolved_device} -> {dest}",
         flush=True,
     )
 
@@ -43,6 +47,7 @@ def train_and_evaluate(
             experiment_name="sir_yes_sir",
             variant_name=variant_name,
             config=config,
+            device=str(resolved_device),
         )
         logger = MetricsLogger(out_dir / "train.jsonl")
 
@@ -57,7 +62,7 @@ def train_and_evaluate(
         use_token_type=config.use_token_type,
         d_position=config.d_position,
         d_scratch=config.d_scratch,
-    )
+    ).to(resolved_device)
 
     def _on_step(step_idx: int, step_loss: float) -> None:
         if logger is not None:

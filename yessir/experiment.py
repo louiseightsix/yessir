@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Self, Union, get_args, get_origin, get_type_hints
+from typing import Any, Protocol, Self, Union, get_args, get_origin, get_type_hints
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -37,6 +37,19 @@ class ExperimentConfig:
         return ""
 
 
+class VariantRunFn[ConfigT: ExperimentConfig](Protocol):
+    """Callable contract for an `ExperimentVariant.run` entry point."""
+
+    def __call__(
+        self,
+        config: ConfigT,
+        out_dir: Path | None = None,
+        /,
+        *,
+        device: str = "auto",
+    ) -> dict[str, Any]: ...
+
+
 @dataclass(frozen=True, kw_only=True)
 class ExperimentVariant[ConfigT: ExperimentConfig]:
     """One execution/harness variant of an `Experiment` (e.g. `'sm_mh'`, `'ar'`)."""
@@ -44,7 +57,7 @@ class ExperimentVariant[ConfigT: ExperimentConfig]:
     name: str
     description: str
     config_cls: type[ConfigT]
-    run: Callable[[ConfigT, Path | None], dict[str, Any]]
+    run: VariantRunFn[ConfigT]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -212,7 +225,7 @@ def _add_run_control_args(
     *,
     suppress_defaults: bool = False,
 ) -> None:
-    """Attach `--interactive`, `--out-dir`, and `--no-save` flags to `parser`."""
+    """Attach `--interactive`, `--out-dir`, `--no-save`, and `--device` flags to `parser`."""
     parser.add_argument(
         "-i",
         "--interactive",
@@ -231,6 +244,12 @@ def _add_run_control_args(
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
         help="Do not write run artefacts (config.json, train.jsonl, eval.json) to disk",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=argparse.SUPPRESS if suppress_defaults else "auto",
+        help="Compute device to run on, e.g. auto, cpu, mps, cuda (default: auto)",
     )
 
 
@@ -257,12 +276,13 @@ def _configure_experiment_parser(
 
 @dataclass(frozen=True, kw_only=True)
 class ResolvedExperimentRun:
-    """Resolved `(experiment, variant, config, out_dir)` from CLI arguments or the interactive TUI."""
+    """Resolved `(experiment, variant, config, out_dir, device)` from CLI arguments or the interactive TUI."""
 
     experiment: Experiment
     variant: ExperimentVariant[Any]
     config: ExperimentConfig
     out_dir: Path | None
+    device: str = "auto"
 
 
 def _resolve_experiment(
@@ -339,6 +359,7 @@ def _resolve_experiment(
         variant=chosen_variant,
         config=chosen_config,
         out_dir=out_dir,
+        device=str(getattr(args, "device", "auto")),
     )
 
 
@@ -369,7 +390,9 @@ def run_experiment_cli(
     )
     if resolved is None:
         return None
-    return resolved.variant.run(resolved.config, resolved.out_dir)
+    return resolved.variant.run(
+        resolved.config, resolved.out_dir, device=resolved.device
+    )
 
 
 def resolve_experiments_cli(
@@ -450,4 +473,6 @@ def run_experiments_cli(
     )
     if resolved is None:
         return None
-    return resolved.variant.run(resolved.config, resolved.out_dir)
+    return resolved.variant.run(
+        resolved.config, resolved.out_dir, device=resolved.device
+    )

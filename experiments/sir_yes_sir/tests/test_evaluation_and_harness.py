@@ -43,6 +43,7 @@ class _ScriptedModel:
         self._steps = [tuple(step) for step in scripted_steps]
         self._cursor = 0
         self.training = True
+        self.device = torch.device("cpu")
         self.seen_examples: list[Example] = []
 
     def eval(self) -> "_ScriptedModel":
@@ -93,6 +94,7 @@ class _WrapBlindModel:
 
     def __init__(self) -> None:
         self.training = True
+        self.device = torch.device("cpu")
 
     def eval(self) -> "_WrapBlindModel":
         self.training = False
@@ -364,6 +366,7 @@ class _ScriptedArModel:
         self._tokens = list(scripted_tokens)
         self._cursor = 0
         self.training = True
+        self.device = torch.device("cpu")
         self.seen_examples: list[Example] = []
 
     def eval(self) -> "_ScriptedArModel":

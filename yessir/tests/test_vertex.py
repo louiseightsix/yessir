@@ -35,8 +35,10 @@ class _SampleConfig(ExperimentConfig):
 
 
 def _make_sample_experiment() -> Experiment:
-    def _noop_run(cfg: _SampleConfig, out_dir: Path | None) -> dict[str, Any]:
-        return {"steps": cfg.steps, "out_dir": str(out_dir)}
+    def _noop_run(
+        cfg: _SampleConfig, out_dir: Path | None = None, *, device: str = "auto"
+    ) -> dict[str, Any]:
+        return {"steps": cfg.steps, "out_dir": str(out_dir), "device": device}
 
     return Experiment(
         name="sir_yes_sir",
@@ -154,6 +156,8 @@ def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
         f"{fuse_dir}/config.json",
         "--out-dir",
         "/workspace/output",
+        "--device",
+        "auto",
     ]
 
 
@@ -219,6 +223,8 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     calls: list[list[str]] = []
 
+    submitted_specs: list[dict[str, Any]] = []
+
     def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append(list(cmd))
         if cmd[:4] == ["git", "ls-remote", "--heads", "--tags"]:
@@ -231,6 +237,10 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
         if cmd[:3] == ["gcloud", "storage", "cp"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd[:4] == ["gcloud", "ai", "custom-jobs", "create"]:
+            cfg_idx = cmd.index("--config") + 1
+            submitted_specs.append(
+                json.loads(Path(cmd[cfg_idx]).read_text(encoding="utf-8"))
+            )
             payload = {
                 "name": "projects/123/locations/us-central1/customJobs/987654321",
                 "createTime": "2026-11-12T23:00:00Z",
@@ -245,7 +255,7 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     record = cmd_submit(
         [exp],
-        ["sir_yes_sir", "sm_mh", "--steps", "42", "--lr", "0.005"],
+        ["sir_yes_sir", "sm_mh", "--steps", "42", "--lr", "0.005", "--device", "cuda"],
         settings=settings,
         results_root=tmp_path,
         git_info=fake_git,
@@ -262,8 +272,13 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     assert (run_dir / "vertex.json").is_file()
 
     saved_cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    assert saved_cfg["device"] == "cuda"
     assert saved_cfg["config"] == {"steps": 42, "lr": 0.005}
     assert saved_cfg["git_commit_sha"] == fake_git.commit_sha
+    assert submitted_specs[0]["workerPoolSpecs"][0]["containerSpec"]["args"][-2:] == [
+        "--device",
+        "cuda",
+    ]
 
     loaded_rec = read_vertex_json(run_dir)
     assert loaded_rec == record
@@ -412,6 +427,18 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
             results_root=tmp_path,
             interactive=False,
         )
+    for bad_device in (["--device", "mps"], ["--device=gpu"]):
+        with pytest.raises(
+            ValueError,
+            match="Unsupported --device .* for `vertex submit`; expected one of 'auto', 'cpu', 'cuda'",
+        ):
+            cmd_submit(
+                [exp],
+                ["sir_yes_sir", "sm_mh", "--steps", "10", *bad_device],
+                settings=settings,
+                results_root=tmp_path,
+                interactive=False,
+            )
 
 
 def test_cmd_list_and_cmd_pull(

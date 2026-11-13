@@ -102,6 +102,7 @@ def test_config_and_eval_writers(tmp_path: Path):
         experiment_name="sir_yes_sir",
         variant_name="sm_mh",
         config=cfg,
+        device="mps",
         git_info=fake_git,
     )
     assert cfg_path == run_dir / "config.json"
@@ -109,6 +110,7 @@ def test_config_and_eval_writers(tmp_path: Path):
     assert cfg_payload == {
         "experiment": "sir_yes_sir",
         "variant": "sm_mh",
+        "device": "mps",
         "git_commit_sha": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         "git_short_sha": "953e4d9",
         "git_commit_date": "2026-11-12",
@@ -144,12 +146,14 @@ def test_load_existing_run_configs(tmp_path: Path):
         experiment_name="sir_yes_sir",
         variant_name="sm_mh",
         config=cfg1,
+        device="cpu",
     )
     write_config_json(
         exp_dir / "2026-11-12-953e4d9-quiet-otter",
         experiment_name="sir_yes_sir",
         variant_name="ar",
         config=cfg2,
+        device="cpu",
     )
 
     loaded_all = load_existing_run_configs("sir_yes_sir", results_root=tmp_path)

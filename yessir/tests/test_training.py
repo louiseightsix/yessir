@@ -18,6 +18,7 @@ from yessir.training import (
     multitask_cross_entropy,
     next_token_cross_entropy,
     pack_multitask_labels,
+    resolve_device,
     seed_everything,
     train,
     train_step,
@@ -320,3 +321,38 @@ def test_next_token_cross_entropy_and_tied_head_train_step():
     loss1 = train_step(model, opt, items)
     loss2 = train_step(model, opt, items)
     assert loss2 < loss1
+
+
+def test_resolve_device_auto_and_explicit_validation(monkeypatch: pytest.MonkeyPatch):
+    assert resolve_device("cpu") == torch.device("cpu")
+    assert resolve_device(torch.device("cpu")) == torch.device("cpu")
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    assert resolve_device() == torch.device("cpu")
+    assert resolve_device("auto") == torch.device("cpu")
+    with pytest.raises(ValueError, match="CUDA device requested"):
+        resolve_device("cuda")
+    with pytest.raises(ValueError, match="MPS \\(Metal\\) device requested"):
+        resolve_device("mps")
+
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    assert resolve_device() == torch.device("mps")
+    assert resolve_device("auto") == torch.device("mps")
+    assert resolve_device("mps") == torch.device("mps")
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert resolve_device() == torch.device("cuda")
+    assert resolve_device("auto") == torch.device("cuda")
+    assert resolve_device("cuda:0") == torch.device("cuda:0")
+
+    with pytest.raises(
+        ValueError,
+        match="unknown device 'gpu'; expected one of 'auto', 'cpu', 'mps', 'cuda'",
+    ):
+        resolve_device("gpu")
+    with pytest.raises(
+        ValueError,
+        match="unknown device 'meta'; expected one of 'auto', 'cpu', 'mps', 'cuda'",
+    ):
+        resolve_device("meta")

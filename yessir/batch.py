@@ -31,6 +31,21 @@ class Batch:
     token_type_ids: torch.Tensor | None = None
     position_ids: torch.Tensor | None = None
 
+    def to(self, device: torch.device | str) -> "Batch":
+        """Return a `Batch` with all present tensors on `device`."""
+        return Batch(
+            input_ids=self.input_ids.to(device),
+            lengths=self.lengths.to(device),
+            token_type_ids=(
+                self.token_type_ids.to(device)
+                if self.token_type_ids is not None
+                else None
+            ),
+            position_ids=(
+                self.position_ids.to(device) if self.position_ids is not None else None
+            ),
+        )
+
 
 def _pad_sequences(
     rows: Sequence[Sequence[int]], pad_value: int, max_len: int

@@ -156,6 +156,7 @@ def build_custom_job_spec(
     variant_name: str,
     run_name: str,
     git_commit_sha: str,
+    device: str = "auto",
 ) -> dict[str, Any]:
     """Build the Vertex AI `CustomJobSpec` payload (`workerPoolSpecs`) for `gcloud ai custom-jobs create`.
 
@@ -194,6 +195,8 @@ def build_custom_job_spec(
                         f"{fuse_run_dir}/config.json",
                         "--out-dir",
                         _CONTAINER_LOCAL_OUT_DIR,
+                        "--device",
+                        device,
                     ],
                 },
             }
@@ -333,15 +336,31 @@ def cmd_build_image(
         subprocess.run(cmd, cwd=repo_dir, check=True)
 
 
+_VERTEX_DEVICES = ("auto", "cpu", "cuda")
+
+
 def _check_no_disallowed_submit_flags(exp_argv: Sequence[str]) -> None:
-    """Reject `--out-dir` and `--no-save` on `vertex submit` so all Vertex runs live under `results/`."""
-    for token in exp_argv:
+    """Reject `--out-dir`, `--no-save`, and unsupported `--device` values on `vertex submit`."""
+    for idx, token in enumerate(exp_argv):
         if token == "--no-save":
             raise ValueError("Cannot submit a Vertex job with --no-save")
         if token == "--out-dir" or token.startswith("--out-dir="):
             raise ValueError(
                 "--out-dir is not supported with `vertex submit`; runs are always created "
                 "under results/<experiment>/<run_name> so `vertex list` and `vertex pull` can track them."
+            )
+        device_val: str | None = None
+        if token == "--device" and idx + 1 < len(exp_argv):
+            device_val = exp_argv[idx + 1]
+        elif token.startswith("--device="):
+            device_val = token.split("=", 1)[1]
+        if (
+            device_val is not None
+            and device_val.strip().lower() not in _VERTEX_DEVICES
+        ):
+            choices = ", ".join(repr(d) for d in _VERTEX_DEVICES)
+            raise ValueError(
+                f"Unsupported --device {device_val!r} for `vertex submit`; expected one of {choices}"
             )
 
 
@@ -432,6 +451,7 @@ def cmd_submit(
         variant_name=resolved.variant.name,
         run_name=run_name,
         git_commit_sha=info.commit_sha,
+        device=resolved.device,
     )
 
     with tempfile.TemporaryDirectory(prefix="yessir-vertex-stage-") as stage_str:
@@ -441,6 +461,7 @@ def cmd_submit(
             experiment_name=resolved.experiment.name,
             variant_name=resolved.variant.name,
             config=resolved.config,
+            device=resolved.device,
             git_info=info,
         )
         _run_checked(

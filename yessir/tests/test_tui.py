@@ -227,13 +227,13 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
         name="sm_mh",
         description="State-machine multi-head.",
         config_cls=_SmallConfig,
-        run=lambda cfg, out: {},
+        run=lambda cfg, out=None, *, device="auto": {},
     )
     v_b = ExperimentVariant(
         name="ar",
         description="Autoregressive trace.",
         config_cls=_VariantBConfig,
-        run=lambda cfg, out: {},
+        run=lambda cfg, out=None, *, device="auto": {},
     )
 
     state = ConfigEditorState(

@@ -111,14 +111,16 @@ def write_config_json(
     experiment_name: str,
     variant_name: str,
     config: ExperimentConfig,
+    device: str,
     git_info: GitInfo | None = None,
 ) -> Path:
-    """Write experiment/variant names, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
+    """Write experiment/variant names, device, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     info = git_info if git_info is not None else get_git_info()
     payload: dict[str, Any] = {
         "experiment": experiment_name,
         "variant": variant_name,
+        "device": device,
         "git_commit_sha": info.commit_sha,
         "git_short_sha": info.short_sha,
         "git_commit_date": info.commit_date,

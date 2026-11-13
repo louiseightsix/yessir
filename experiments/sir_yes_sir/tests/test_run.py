@@ -70,6 +70,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     config_payload = json.loads(config_file.read_text())
     assert config_payload["experiment"] == "sir_yes_sir"
     assert config_payload["variant"] == "sm_mh"
+    assert config_payload["device"] in ("cpu", "mps", "cuda")
     assert "git_commit_sha" in config_payload
     loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
     assert loaded_cfg.steps == 2
@@ -87,6 +88,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
 
     out = capsys.readouterr().out
     assert "[sir_yes_sir:sm_mh] Starting run: B=4, L=3" in out
+    assert f"device={config_payload['device']}" in out
     assert "[sir_yes_sir:sm_mh] step=1/2 loss=" in out
     assert "[sir_yes_sir:sm_mh] step=2/2 loss=" in out
     assert "[sir_yes_sir:sm_mh] eval (4 problems):" in out
@@ -134,6 +136,7 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     config_payload = json.loads((run_dir / "config.json").read_text())
     assert config_payload["experiment"] == "sir_yes_sir"
     assert config_payload["variant"] == "ar"
+    assert config_payload["device"] in ("cpu", "mps", "cuda")
     loaded_cfg = SirYesSirArConfig.from_dict(config_payload["config"])
     assert loaded_cfg.step_order.value == "wrap_first"
     out = capsys.readouterr().out
