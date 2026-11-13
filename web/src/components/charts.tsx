@@ -119,6 +119,13 @@ export interface LossSeries {
 type Scale = "log" | "linear";
 
 /**
+ * Round SVG coordinates to 0.1. Node (server render) and the browser can differ
+ * in the last digits of Math.log10, and React warns if the server HTML and the
+ * browser's first render don't match exactly.
+ */
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/**
  * Training loss against step, with a log/linear toggle (log by default).
  * One series gets its minimum marked; several get a legend.
  */
@@ -176,7 +183,7 @@ export function LossChart({
   // x: 0 → total steps (or the furthest step seen).
   const lastStep = Math.max(...withPoints.map((s) => s.points[s.points.length - 1].step));
   const xMax = Math.max(totalSteps ?? 0, lastStep, 1);
-  const xOf = (step: number) => left + (step / xMax) * (right - left);
+  const xOf = (step: number) => round1(left + (step / xMax) * (right - left));
   const xTicks = linearTicks(xMax, 4);
 
   // y: log → whole decades around the data; linear → 0 up to a round number.
@@ -192,12 +199,12 @@ export function LossChart({
     const lo = safeLog10(minLoss) - 0.15 * span;
     const hi = safeLog10(maxLoss) + 0.04 * span;
     yTicks = logTicks(10 ** lo, 10 ** hi);
-    yOf = (v) => bottom - ((safeLog10(v) - lo) / (hi - lo)) * (bottom - top);
+    yOf = (v) => round1(bottom - ((safeLog10(v) - lo) / (hi - lo)) * (bottom - top));
   } else {
     const step = niceStep(maxLoss, 4);
     const yMax = Math.ceil(maxLoss / step) * step;
     yTicks = linearTicks(yMax, 4);
-    yOf = (v) => bottom - (v / yMax) * (bottom - top);
+    yOf = (v) => round1(bottom - (v / yMax) * (bottom - top));
   }
 
   const showMin = markMin ?? withPoints.length === 1;
@@ -247,7 +254,7 @@ export function LossChart({
           <polyline
             key={s.label}
             points={downsample(s.points, 500)
-              .map((p) => `${xOf(p.step).toFixed(1)},${yOf(p.loss).toFixed(1)}`)
+              .map((p) => `${xOf(p.step)},${yOf(p.loss)}`)
               .join(" ")}
             fill="none"
             stroke={s.colour}

@@ -1,0 +1,237 @@
+/* Data tables (Runs, Study detail) and the filter and compare bars above them. */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-table);
+}
+.runs-table {
+  min-width: 1120px;
+}
+.data-table thead tr {
+  text-align: left;
+  color: var(--c-muted);
+  font-size: var(--fs-small);
+  border-bottom: 1px solid var(--c-border);
+}
+.data-table th {
+  padding: 10px 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 12px;
+  vertical-align: top;
+}
+.data-table tbody tr {
+  border-top: 1px solid var(--c-divider);
+}
+.data-table th:last-child,
+.data-table td:last-child {
+  padding-right: 16px;
+}
+.data-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.data-table .run-name {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.th-note {
+  font-weight: 400;
+}
+
+.row-flawed {
+  background: var(--c-flawed-row);
+}
+.row-selected {
+  background: var(--c-selected-row);
+}
+
+/* Row checkbox with a 40×40 hit area. */
+.col-check {
+  width: 44px;
+}
+.data-table td.col-check {
+  padding: 4px 0 4px 6px;
+}
+.check-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+}
+.check-hit input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--c-accent);
+}
+
+.run-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+.running-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--c-progress-fg);
+}
+.running-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+
+.cell-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 240px;
+}
+.mono-cell {
+  font: 500 var(--fs-small) var(--font-mono);
+  color: var(--c-ink-3);
+}
+.muted-cell {
+  font: var(--fs-small) var(--font-mono);
+  color: var(--c-muted);
+}
+.data-table td:has(> .loss-cell) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.loss-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--fs-small) var(--font-mono);
+  color: var(--c-ink-3);
+}
+.empty-row {
+  text-align: center;
+  color: var(--c-muted);
+  padding: 24px 12px;
+}
+
+.table-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--fs-table);
+  color: var(--c-muted);
+}
+.table-footer .button-secondary {
+  min-height: 36px;
+  font-size: var(--fs-table);
+}
+
+/* ---- Filter bar ---------------------------------------------------------- */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 260px;
+  max-width: 340px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  background: var(--c-panel);
+  color: var(--c-muted);
+}
+.search-box input {
+  border: 0;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  font: 14px var(--font-ui);
+  background: transparent;
+  color: var(--c-ink);
+}
+.search-box:focus-within {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+.inline-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-table);
+  color: var(--c-ink-3);
+}
+.inline-select select {
+  font: 500 var(--fs-table) var(--font-mono);
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  background: var(--c-panel);
+  color: var(--c-ink);
+}
+
+/* ---- Compare bar (2+ rows selected) -------------------------------------- */
+
+.compare-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--c-ink);
+  color: #fff;
+  font-size: 14px;
+}
+.compare-count {
+  font-weight: 600;
+}
+.compare-hint {
+  color: #c9cbd1;
+  font-size: var(--fs-table);
+}
+.compare-bar .spacer {
+  flex: 1;
+}
+.compare-bar button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--r-control);
+  font: 500 var(--fs-table) var(--font-ui);
+  cursor: pointer;
+}
+.compare-clear {
+  border: 1px solid #52525b;
+  background: transparent;
+  color: #fff;
+}
+.compare-go {
+  border: 0;
+  background: #fff;
+  color: var(--c-ink);
+  font-weight: 600;
+}
+.compare-go:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

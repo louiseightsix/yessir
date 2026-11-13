@@ -1,6 +1,7 @@
 /* Base styles shared by every page. Astro components keep scoped styles; React component styles are in components.css. */
 @import "./tokens.css";
 @import "./components.css";
+@import "./tables.css";
 
 body {
   margin: 0;
@@ -72,4 +73,42 @@ h1 {
 .path-hint {
   font: 400 var(--fs-small) var(--font-mono);
   color: var(--c-muted);
+}
+
+/* Hidden on screen, still read by screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-control);
+  font: 600 14px var(--font-ui);
+  text-decoration: none;
+  cursor: pointer;
+}
+.button-primary {
+  background: var(--c-ink);
+  color: #fff;
+  border: 1px solid var(--c-ink);
+}
+.button-primary:hover {
+  color: #fff;
+  text-decoration: none;
+}
+.button-secondary {
+  background: var(--c-panel);
+  color: var(--c-ink);
+  border: 1px solid var(--c-border-strong);
+  font-weight: 500;
 }
