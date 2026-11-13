@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from experiments.__main__ import EXPERIMENTS
-from experiments.sir_yes_sir.config import SM_MH_DESCRIPTION, SirYesSirConfig
+from experiments.sir_yes_sir.config import CLS_DESCRIPTION, SirYesSirConfig
 from experiments.sir_yes_sir.variants.ar.config import (
     AR_DESCRIPTION,
     SirYesSirArConfig,
@@ -32,8 +32,8 @@ def test_web_export_prints_schemas_with_stdlib_only():
             "description": DESCRIPTIONS["sir_yes_sir"],
             "variants": [
                 {
-                    "name": "sm_mh",
-                    "description": SM_MH_DESCRIPTION,
+                    "name": "cls",
+                    "description": CLS_DESCRIPTION,
                     "default_config": SirYesSirConfig().to_dict(),
                     "fields": [
                         spec.to_dict() for spec in build_field_specs(SirYesSirConfig)

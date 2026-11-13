@@ -19,8 +19,8 @@ from yessir.vocab import TokenSequence
 class StepOrder(StrEnum):
     """Within-step token emission order in an autoregressive (`ar`) trace.
 
-    Why this matters in `ar` (unlike `sm_mh`):
-    In `sm_mh`, all three heads read the `[STEP]` hidden state in parallel. In `ar`,
+    Why this matters in `ar` (unlike `cls`):
+    In `cls`, all three heads read the `[STEP]` hidden state in parallel. In `ar`,
     tokens within step `k` are emitted sequentially and condition on one another:
     - `OUT_FIRST`: emits `(o_k, w_k, flag_k)` at each step `k`.
     - `WRAP_FIRST`: emits `(w_k, o_k, flag_k)` at each step `k`.

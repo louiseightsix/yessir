@@ -1,15 +1,17 @@
-"""Tests for `MultiTaskHead` and `TiedIdentityHead`."""
+"""Tests for `ParallelClassificationHead` and `SubspaceLMHead`."""
 
 import pytest
 import torch
 
-from yessir.heads import MultiTaskHead, TiedIdentityHead
+from yessir.heads import ParallelClassificationHead, SubspaceLMHead
 from yessir.vocab import VOCAB_SIZE
 
 
-def test_multitask_head_shapes_and_bias_free():
+def test_parallel_classification_head_shapes_and_bias_free():
     torch.manual_seed(0)
-    head = MultiTaskHead(d_model=16, num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE))
+    head = ParallelClassificationHead(
+        d_model=16, num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE)
+    )
     assert len(head.heads) == 3
     for linear in head.heads:
         assert linear.bias is None
@@ -23,9 +25,9 @@ def test_multitask_head_shapes_and_bias_free():
     assert logits_c.shape == (4, VOCAB_SIZE)
 
 
-def test_multitask_head_reads_at_lengths_minus_one_and_ignores_padding():
+def test_parallel_classification_head_reads_at_lengths_minus_one_and_ignores_padding():
     torch.manual_seed(0)
-    head = MultiTaskHead(d_model=8, num_classes=(10, 2))
+    head = ParallelClassificationHead(d_model=8, num_classes=(10, 2))
 
     h1 = torch.randn(2, 5, 8)
     lengths = torch.tensor([2, 5], dtype=torch.long)
@@ -41,9 +43,9 @@ def test_multitask_head_reads_at_lengths_minus_one_and_ignores_padding():
         assert torch.allclose(logits1, logits2)
 
 
-def test_multitask_head_gradient_flows_only_through_selected_positions():
+def test_parallel_classification_head_gradient_flows_only_through_selected_positions():
     torch.manual_seed(0)
-    head = MultiTaskHead(d_model=8, num_classes=(4, 2))
+    head = ParallelClassificationHead(d_model=8, num_classes=(4, 2))
     h = torch.randn(2, 4, 8, requires_grad=True)
     lengths = torch.tensor([2, 4], dtype=torch.long)
 
@@ -71,9 +73,11 @@ def test_multitask_head_gradient_flows_only_through_selected_positions():
         (8, (-2,), r"num_classes\[0\] must be > 0"),
     ],
 )
-def test_multitask_head_rejects_invalid_init_args(d_model, num_classes, match):
+def test_parallel_classification_head_rejects_invalid_init_args(
+    d_model, num_classes, match
+):
     with pytest.raises(ValueError, match=match):
-        MultiTaskHead(d_model=d_model, num_classes=num_classes)
+        ParallelClassificationHead(d_model=d_model, num_classes=num_classes)
 
 
 @pytest.mark.parametrize(
@@ -84,15 +88,15 @@ def test_multitask_head_rejects_invalid_init_args(d_model, num_classes, match):
         torch.tensor([[3, 4]], dtype=torch.long),
     ],
 )
-def test_multitask_head_rejects_mismatched_lengths_shape(bad_lengths):
-    head = MultiTaskHead(d_model=8, num_classes=(4,))
+def test_parallel_classification_head_rejects_mismatched_lengths_shape(bad_lengths):
+    head = ParallelClassificationHead(d_model=8, num_classes=(4,))
     h = torch.randn(2, 5, 8)
     with pytest.raises(ValueError, match="lengths shape"):
         head(h, bad_lengths)
 
 
-def test_tied_identity_head_is_parameter_free_and_slices_symbol_subspace():
-    head = TiedIdentityHead(d_model=288)
+def test_subspace_lm_head_is_parameter_free_and_slices_symbol_subspace():
+    head = SubspaceLMHead(d_model=288)
     assert list(head.parameters()) == []
 
     h = torch.randn(2, 5, 288, requires_grad=True)
@@ -108,6 +112,6 @@ def test_tied_identity_head_is_parameter_free_and_slices_symbol_subspace():
     assert h.grad is not None
 
 
-def test_tied_identity_head_rejects_small_d_model():
+def test_subspace_lm_head_rejects_small_d_model():
     with pytest.raises(ValueError, match="d_model must be >= VOCAB_SIZE"):
-        TiedIdentityHead(d_model=VOCAB_SIZE - 1)
+        SubspaceLMHead(d_model=VOCAB_SIZE - 1)

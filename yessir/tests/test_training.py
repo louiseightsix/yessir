@@ -15,9 +15,9 @@ from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.training import (
     build_optimizer,
-    multitask_cross_entropy,
     next_token_cross_entropy,
-    pack_multitask_labels,
+    pack_classification_labels,
+    parallel_classification_cross_entropy,
     resolve_device,
     seed_everything,
     train,
@@ -76,14 +76,14 @@ def test_build_optimizer_hyperparameters_and_validation():
         build_optimizer(model, lr=-1e-4)
 
 
-def test_multitask_cross_entropy_matches_manual_sum():
+def test_parallel_classification_cross_entropy_matches_manual_sum():
     torch.manual_seed(0)
     logits_0 = torch.randn(3, 10, requires_grad=True)
     logits_1 = torch.randn(3, 10, requires_grad=True)
     logits_2 = torch.randn(3, 4, requires_grad=True)
     labels = torch.tensor([[1, 2, 0], [5, 0, 3], [9, 8, 1]], dtype=torch.long)
 
-    loss = multitask_cross_entropy((logits_0, logits_1, logits_2), labels)
+    loss = parallel_classification_cross_entropy((logits_0, logits_1, logits_2), labels)
     expected = (
         F.cross_entropy(logits_0, labels[:, 0])
         + F.cross_entropy(logits_1, labels[:, 1])
@@ -97,34 +97,41 @@ def test_multitask_cross_entropy_matches_manual_sum():
     assert logits_2.grad is not None
 
 
-def test_multitask_cross_entropy_rejects_invalid_shapes():
+def test_parallel_classification_cross_entropy_rejects_invalid_shapes():
     with pytest.raises(ValueError, match="at least one head"):
-        multitask_cross_entropy((), torch.zeros(2, 0, dtype=torch.long))
+        parallel_classification_cross_entropy((), torch.zeros(2, 0, dtype=torch.long))
 
     logits = (torch.randn(2, 8), torch.randn(2, 8))
     with pytest.raises(ValueError, match="labels shape"):
-        multitask_cross_entropy(logits, torch.zeros(2, 3, dtype=torch.long))
+        parallel_classification_cross_entropy(
+            logits, torch.zeros(2, 3, dtype=torch.long)
+        )
 
     mismatched_logits = (torch.randn(2, 8), torch.randn(3, 8))
     with pytest.raises(ValueError, match="batch size"):
-        multitask_cross_entropy(mismatched_logits, torch.zeros(2, 2, dtype=torch.long))
+        parallel_classification_cross_entropy(
+            mismatched_logits, torch.zeros(2, 2, dtype=torch.long)
+        )
 
 
-def test_pack_multitask_labels_shapes_and_validation():
+def test_pack_classification_labels_shapes_and_validation():
     ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
     items = [
         LabelledExample(example=ex, labels=(10, 20, 30)),
         LabelledExample(example=ex, labels=(40, 50, 60)),
     ]
-    packed = pack_multitask_labels(items)
+    packed = pack_classification_labels(items)
     assert packed.dtype == torch.long
     assert torch.equal(packed, torch.tensor([[10, 20, 30], [40, 50, 60]]))
 
     with pytest.raises(ValueError, match="items must not be empty"):
-        pack_multitask_labels([])
+        pack_classification_labels([])
 
-    with pytest.raises(ValueError, match="all LabelledExamples in a multitask batch"):
-        pack_multitask_labels(
+    with pytest.raises(
+        ValueError,
+        match="all LabelledExamples in a parallel classification batch",
+    ):
+        pack_classification_labels(
             [
                 LabelledExample(example=ex, labels=(1, 2, 3)),
                 LabelledExample(example=ex, labels=(1, 2)),
@@ -135,7 +142,7 @@ def test_pack_multitask_labels_shapes_and_validation():
 def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -157,7 +164,9 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
             position_ids=batch.position_ids,
         )
         assert isinstance(pre_logits, tuple)
-        expected_pre_loss = multitask_cross_entropy(pre_logits, labels).item()
+        expected_pre_loss = parallel_classification_cross_entropy(
+            pre_logits, labels
+        ).item()
     params_before = [p.detach().clone() for p in model.parameters()]
 
     step_loss = train_step(model, opt, items)
@@ -173,7 +182,7 @@ def test_train_step_sets_train_mode_returns_pre_update_loss_and_updates_weights(
 def test_train_step_validation():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -191,14 +200,17 @@ def test_train_step_validation():
         LabelledExample(example=ex, labels=(1, 2, 3)),
         LabelledExample(example=ex, labels=(1, 2)),
     ]
-    with pytest.raises(ValueError, match="all LabelledExamples in a multitask batch"):
+    with pytest.raises(
+        ValueError,
+        match="all LabelledExamples in a parallel classification batch",
+    ):
         train_step(model, opt, items_mismatched)
 
 
 def test_train_validation_and_early_exhaustion():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -231,7 +243,7 @@ def test_train_validation_and_early_exhaustion():
 def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     seed_everything(42)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
         n_heads=4,
@@ -268,7 +280,7 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
     assert dataset.yielded == 80
 
 
-def test_next_token_cross_entropy_and_tied_head_train_step():
+def test_next_token_cross_entropy_and_subspace_lm_head_train_step():
     seed_everything(0)
     logits = torch.randn(2, 4, 16, requires_grad=True)
     labels = torch.tensor(
@@ -290,9 +302,9 @@ def test_next_token_cross_entropy_and_tied_head_train_step():
     with pytest.raises(ValueError, match="labels shape"):
         next_token_cross_entropy(logits, torch.zeros(2, 3, dtype=torch.long))
 
-    # Verify train_step dispatches to next_token_cross_entropy for TiedIdentityHead
+    # Verify train_step dispatches to next_token_cross_entropy for SubspaceLMHead
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,

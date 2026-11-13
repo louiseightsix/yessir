@@ -1,0 +1,8 @@
+{
+  "title": "Impact of input sequence length L",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "How does positional indexing (aligning output step k with input symbol x_k and halting at k == L - 1) scale as the input length L increases, and how far does a model trained at a fixed L generalise to unseen lengths?",
+  "runs": [],
+  "conclusion": null
+}

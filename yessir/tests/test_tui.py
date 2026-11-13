@@ -224,8 +224,8 @@ class _VariantBConfig(_SmallConfig):
 
 def test_variant_switching_preserves_shared_values_and_swaps_schema():
     v_a = ExperimentVariant(
-        name="sm_mh",
-        description="State-machine multi-head.",
+        name="cls",
+        description="Parallel classification.",
         config_cls=_SmallConfig,
         run=lambda cfg, out=None, *, device="auto": {},
     )
@@ -240,9 +240,9 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
         _SmallConfig,
         title="sir_yes_sir",
         variants=(v_a, v_b),
-        initial_variant="sm_mh",
+        initial_variant="cls",
         existing_runs_by_variant={
-            "sm_mh": [("2026-11-12-953e4d9-amber-falcon", _SmallConfig().to_dict())],
+            "cls": [("2026-11-12-953e4d9-amber-falcon", _SmallConfig().to_dict())],
             "ar": [],
         },
     )
@@ -260,7 +260,7 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
     ]
     assert state.matching_runs() == ["2026-11-12-953e4d9-amber-falcon"]
 
-    # Edit `count` (row 2) to 10 on `sm_mh`.
+    # Edit `count` (row 2) to 10 on `cls`.
     state.cursor = 2
     state.handle_key("RIGHT")
     state.handle_key("RIGHT")

@@ -67,6 +67,28 @@ export function FlawedBanner({ reason }: { reason: string }) {
   );
 }
 
+/** Grey OUTDATED pill plus the one-line reason. */
+export function OutdatedTag({ reason }: { reason: string }) {
+  return (
+    <span className="outdated-tag">
+      <span className="outdated-pill">OUTDATED</span>
+      {reason && <span className="outdated-reason">{reason}</span>}
+    </span>
+  );
+}
+
+export function OutdatedBanner({ reason }: { reason: string }) {
+  return (
+    <div role="note" className="outdated-banner">
+      <span className="outdated-pill">OUTDATED</span>
+      <div>
+        {reason && <strong>{reason}</strong>}
+        <span>Sound under an earlier spec, but not a current result.</span>
+      </div>
+    </div>
+  );
+}
+
 /** `YYYY-MM-DD-<sha>-` muted, `adjective-noun` bold. A link when `href` is given. */
 export function RunName({ name, href }: { name: string; href?: string }) {
   const { prefix, short } = splitRunName(name);

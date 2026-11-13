@@ -5,7 +5,7 @@ import { Fragment, useState } from "react";
 import type { Point } from "../lib/chart";
 import type { ChangedSetting, RunStatus } from "../lib/data";
 import { formatDuration, formatLoss, formatValue } from "../lib/format";
-import { DiffChips, DirtyTag, FlawedTag, RunName } from "./badges";
+import { DiffChips, DirtyTag, FlawedTag, OutdatedTag, RunName } from "./badges";
 import { MetricCell, Sparkline } from "./charts";
 import { FilterChips, ProgressBar } from "./controls";
 
@@ -15,6 +15,7 @@ export interface RunRow {
   variant: string | null;
   status: RunStatus;
   flawedReason: string | null;
+  outdatedReason: string | null;
   dirty: boolean;
   changed: ChangedSetting[];
   studies: Array<{ slug: string; href: string }>;
@@ -38,11 +39,26 @@ interface Props {
   studySlugs: string[];
 }
 
-type StatusFilter = "all" | RunStatus;
+/**
+ * "current" is every run that is neither flawed nor outdated.
+ * "evaluated" leaves out outdated runs too.
+ * "outdated" isn't a RunStatus: an outdated run is also evaluated or running.
+ * So the Running chip overlaps Outdated, and the counts don't add up to All.
+ */
+type StatusFilter = "current" | "all" | RunStatus | "outdated";
 const PAGE_SIZE = 50;
 /** Study filter values besides a slug. */
 const ANY_STUDY = "__any__";
 const NO_STUDY = "__none__";
+
+function matchesStatus(row: RunRow, status: StatusFilter): boolean {
+  if (status === "all") return true;
+  if (status === "current") return row.status !== "flawed" && row.outdatedReason === null;
+  if (status === "outdated") return row.outdatedReason !== null;
+  // A flawed run never has status "evaluated", so only outdated runs need leaving out here.
+  if (status === "evaluated") return row.status === "evaluated" && row.outdatedReason === null;
+  return row.status === status;
+}
 
 function matchesSearch(row: RunRow, query: string): boolean {
   if (!query) return true;
@@ -50,6 +66,7 @@ function matchesSearch(row: RunRow, query: string): boolean {
     row.name,
     row.notes,
     row.flawedReason ?? "",
+    row.outdatedReason ?? "",
     ...row.changed.map((c) => `${c.name}=${formatValue(c.value)}`),
   ]
     .join("\n")
@@ -59,7 +76,7 @@ function matchesSearch(row: RunRow, query: string): boolean {
 
 export default function RunsTable({ rows, metricNames, headlineMetric, variants, studySlugs }: Props) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  const [status, setStatus] = useState<StatusFilter>("current");
   const [variant, setVariant] = useState("all");
   const [study, setStudy] = useState(ANY_STUDY);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -73,15 +90,17 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
       (study === ANY_STUDY ||
         (study === NO_STUDY ? r.studies.length === 0 : r.studies.some((s) => s.slug === study))),
   );
-  const filtered = otherFiltersMatch.filter((r) => status === "all" || r.status === status);
+  const filtered = otherFiltersMatch.filter((r) => matchesStatus(r, status));
   const shown = filtered.slice(0, shownCount);
 
-  const countOf = (s: RunStatus) => otherFiltersMatch.filter((r) => r.status === s).length;
+  const countOf = (s: StatusFilter) => otherFiltersMatch.filter((r) => matchesStatus(r, s)).length;
   const statusOptions = [
-    { value: "all" as const, label: "All", count: otherFiltersMatch.length },
+    { value: "current" as const, label: "Current", count: countOf("current") },
     { value: "evaluated" as const, label: "Evaluated", count: countOf("evaluated") },
     { value: "in_progress" as const, label: "Running", count: countOf("in_progress") },
     { value: "flawed" as const, label: "Flawed", count: countOf("flawed") },
+    { value: "outdated" as const, label: "Outdated", count: countOf("outdated") },
+    { value: "all" as const, label: "All", count: otherFiltersMatch.length },
   ];
 
   // One log-scale domain for every sparkline, so their heights are comparable.
@@ -219,7 +238,7 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
                   </td>
                   <td>
                     <RunName name={r.name} href={r.href} />
-                    {(running || r.dirty || r.flawedReason !== null) && (
+                    {(running || r.dirty || r.flawedReason !== null || r.outdatedReason !== null) && (
                       <div className="run-tags">
                         {running && (
                           <>
@@ -235,6 +254,7 @@ export default function RunsTable({ rows, metricNames, headlineMetric, variants,
                         )}
                         {r.dirty && <DirtyTag />}
                         {r.flawedReason !== null && <FlawedTag reason={r.flawedReason} />}
+                        {r.outdatedReason !== null && <OutdatedTag reason={r.outdatedReason} />}
                       </div>
                     )}
                   </td>

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.variants.ar.inputs import StepOrder
 
-AR_DESCRIPTION = "Autoregressive trace harness read through TiedIdentityHead."
+AR_DESCRIPTION = "Autoregressive trace harness read through SubspaceLMHead."
 
 
 @dataclass(frozen=True, kw_only=True)

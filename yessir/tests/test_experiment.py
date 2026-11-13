@@ -208,7 +208,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         cfg: _DummyConfig, out_dir: Path | None = None, *, device: str = "auto"
     ) -> dict[str, Any]:
         return {
-            "variant": "sm_mh",
+            "variant": "cls",
             "steps": cfg.steps,
             "mode": cfg.mode.value,
             "out_dir": out_dir,
@@ -226,9 +226,9 @@ def test_run_experiment_cli_and_run_experiments_cli(
             "device": device,
         }
 
-    v_sm = ExperimentVariant(
-        name="sm_mh",
-        description="State-machine variant.",
+    v_cls = ExperimentVariant(
+        name="cls",
+        description="Parallel classification variant.",
         config_cls=_DummyConfig,
         run=_v1_run,
     )
@@ -241,24 +241,24 @@ def test_run_experiment_cli_and_run_experiments_cli(
     exp = Experiment(
         name="dummy",
         description="Dummy experiment for testing.",
-        variants=(v_sm, v_ar),
+        variants=(v_cls, v_ar),
     )
 
     # Single-experiment CLI runner with explicit variant, --out-dir, and --no-save.
     single_res = run_experiment_cli(
-        exp, ["sm_mh", "--steps", "12", "--out-dir", str(tmp_path)]
+        exp, ["cls", "--steps", "12", "--out-dir", str(tmp_path)]
     )
     assert single_res == {
-        "variant": "sm_mh",
+        "variant": "cls",
         "steps": 12,
         "mode": "fast",
         "out_dir": tmp_path,
         "device": "auto",
     }
 
-    nosave_res = run_experiment_cli(exp, ["sm_mh", "--steps", "12", "--no-save"])
+    nosave_res = run_experiment_cli(exp, ["cls", "--steps", "12", "--no-save"])
     assert nosave_res == {
-        "variant": "sm_mh",
+        "variant": "cls",
         "steps": 12,
         "mode": "fast",
         "out_dir": None,
@@ -266,14 +266,14 @@ def test_run_experiment_cli_and_run_experiments_cli(
     }
 
     # Default out_dir uses results/<experiment>/<date>-<sha>-<adj>-<noun>.
-    default_res = run_experiment_cli(exp, ["sm_mh", "--steps", "12"])
+    default_res = run_experiment_cli(exp, ["cls", "--steps", "12"])
     assert default_res is not None
     assert default_res["out_dir"].parent.name == "dummy"
 
     # Invoking single-experiment CLI with no variant in non-interactive mode prints help.
     assert run_experiment_cli(exp, [], interactive=False) is None
     exp_help = capsys.readouterr().out
-    assert "sm_mh" in exp_help and "ar" in exp_help
+    assert "cls" in exp_help and "ar" in exp_help
 
     # Multi-experiment CLI dispatcher with no args prints help and returns None.
     assert run_experiments_cli([exp], []) is None
@@ -283,14 +283,14 @@ def test_run_experiment_cli_and_run_experiments_cli(
     # Multi-experiment CLI dispatcher with experiment but no variant in non-interactive mode prints experiment help.
     assert run_experiments_cli([exp], ["dummy"], interactive=False) is None
     sub_help = capsys.readouterr().out
-    assert "sm_mh" in sub_help and "ar" in sub_help
+    assert "cls" in sub_help and "ar" in sub_help
 
     # Multi-experiment CLI dispatcher routes to the named experiment and variant.
-    dispatched_sm = run_experiments_cli(
+    dispatched_cls = run_experiments_cli(
         [exp],
         [
             "dummy",
-            "sm_mh",
+            "cls",
             "--steps",
             "25",
             "--mode",
@@ -299,8 +299,8 @@ def test_run_experiment_cli_and_run_experiments_cli(
             str(tmp_path),
         ],
     )
-    assert dispatched_sm == {
-        "variant": "sm_mh",
+    assert dispatched_cls == {
+        "variant": "cls",
         "steps": 25,
         "mode": "accurate",
         "out_dir": tmp_path,

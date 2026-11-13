@@ -6,9 +6,9 @@ from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
 from experiments.sir_yes_sir.variants.ar.harness import rollout_ar
-from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset
-from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
-from experiments.sir_yes_sir.variants.sm_mh.harness import rollout_sm_mh
+from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
+from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
+from experiments.sir_yes_sir.variants.cls.harness import rollout_cls
 from yessir.alphabet import SymbolSet
 from yessir.heads import HeadType
 from yessir.model import Transformer
@@ -20,7 +20,7 @@ from yessir.vocab import VOCAB_SIZE
 pytestmark = pytest.mark.convergence
 
 
-def test_sir_yes_sir_sm_mh_cpu_convergence():
+def test_sir_yes_sir_cls_cpu_convergence():
     """Train a tiny `Transformer` on CPU and verify >99% in-distribution exact match.
 
     Why `symbols=SymbolSet.DECIMAL[:3]` with `alphabet_size=3`:
@@ -31,7 +31,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
       of `('0', '1', '2')`, so for any `x_k` its successor `o_k` and wrap symbol
       `w_k` depend on the in-context alphabet order.
     - Restricting `symbols` to 3 byte tokens rather than all 240 bytes in
-      `SymbolSet.ALL` keeps the untied `MultiTaskHead` sample complexity small
+      `SymbolSet.ALL` keeps the untied `ParallelClassificationHead` sample complexity small
       enough to converge on CPU within a test run.
     """
     seed_everything(42)
@@ -41,7 +41,7 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
     x_length = 2
 
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=2,
         n_heads=8,
@@ -50,13 +50,13 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
         d_scratch=16,
     )
 
-    train_dataset = SirYesSirSmMhDataset(
+    train_dataset = SirYesSirClsDataset(
         alphabet_size=alphabet_size,
         x_length=x_length,
         symbols=symbols,
         seed=42,
     )
-    eval_dataset = SirYesSirSmMhDataset(
+    eval_dataset = SirYesSirClsDataset(
         alphabet_size=alphabet_size,
         x_length=x_length,
         symbols=symbols,
@@ -65,12 +65,12 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
 
     train(model, train_dataset, steps=500, batch_size=24, lr=8e-4)
 
-    metrics = evaluate_sm_mh(model, eval_dataset, num_problems=100)
+    metrics = evaluate_cls(model, eval_dataset, num_problems=100)
     assert metrics.exact_match > 0.99
     assert metrics.step_accuracy > 0.99
     assert metrics.halt_accuracy > 0.99
 
-    # Also verify free-running `rollout_sm_mh` on two reversed 3-symbol permutations
+    # Also verify free-running `rollout_cls` on two reversed 3-symbol permutations
     # (`b"012"` and `b"210"`), where every symbol's `o_k` and `w_k` both differ.
     for alphabet in (b"012", b"210"):
         for x in (b"01", b"12"):
@@ -78,11 +78,11 @@ def test_sir_yes_sir_sm_mh_cpu_convergence():
                 tuple(int(t) for t in reference_step(alphabet, x, k))
                 for k in range(len(x))
             ]
-            assert rollout_sm_mh(model, alphabet, x) == expected
+            assert rollout_cls(model, alphabet, x) == expected
 
 
 def test_sir_yes_sir_ar_cpu_convergence():
-    """Train a tiny `TiedIdentityHead` `Transformer` on CPU under the `ar` variant and verify >99% exact match."""
+    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under the `ar` variant and verify >99% exact match."""
     seed_everything(42)
 
     symbols = SymbolSet.DECIMAL[:3]
@@ -90,7 +90,7 @@ def test_sir_yes_sir_ar_cpu_convergence():
     x_length = 2
 
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=2,
         n_heads=8,
         d_ff=64,

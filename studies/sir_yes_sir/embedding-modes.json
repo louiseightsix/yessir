@@ -1,0 +1,8 @@
+{
+  "title": "Embedding modes ablation (token_type_pe vs. token_type_nope vs. nope)",
+  "status": "draft",
+  "kind": "ablation",
+  "question": "With input_ids held identical across modes, what do section-coupled position_ids and 16-d token_type_ids contribute to convergence speed and length generalisation compared to causal masking alone (nope)?",
+  "runs": [],
+  "conclusion": null
+}

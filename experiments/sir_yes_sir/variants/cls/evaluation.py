@@ -1,4 +1,4 @@
-"""Teacher-forced evaluation (`evaluate_sm_mh`) for the `sm_mh` variant of `sir_yes_sir`."""
+"""Teacher-forced evaluation (`evaluate_cls`) for the `cls` variant of `sir_yes_sir`."""
 
 from collections.abc import Iterable
 
@@ -9,7 +9,7 @@ from yessir.batch import collate
 from yessir.dataset import LabelledExample
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
-from yessir.training import pack_multitask_labels
+from yessir.training import pack_classification_labels
 
 
 def _collect_problems(
@@ -58,7 +58,7 @@ def _collect_problems(
 
 
 @torch.no_grad()
-def evaluate_sm_mh(
+def evaluate_cls(
     model: Transformer,
     dataset: Iterable[LabelledExample],
     *,
@@ -67,20 +67,20 @@ def evaluate_sm_mh(
 ) -> EvalMetrics:
     """Evaluate `model` with teacher forcing on `num_problems` problems from `dataset`.
 
-    `dataset` must start at a problem boundary (`k = 0`, e.g. a fresh `SirYesSirSmMhDataset`
+    `dataset` must start at a problem boundary (`k = 0`, e.g. a fresh `SirYesSirClsDataset`
     with an evaluation seed disjoint from training); starting mid-problem raises a
     `ValueError`.
 
     Why teacher-forced step evaluation also gives exact match (`exact_match`) for `sir_yes_sir`:
     Per `experiments/sir_yes_sir/spec/README.md` §3, an instance is an exact match if
     and only if the model emits the ground-truth `(o_k, w_k, flag_k)` at every step
-    `k = 0 .. L - 1`. Until the first error on a problem, `rollout_sm_mh`'s `output_history`
+    `k = 0 .. L - 1`. Until the first error on a problem, `rollout_cls`'s `output_history`
     is identical to the teacher-forced `output_history` in `dataset`, and right-padding
     invariance produces the same logits up to floating-point rounding as step-by-step
     execution.
 
     Args:
-        model: `Transformer` configured with `MultiTaskHead`.
+        model: `Transformer` configured with `ParallelClassificationHead`.
         dataset: Stream of step-level `LabelledExample`s starting at step `k = 0`.
         num_problems: Number of complete problems to evaluate (`>= 1`).
         batch_size: Maximum number of step examples per forward pass (`>= 1`).
@@ -104,7 +104,7 @@ def evaluate_sm_mh(
     for start in range(0, len(flat_items), batch_size):
         chunk = flat_items[start : start + batch_size]
         batch = collate([item.example for item in chunk]).to(device)
-        labels = pack_multitask_labels(chunk).to(device)
+        labels = pack_classification_labels(chunk).to(device)
 
         logits = model(
             batch.input_ids,

@@ -12,10 +12,10 @@ from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
 from experiments.sir_yes_sir.variants.ar.harness import parse_ar_trace, rollout_ar
 from experiments.sir_yes_sir.variants.ar.inputs import StepOrder, build_ar_example
-from experiments.sir_yes_sir.variants.sm_mh.dataset import SirYesSirSmMhDataset
-from experiments.sir_yes_sir.variants.sm_mh.evaluation import evaluate_sm_mh
-from experiments.sir_yes_sir.variants.sm_mh.harness import rollout_sm_mh
-from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
+from experiments.sir_yes_sir.variants.cls.dataset import SirYesSirClsDataset
+from experiments.sir_yes_sir.variants.cls.evaluation import evaluate_cls
+from experiments.sir_yes_sir.variants.cls.harness import rollout_cls
+from experiments.sir_yes_sir.variants.cls.inputs import build_cls_example
 from yessir.dataset import LabelledExample
 from yessir.example import Example
 from yessir.heads import HeadType
@@ -25,10 +25,10 @@ from yessir.training import seed_everything
 from yessir.vocab import VOCAB_SIZE, Token
 
 
-def _parse_sm_input_ids(
+def _parse_cls_input_ids(
     seq: Sequence[Token],
 ) -> tuple[tuple[Token, ...], tuple[Token, ...], tuple[Token, ...]]:
-    """Extract `(alphabet, x, out_history)` from a state-machine `input_ids` sequence."""
+    """Extract `(alphabet, x, out_history)` from a classification `input_ids` sequence."""
     sep_indices = [i for i, tok in enumerate(seq) if tok == SpecialToken.SEP]
     alphabet = tuple(seq[1 : sep_indices[0]])
     x = tuple(seq[sep_indices[0] + 1 : sep_indices[1]])
@@ -114,7 +114,7 @@ class _WrapBlindModel:
 
         for b in range(batch_size):
             seq = input_ids[b, : int(lengths[b].item())].tolist()
-            alphabet, x, out_history = _parse_sm_input_ids(seq)
+            alphabet, x, out_history = _parse_cls_input_ids(seq)
             k = len(out_history)
 
             o_k, w_k, flag_k = reference_step(alphabet, x, k)
@@ -131,7 +131,7 @@ class _WrapBlindModel:
         return logits_o, logits_w, logits_f
 
 
-def test_rollout_sm_mh_feeds_back_models_own_emitted_outputs():
+def test_rollout_cls_feeds_back_models_own_emitted_outputs():
     alphabet = b"0123"
     x = b"130"
     # Ground-truth o_0 is '2' and o_1 is '0'; script wrong in-alphabet symbols '3' then '1'
@@ -143,17 +143,17 @@ def test_rollout_sm_mh_feeds_back_models_own_emitted_outputs():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert model.training is False
     assert emitted == scripted
     assert model.seen_examples == [
-        build_sm_example(alphabet, x, ()),
-        build_sm_example(alphabet, x, (ord("3"),)),
-        build_sm_example(alphabet, x, (ord("3"), ord("1"))),
+        build_cls_example(alphabet, x, ()),
+        build_cls_example(alphabet, x, (ord("3"),)),
+        build_cls_example(alphabet, x, (ord("3"), ord("1"))),
     ]
 
 
-def test_rollout_sm_mh_stops_early_on_premature_flag_finished():
+def test_rollout_cls_stops_early_on_premature_flag_finished():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -162,12 +162,12 @@ def test_rollout_sm_mh_stops_early_on_premature_flag_finished():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_rollout_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
+def test_rollout_cls_stops_early_on_out_of_alphabet_primary_symbol():
     alphabet = b"0123"
     x = b"130"
     scripted = [
@@ -176,12 +176,12 @@ def test_rollout_sm_mh_stops_early_on_out_of_alphabet_primary_symbol():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert emitted == [scripted[0]]
     assert len(model.seen_examples) == 1
 
 
-def test_rollout_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
+def test_rollout_cls_stops_at_len_x_when_flag_finished_never_emitted():
     alphabet = b"0123"
     x = b"13"
     scripted = [
@@ -190,13 +190,13 @@ def test_rollout_sm_mh_stops_at_len_x_when_flag_finished_never_emitted():
     ]
     model = _ScriptedModel(scripted)
 
-    emitted = rollout_sm_mh(model, alphabet, x)  # ty: ignore[invalid-argument-type]
+    emitted = rollout_cls(model, alphabet, x)  # ty: ignore[invalid-argument-type]
     assert len(emitted) == 2
     assert emitted == scripted
 
 
-def test_evaluate_sm_mh_computes_exact_match_step_and_halt_accuracy():
-    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=2, seed=7)
+def test_evaluate_cls_computes_exact_match_step_and_halt_accuracy():
+    dataset = SirYesSirClsDataset(alphabet_size=4, x_length=2, seed=7)
     # 2 problems of length 2 = 4 steps total
     items = list(itertools.islice(dataset, 4))
 
@@ -216,7 +216,7 @@ def test_evaluate_sm_mh_computes_exact_match_step_and_halt_accuracy():
     ]
     model = _ScriptedModel(scripted)
 
-    metrics = evaluate_sm_mh(
+    metrics = evaluate_cls(
         model,  # ty: ignore[invalid-argument-type]
         items,
         num_problems=2,
@@ -236,18 +236,18 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     x_length = 3
     seed = 123
 
-    dataset = SirYesSirSmMhDataset(
+    dataset = SirYesSirClsDataset(
         alphabet_size=alphabet_size, x_length=x_length, seed=seed
     )
     model = _WrapBlindModel()
 
-    metrics_b1 = evaluate_sm_mh(
+    metrics_b1 = evaluate_cls(
         model,  # ty: ignore[invalid-argument-type]
         dataset,
         num_problems=num_problems,
         batch_size=1,
     )
-    metrics_b7 = evaluate_sm_mh(
+    metrics_b7 = evaluate_cls(
         model,  # ty: ignore[invalid-argument-type]
         dataset,
         num_problems=num_problems,
@@ -256,15 +256,15 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert metrics_b1 == metrics_b7
     assert 0.0 < metrics_b1.exact_match < 1.0
 
-    # Run free-running `rollout_sm_mh` on the exact same `num_problems` problems extracted from `dataset`
+    # Run free-running `rollout_cls` on the exact same `num_problems` problems extracted from `dataset`
     all_items = list(itertools.islice(dataset, num_problems * x_length))
     free_running_em_count = 0
     for prob_idx in range(num_problems):
         prob_items = all_items[prob_idx * x_length : (prob_idx + 1) * x_length]
-        alphabet, x, out_history = _parse_sm_input_ids(prob_items[0].example.input_ids)
+        alphabet, x, out_history = _parse_cls_input_ids(prob_items[0].example.input_ids)
         assert out_history == ()
         expected_steps = [item.labels for item in prob_items]
-        emitted_steps = rollout_sm_mh(
+        emitted_steps = rollout_cls(
             model,  # ty: ignore[invalid-argument-type]
             alphabet,
             x,
@@ -275,10 +275,10 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert free_running_em_count / num_problems == pytest.approx(metrics_b1.exact_match)
 
 
-def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
+def test_evaluate_cls_runs_real_transformer_end_to_end():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -286,17 +286,17 @@ def test_evaluate_sm_mh_runs_real_transformer_end_to_end():
         d_position=8,
         d_scratch=0,
     )
-    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=3, seed=99)
-    metrics = evaluate_sm_mh(model, dataset, num_problems=3, batch_size=4)
+    dataset = SirYesSirClsDataset(alphabet_size=4, x_length=3, seed=99)
+    metrics = evaluate_cls(model, dataset, num_problems=3, batch_size=4)
     assert 0.0 <= metrics.exact_match <= 1.0
     assert 0.0 <= metrics.step_accuracy <= 1.0
     assert 0.0 <= metrics.halt_accuracy <= 1.0
 
 
-def test_evaluate_sm_mh_validation_errors():
+def test_evaluate_cls_validation_errors():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.MULTITASK,
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
@@ -304,23 +304,23 @@ def test_evaluate_sm_mh_validation_errors():
         d_position=8,
         d_scratch=0,
     )
-    dataset = SirYesSirSmMhDataset(alphabet_size=4, x_length=2, seed=0)
+    dataset = SirYesSirClsDataset(alphabet_size=4, x_length=2, seed=0)
 
     with pytest.raises(ValueError, match="num_problems must be >= 1"):
-        evaluate_sm_mh(model, dataset, num_problems=0)
+        evaluate_cls(model, dataset, num_problems=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
-        evaluate_sm_mh(model, dataset, num_problems=1, batch_size=0)
+        evaluate_cls(model, dataset, num_problems=1, batch_size=0)
 
     # Mid-problem stream (consumed step k=0 of problem 0, so next item is k=1)
     stream = iter(dataset)
     next(stream)
     with pytest.raises(ValueError, match="stream must start at step k=0"):
-        evaluate_sm_mh(model, stream, num_problems=1)
+        evaluate_cls(model, stream, num_problems=1)
 
     # Wrong number of labels
-    ex_k0 = build_sm_example(b"01", b"0", ())
+    ex_k0 = build_cls_example(b"01", b"0", ())
     with pytest.raises(ValueError, match="expected 3 labels"):
-        evaluate_sm_mh(
+        evaluate_cls(
             model,
             [LabelledExample(example=ex_k0, labels=(ord("1"), ord("0")))],
             num_problems=1,
@@ -328,7 +328,7 @@ def test_evaluate_sm_mh_validation_errors():
 
     # Invalid halting flag label
     with pytest.raises(ValueError, match="expected flag label to be FLAG_CONTINUE"):
-        evaluate_sm_mh(
+        evaluate_cls(
             model,
             [LabelledExample(example=ex_k0, labels=(ord("1"), ord("0"), 0x05))],
             num_problems=1,
@@ -342,12 +342,12 @@ def test_evaluate_sm_mh_validation_errors():
         )
     ]
     with pytest.raises(ValueError, match="dataset exhausted early"):
-        evaluate_sm_mh(model, unfinished, num_problems=1)
+        evaluate_cls(model, unfinished, num_problems=1)
 
     # Short/malformed Example at start of problem
     short_ex = Example(input_ids=(int(SpecialToken.STEP),))
     with pytest.raises(ValueError, match="stream must start at step k=0"):
-        evaluate_sm_mh(
+        evaluate_cls(
             model,
             [
                 LabelledExample(
@@ -454,7 +454,7 @@ def test_parse_ar_trace_and_rollout_ar():
 def test_evaluate_ar_end_to_end_and_validation():
     seed_everything(0)
     model = Transformer(
-        head_type=HeadType.TIED_IDENTITY,
+        head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,

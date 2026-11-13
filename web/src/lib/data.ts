@@ -71,6 +71,8 @@ export interface RunData {
   trainPoints: TrainPoint[];
   readmeBody: string | null;
   flawedReason: string | null;
+  /** Reason from an `OUTDATED:` first line: sound under an earlier spec, not the current one. */
+  outdatedReason: string | null;
   // Derived:
   status: RunStatus;
   variant: string | null;
@@ -177,7 +179,9 @@ export function loadRun(
   const firstLine = lines[0] ?? "";
   const isFlawed = firstLine.startsWith("FLAWED:");
   const flawedReason = isFlawed ? firstLine.slice("FLAWED:".length).trim() : null;
-  const remaining = (isFlawed ? lines.slice(1) : lines).join("\n").trim();
+  const isOutdated = firstLine.startsWith("OUTDATED:");
+  const outdatedReason = isOutdated ? firstLine.slice("OUTDATED:".length).trim() : null;
+  const remaining = (isFlawed || isOutdated ? lines.slice(1) : lines).join("\n").trim();
   const readmeBody = remaining.length > 0 ? remaining : null;
 
   const variant = meta?.variant ?? null;
@@ -196,6 +200,7 @@ export function loadRun(
     trainPoints,
     readmeBody,
     flawedReason,
+    outdatedReason,
     status,
     variant,
     config,

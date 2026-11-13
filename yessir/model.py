@@ -8,7 +8,7 @@ from torch import nn
 
 from yessir.blocks import RMSNorm, TransformerBlock
 from yessir.embedding import SubspaceEmbedding
-from yessir.heads import HeadType, MultiTaskHead, TiedIdentityHead
+from yessir.heads import HeadType, ParallelClassificationHead, SubspaceLMHead
 
 _INIT_STD = 0.02
 
@@ -24,11 +24,11 @@ class Transformer(nn.Module):
     """Pre-LN Transformer combining `SubspaceEmbedding`, `TransformerBlock`s, and an output head.
 
     Output head selection (`head_type`):
-    - `HeadType.MULTITASK`: requires `num_classes` (e.g. `(256, 256, 256)`) and
-      builds a `MultiTaskHead` that projects the final unpadded position `lengths - 1`
+    - `HeadType.PARALLEL_CLASSIFICATION`: requires `num_classes` (e.g. `(256, 256, 256)`) and
+      builds a `ParallelClassificationHead` that projects the final unpadded position `lengths - 1`
       into per-head logits.
-    - `HeadType.TIED_IDENTITY`: requires `num_classes=None` and builds a parameter-free
-      `TiedIdentityHead` that reads the `0..255` symbol subspace across all sequence
+    - `HeadType.SUBSPACE_LM`: requires `num_classes=None` and builds a parameter-free
+      `SubspaceLMHead` that reads the `0..255` symbol subspace across all sequence
       positions `(B, T, 256)`.
 
     Weight initialisation (`reset_parameters`):
@@ -56,12 +56,12 @@ class Transformer(nn.Module):
         head_type = HeadType(head_type)
         if n_layers <= 0:
             raise ValueError(f"n_layers must be > 0, got {n_layers}")
-        if head_type == HeadType.MULTITASK and num_classes is None:
-            raise ValueError("num_classes is required when head_type is 'multitask'")
-        if head_type == HeadType.TIED_IDENTITY and num_classes is not None:
+        if head_type == HeadType.PARALLEL_CLASSIFICATION and num_classes is None:
             raise ValueError(
-                "num_classes must be None when head_type is 'tied_identity'"
+                "num_classes is required when head_type is 'parallel_classification'"
             )
+        if head_type == HeadType.SUBSPACE_LM and num_classes is not None:
+            raise ValueError("num_classes must be None when head_type is 'subspace_lm'")
 
         self.embedding = SubspaceEmbedding(
             use_token_type=use_token_type,
@@ -80,12 +80,14 @@ class Transformer(nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        self.head: MultiTaskHead | TiedIdentityHead
-        if head_type == HeadType.MULTITASK:
+        self.head: ParallelClassificationHead | SubspaceLMHead
+        if head_type == HeadType.PARALLEL_CLASSIFICATION:
             assert num_classes is not None
-            self.head = MultiTaskHead(d_model=self.d_model, num_classes=num_classes)
+            self.head = ParallelClassificationHead(
+                d_model=self.d_model, num_classes=num_classes
+            )
         else:
-            self.head = TiedIdentityHead(d_model=self.d_model)
+            self.head = SubspaceLMHead(d_model=self.d_model)
 
         self.reset_parameters()
 
@@ -124,8 +126,10 @@ class Transformer(nn.Module):
         )
         for layer in self.layers:
             x = layer(x)
-        if isinstance(self.head, TiedIdentityHead):
+        if isinstance(self.head, SubspaceLMHead):
             return self.head(x)
         if lengths is None:
-            raise ValueError("lengths is required when using MultiTaskHead")
+            raise ValueError(
+                "lengths is required when using ParallelClassificationHead"
+            )
         return self.head(x, lengths)

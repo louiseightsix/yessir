@@ -1,4 +1,4 @@
-"""Output heads (`HeadType`, `MultiTaskHead`, `TiedIdentityHead`) for mapping final Transformer hidden states to task logits."""
+"""Output heads (`HeadType`, `ParallelClassificationHead`, `SubspaceLMHead`) for mapping final Transformer hidden states to task logits."""
 
 from collections.abc import Sequence
 from enum import StrEnum, unique
@@ -14,12 +14,12 @@ from yessir.vocab import VOCAB_SIZE
 class HeadType(StrEnum):
     """Output head architecture for `Transformer`."""
 
-    MULTITASK = "multitask"
-    TIED_IDENTITY = "tied_identity"
+    PARALLEL_CLASSIFICATION = "parallel_classification"
+    SUBSPACE_LM = "subspace_lm"
 
 
-class TiedIdentityHead(nn.Module):
-    """Parameter-free tied output head reading the `0..255` symbol subspace at all positions.
+class SubspaceLMHead(nn.Module):
+    """Parameter-free language-modelling head reading the `0..255` symbol subspace at all positions.
 
     Because `SubspaceEmbedding` places the 256-d one-hot token representation in
     coordinates `0..255` of the residual stream, applying a gain-free `RMSNorm` and
@@ -27,15 +27,15 @@ class TiedIdentityHead(nn.Module):
     state with each token's unit-vector embedding (up to the shared `sqrt(d_model)`
     RMS scale factor), with zero trainable parameters.
 
-    Initialisation note (self-copy bias vs. `MultiTaskHead`):
+    Initialisation note (self-copy bias vs. `ParallelClassificationHead`):
     At step 0 of training, residual branch output projections are small, so the final
     hidden state at position `t` is still dominated by `SubspaceEmbedding`'s input
     one-hot vector (`+1` at coordinate `input_ids[b, t]` and `0` elsewhere in `0..255`).
-    As a result, `TiedIdentityHead` initially assigns its largest logit to repeating
+    As a result, `SubspaceLMHead` initially assigns its largest logit to repeating
     the current position's input token (just like standard Pre-LN weight-tied
     transformers `norm(h) @ W_E^T`), and must learn through the residual blocks to
     suppress or outweigh the input token coordinate when predicting the next token.
-    `MultiTaskHead`, by contrast, projects through freshly initialised linear weights
+    `ParallelClassificationHead`, by contrast, projects through freshly initialised linear weights
     and starts with near-uniform logits (`loss ≈ ln(256)` per head).
     """
 
@@ -43,7 +43,7 @@ class TiedIdentityHead(nn.Module):
         super().__init__()
         if d_model < VOCAB_SIZE:
             raise ValueError(
-                f"d_model must be >= VOCAB_SIZE ({VOCAB_SIZE}) for TiedIdentityHead, got {d_model}"
+                f"d_model must be >= VOCAB_SIZE ({VOCAB_SIZE}) for SubspaceLMHead, got {d_model}"
             )
         self.norm = RMSNorm(d_model, gain=False)
 
@@ -52,13 +52,13 @@ class TiedIdentityHead(nn.Module):
         return self.norm(hidden_states)[:, :, :VOCAB_SIZE]
 
 
-class MultiTaskHead(nn.Module):
+class ParallelClassificationHead(nn.Module):
     """Parallel linear classification heads reading at the last unpadded token (`lengths - 1`).
 
     In a right-padded `Batch`, example `b` has real tokens at indices
     `0 .. lengths[b] - 1` and `PAD` tokens at `>= lengths[b]`. Rather than reading
     `hidden_states[:, -1]` (which is a `PAD` position whenever examples in the batch
-    have different lengths), `MultiTaskHead` gathers `hidden_states[b, lengths[b] - 1]`
+    have different lengths), `ParallelClassificationHead` gathers `hidden_states[b, lengths[b] - 1]`
     for each example, applies a final `RMSNorm`, and projects that single hidden state
     through each head in `self.heads`.
     """
