@@ -1,1 +1,1 @@
-"""State-machine multi-head (`sm_mh`) variant of the `sir_yes_sir` experiment."""
+"""Parallel classification (`cls`) variant of the `sir_yes_sir` experiment."""

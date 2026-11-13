@@ -1,4 +1,4 @@
-"""Data generator (`SirYesSirSmMhDataset`) for the `sm_mh` variant of `sir_yes_sir`."""
+"""Data generator (`SirYesSirClsDataset`) for the `cls` variant of `sir_yes_sir`."""
 
 import argparse
 from collections.abc import Iterator, Sequence
@@ -10,15 +10,15 @@ from experiments.sir_yes_sir.inputs import (
     resolve_symbol_pool,
 )
 from experiments.sir_yes_sir.reference import reference_step
-from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
+from experiments.sir_yes_sir.variants.cls.inputs import build_cls_example
 from yessir.alphabet import SymbolSet
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import Token, TokenSequence
 
 
-class SirYesSirSmMhDataset:
-    """Infinite deterministic stream of state-machine `LabelledExample`s for `sir_yes_sir`.
+class SirYesSirClsDataset:
+    """Infinite deterministic stream of parallel-classification `LabelledExample`s for `sir_yes_sir`.
 
     Each problem samples a fresh alphabet of size `alphabet_size` from `symbols`
     (defaulting to `SymbolSet.ALL`) and a random input sequence `x` of length
@@ -52,7 +52,7 @@ class SirYesSirSmMhDataset:
             output_history: list[Token] = []
             for k in range(self._x_length):
                 o_k, w_k, flag_k = reference_step(alphabet, x, k)
-                example = build_sm_example(
+                example = build_cls_example(
                     alphabet,
                     x,
                     output_history,
@@ -65,8 +65,8 @@ class SirYesSirSmMhDataset:
                 output_history.append(o_k)
 
 
-def _build_from_args(args: argparse.Namespace) -> SirYesSirSmMhDataset:
-    return SirYesSirSmMhDataset(
+def _build_from_args(args: argparse.Namespace) -> SirYesSirClsDataset:
+    return SirYesSirClsDataset(
         alphabet_size=args.alphabet_size,
         x_length=args.x_length,
         embedding_mode=args.embedding_mode,
@@ -75,9 +75,9 @@ def _build_from_args(args: argparse.Namespace) -> SirYesSirSmMhDataset:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Generate, print, or dump `sir_yes_sir` (`sm_mh`) training examples."""
+    """Generate, print, or dump `sir_yes_sir` (`cls`) training examples."""
     run_inspect_cli(
-        description="Generate, print, or dump sir_yes_sir (sm_mh) training examples.",
+        description="Generate, print, or dump sir_yes_sir (cls) training examples.",
         add_dataset_args=add_common_dataset_args,
         build_dataset=_build_from_args,
         argv=argv,

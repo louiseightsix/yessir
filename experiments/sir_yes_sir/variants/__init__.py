@@ -1,1 +1,1 @@
-"""Execution/harness variants (`sm_mh`, `ar`) of the `sir_yes_sir` experiment."""
+"""Execution/harness variants (`cls`, `ar`) of the `sir_yes_sir` experiment."""

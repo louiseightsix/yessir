@@ -1,4 +1,4 @@
-"""State-machine execution harness (`rollout_sm_mh`) for the `sir_yes_sir` experiment."""
+"""Parallel classification execution harness (`rollout_cls`) for the `sir_yes_sir` experiment."""
 
 import torch
 
@@ -6,7 +6,7 @@ from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
     validate_problem,
 )
-from experiments.sir_yes_sir.variants.sm_mh.inputs import build_sm_example
+from experiments.sir_yes_sir.variants.cls.inputs import build_cls_example
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
@@ -14,25 +14,25 @@ from yessir.vocab import Token, TokenSequence
 
 
 @torch.no_grad()
-def rollout_sm_mh(
+def rollout_cls(
     model: Transformer,
     alphabet: TokenSequence,
     x: TokenSequence,
     *,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> list[tuple[Token, Token, Token]]:
-    """Run free-running `sm_mh` state-machine rollout step by step on `(alphabet, x)`.
+    """Run free-running `cls` rollout step by step on `(alphabet, x)`.
 
-    At each step `k = 0 .. len(x) - 1`, builds the state-machine `Example` using
+    At each step `k = 0 .. len(x) - 1`, builds the classification `Example` using
     the model's own previously emitted primary outputs `output_history = [o_0, ..., o_{k-1}]`,
     runs one forward pass through `model`, and decodes `(o_k, w_k, flag_k)` by
     greedy `argmax` across the three heads of `ParallelClassificationHead`.
 
     Stops and returns the list of emitted `(o_k, w_k, flag_k)` step tuples as soon as:
     1. the model emits `flag_k == SpecialToken.FLAG_FINISHED`,
-    2. `len(x)` steps have been executed (the maximum legal step count for `build_sm_example`), or
+    2. `len(x)` steps have been executed (the maximum legal step count for `build_cls_example`), or
     3. the model emits an out-of-alphabet primary symbol `o_k not in alphabet`
-       (which cannot be fed into `build_sm_example` on the next step).
+       (which cannot be fed into `build_cls_example` on the next step).
 
     Args:
         model: `Transformer` configured with `ParallelClassificationHead`.
@@ -52,7 +52,7 @@ def rollout_sm_mh(
     emitted_steps: list[tuple[Token, Token, Token]] = []
 
     for _ in range(len(x_tokens)):
-        example = build_sm_example(
+        example = build_cls_example(
             alphabet_tokens,
             x_tokens,
             output_history,

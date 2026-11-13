@@ -1,4 +1,4 @@
-"""State-machine input construction (`build_sm_example`) for the `sm_mh` variant of `sir_yes_sir`."""
+"""Parallel classification input construction (`build_cls_example`) for the `cls` variant of `sir_yes_sir`."""
 
 from experiments.sir_yes_sir.inputs import (
     EmbeddingMode,
@@ -11,7 +11,7 @@ from yessir.special_tokens import SpecialToken
 from yessir.vocab import TokenSequence
 
 
-def build_sm_example(
+def build_cls_example(
     alphabet: TokenSequence,
     x: TokenSequence,
     output_history: TokenSequence = (),
