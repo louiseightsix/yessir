@@ -3,6 +3,8 @@
 // because the sidebar (picker, nav, "Running now") belongs to one experiment.
 import "../styles/global.css";
 import { getSiteData } from "../lib/data";
+// Astro turns an imported SVG into a component that inlines it into the HTML.
+import Wordmark from "../../../wordmark/yessir-wordmark-light.svg";
 
 const site = getSiteData();
 
@@ -21,7 +23,7 @@ function count(n: number, one: string, many: string): string {
   <body>
     <main class="landing">
       <div class="wordmark">
-        <span class="wordmark-name">yessir</span>
+        <span class="wordmark-name"><Wordmark /></span>
         <span class="muted">results &amp; runs</span>
       </div>
 
@@ -57,6 +59,10 @@ function count(n: number, one: string, many: string): string {
           </ul>
         )
       }
+
+      <p class="muted credit">
+        Logo emoji by <a href="https://openmoji.org/">OpenMoji</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>
+      </p>
     </main>
   </body>
 </html>
@@ -98,6 +104,11 @@ function count(n: number, one: string, many: string): string {
     font-size: 16px;
     font-weight: 600;
     color: var(--c-accent-strong);
+  }
+
+  .credit {
+    margin: 0;
+    font-size: var(--fs-tiny);
   }
 
   .experiment-counts {
