@@ -1,4 +1,4 @@
-"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`, `resolve_symbol_pool`, `iter_problems`, `add_common_dataset_args`) for `sir_yes_sir`."""
+"""Shared model input primitives (`TokenType`, `EmbeddingMode`, `validate_problem`, `sections_to_example`, `build_example`, `resolve_symbol_pool`, `iter_problems`, `add_common_dataset_args`) for `sir_yes_sir`."""
 
 import argparse
 import random
@@ -7,6 +7,7 @@ from enum import IntEnum, StrEnum, unique
 
 from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.example import Example
+from yessir.special_tokens import SpecialToken
 from yessir.vocab import TokenSequence
 
 
@@ -17,7 +18,7 @@ class TokenType(IntEnum):
     SPECIAL = 0  # Delimiters and markers ([BOS], [SEP])
     ALPHABET = 1  # Alphabet symbols (s_0 .. s_{B-1})
     INPUT = 2  # Input sequence symbols (x_0 .. x_{L-1})
-    OUTPUT = 3  # Output section (step history + [STEP] in SM; generated trace in AR)
+    OUTPUT = 3  # Emitted output symbols (o_0 .. o_{k-1})
 
 
 @unique
@@ -25,7 +26,7 @@ class EmbeddingMode(StrEnum):
     """Which of `token_type_ids` and `position_ids` are attached to an `Example`.
 
     Why there is no `PE`-only mode (`position_ids` without `token_type_ids`) here:
-    - Section-resetting `position_ids` (`0..B-1`, `0..L-1`, `0..`) reuse `0, 1, ...`
+    - Section-resetting `position_ids` (`0..B-1`, `0..L-1`, `1..k`) reuse small integers
       in every section, so without `token_type_ids` to identify the section, tokens
       from the alphabet, input `x`, and output section collide at the same positions.
     - Global 1D `position_ids` (`0 .. T - 1` across the whole sequence) place `x_k`
@@ -65,14 +66,22 @@ def sections_to_example(
     sections: list[tuple[tuple[int, ...], TokenType]],
     embedding_mode: EmbeddingMode,
 ) -> Example:
-    """Flatten `(tokens, token_type)` sections into an `Example` for `embedding_mode`."""
+    """Flatten `(tokens, token_type)` sections into an `Example` for `embedding_mode`.
+
+    Output tokens (`TokenType.OUTPUT`) are assigned `position_ids = 1, 2, ..., k`
+    (starting at `1`), while the preceding `[SEP]` delimiter sits at `position_id = 0`.
+    Consequently, at every step `k` in `0 .. L - 1`, the query token that predicts `o_k`
+    (`[SEP]` at `k == 0`, `o_{k-1}` at `k >= 1`) has `position_id = k`, matching `x_k`
+    in `TokenType.INPUT` with zero offset (position coupling).
+    """
     input_ids: list[int] = []
     token_type_ids: list[int] = []
     position_ids: list[int] = []
     for tokens, token_type in sections:
         input_ids.extend(tokens)
         token_type_ids.extend([token_type] * len(tokens))
-        position_ids.extend(range(len(tokens)))
+        start_pos = 1 if token_type == TokenType.OUTPUT else 0
+        position_ids.extend(range(start_pos, start_pos + len(tokens)))
 
     if embedding_mode == EmbeddingMode.NOPE:
         return Example(input_ids=tuple(input_ids))
@@ -88,6 +97,38 @@ def sections_to_example(
             position_ids=tuple(position_ids),
         )
     raise ValueError(f"unknown embedding_mode: {embedding_mode!r}")
+
+
+def build_example(
+    alphabet: TokenSequence,
+    x: TokenSequence,
+    output: TokenSequence = (),
+    *,
+    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+) -> Example:
+    """Build the shared `sir_yes_sir` input `Example` for `(alphabet, x)` and `output`.
+
+    Both `ar` and `cls` use the same sequence layout (`experiments/sir_yes_sir/spec/README.md` §2):
+
+        input_ids:       [BOS]  s_0 ... s_{B-1}  [SEP]  x_0 ... x_{L-1}  [SEP]  o_0 ... o_{k-1}
+        token_type_ids:    0     1  ...    1       0     2  ...    2       0     3  ...    3
+        position_ids:      0     0  ...  B - 1     0     0  ...  L - 1     0     1  ...    k
+
+    At `k == 0` (`output = ()`), the sequence ends at the second `[SEP]` (`position_id = 0`).
+    At `k >= 1`, `o_{k-1}` is the final token (`position_id = k`).
+    """
+    alphabet_tokens, x_tokens = validate_problem(alphabet, x)
+    out_tokens = tuple(output)
+
+    sections: list[tuple[tuple[int, ...], TokenType]] = [
+        ((SpecialToken.BOS,), TokenType.SPECIAL),
+        (alphabet_tokens, TokenType.ALPHABET),
+        ((SpecialToken.SEP,), TokenType.SPECIAL),
+        (x_tokens, TokenType.INPUT),
+        ((SpecialToken.SEP,), TokenType.SPECIAL),
+        (out_tokens, TokenType.OUTPUT),
+    ]
+    return sections_to_example(sections, embedding_mode)
 
 
 def resolve_symbol_pool(
