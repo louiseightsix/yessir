@@ -132,3 +132,55 @@ h1 {
   font-size: var(--fs-section);
   font-weight: 600;
 }
+
+/* ---- Selects -------------------------------------------------------------
+   One look for every <select>. We draw our own chevron (a background image,
+   so it has room on the right) instead of the browser's, which sits flush
+   against the border. The SVG's stroke is --c-muted: CSS variables don't
+   reach inside a data URI. */
+select {
+  appearance: none;
+  min-height: 36px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-control);
+  background: var(--c-panel)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%235E6370' stroke-width='1.5'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E")
+    no-repeat right 10px center / 12px;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+/* Customisable select (Chrome 135+): the popup is styled too, instead of the
+   system menu. Other browsers skip this block and keep the system menu. */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+  /* In this mode the select lays out its label like a flex box: centre it. */
+  select {
+    align-items: center;
+  }
+  /* Our background chevron already does this job. */
+  select::picker-icon {
+    display: none;
+  }
+  ::picker(select) {
+    margin-block: 4px;
+    padding: 4px;
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--r-control);
+    background: var(--c-panel);
+    box-shadow: 0 6px 20px rgb(24 24 27 / 0.1);
+  }
+  option {
+    padding: 6px 8px;
+    border-radius: var(--r-chip);
+  }
+  option:hover,
+  option:focus-visible {
+    background: var(--c-accent-tint);
+    outline: none;
+  }
+}
