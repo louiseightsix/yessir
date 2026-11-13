@@ -68,6 +68,14 @@ const configCount = Object.keys(run.config).length;
           )
         }
         {
+          run.meta?.device && (
+            <>
+              <span class="muted">device</span>
+              <code class="meta-code">{run.meta.device}</code>
+            </>
+          )
+        }
+        {
           run.meta?.git_short_sha && (
             <>
               <span class="muted">commit</span>

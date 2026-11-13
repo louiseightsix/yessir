@@ -21,6 +21,7 @@ const python = process.env.YESSIR_PYTHON ?? "python3";
 export interface ConfigFile {
   experiment?: string;
   variant?: string;
+  device?: string;
   git_commit_sha?: string;
   git_short_sha?: string;
   git_commit_date?: string;
