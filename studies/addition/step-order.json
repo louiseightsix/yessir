@@ -1,0 +1,8 @@
+{
+  "title": "Sum-first vs. carry-first emission order across representations",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "In step_ar, ar, addressed_step_ar, and addressed_ar, how does emitting the outgoing carry c_{k+1} before the sum digit o_k (carry_first: a monotone threshold followed by conditional subtraction) trade off against emitting o_k before c_{k+1} (sum_first)? Specifically, does carry_first unlock convergence when positional or alphabet grounding is difficult (nope, addressed_step_ar, include_alphabet=False), while sum_first learns a stronger modular arithmetic circuit for zero-shot base interpolation when grounding is easier (token_type_nope)?",
+  "runs": [],
+  "conclusion": null
+}

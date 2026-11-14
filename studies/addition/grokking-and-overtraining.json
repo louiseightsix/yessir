@@ -1,0 +1,8 @@
+{
+  "title": "Grokking horizon vs. OOD overtraining across training steps",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "Coordinate-free and zero-preamble setups (nope, include_alphabet=False) can require > 100k–400k steps to grok in-domain addition, whereas models that converge earlier can see zero-shot OOD base accuracy (B = 3, B = 12) peak around 75k–100k steps and then decay as training loss is driven to zero on the training bases {2, 4, 8, 10}. How do in-domain exact_match and zero-shot OOD base transfer evolve across checkpoints from 25k to 500k steps?",
+  "runs": [],
+  "conclusion": null
+}

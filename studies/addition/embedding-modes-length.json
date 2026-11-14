@@ -1,0 +1,8 @@
+{
+  "title": "Embedding modes, explicit base-B addressing, and length extrapolation",
+  "status": "draft",
+  "kind": "ablation",
+  "question": "How do section-coupled sinusoidal position_ids (token_type_pe), token_type_ids alone (token_type_nope), causal masking alone (nope), and explicit base-B column addresses (addressed_step_ar, addressed_ar) compare on in-domain convergence speed vs. zero-shot extrapolation to longer operands (L = 21..40)? For addressed variants, does length extrapolation in bases B = 10 or 12 fail when training lengths (L <= 20) only expose leading address digits 0 and 1, leaving indices 20..39 with unseen multi-digit address prefixes?",
+  "runs": [],
+  "conclusion": null
+}

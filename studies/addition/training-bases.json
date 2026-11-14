@@ -1,0 +1,8 @@
+{
+  "title": "Effect of number of bases in training on zero-shot base transfer",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "How many distinct bases must a model see during training (e.g. a single base {10}, two bases {2, 10}, vs. multiple bases {2, 4, 8, 10}) before it stops memorising per-base carry thresholds or a fixed n-way switch and transfers zero-shot to unseen bases (B = 3 interpolation and B = 12 extrapolation)?",
+  "runs": [],
+  "conclusion": null
+}

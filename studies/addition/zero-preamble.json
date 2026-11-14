@@ -1,0 +1,8 @@
+{
+  "title": "Zero-preamble alphabet inference (include_alphabet=False)",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "In addressed_step_ar and addressed_ar, when the explicit alphabet section is omitted from the prompt (include_alphabet=False) and operand lengths satisfy L_a, L_b >= B, can the model infer the base B and digit ordering purely from the single-digit column addresses 0 .. B - 1 of the operands?",
+  "runs": [],
+  "conclusion": null
+}

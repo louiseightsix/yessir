@@ -1,0 +1,8 @@
+{
+  "title": "Minimum model capacity (layers, heads, FFN width, scratchpad)",
+  "status": "draft",
+  "kind": "sweep",
+  "question": "What is the smallest transformer (in n_layers, n_heads, d_ff, and d_scratch) that can solve base-conditioned column addition with multi-step carry chains, and does simultaneous operand alignment, in-context alphabet lookup, and carry threshold resolution require a hard minimum of n_layers >= 3?",
+  "runs": [],
+  "conclusion": null
+}

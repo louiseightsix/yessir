@@ -1,0 +1,8 @@
+{
+  "title": "Impact of explicit query tokens ([S], [C], [F])",
+  "status": "draft",
+  "kind": "ablation",
+  "question": "In step_ar, ar, addressed_step_ar, and addressed_ar, does inserting explicit query tokens ([S], [C], [F] via use_query_tokens=True) improve convergence or NoPE disambiguation compared to emitting sum and carry tokens directly (use_query_tokens=False)?",
+  "runs": [],
+  "conclusion": null
+}

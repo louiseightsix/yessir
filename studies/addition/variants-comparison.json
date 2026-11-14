@@ -1,0 +1,8 @@
+{
+  "title": "Comparison of addition variants (cls, step_fork, step_ar, ar, addressed_step_ar, addressed_ar)",
+  "status": "draft",
+  "kind": "comparison",
+  "question": "Across the six addition variants—parallel classification per step (cls), parallel query branches per step (step_fork), sequential predictions per step with harness state updates (step_ar), unrolled full-trace autoregressive generation (ar), and their explicitly base-B addressed counterparts (addressed_step_ar, addressed_ar)—how do convergence speed, in-domain accuracy, and zero-shot base and length transfer compare? In particular: (1) why do cls (3 linear heads) and step_ar (sequential conditioning) outperform step_fork (3 independent tied-head queries), and (2) under nope and token_type_nope, does continuous 1-hop rollout in ar and addressed_ar avoid the cold-counting bottleneck of step_ar and addressed_step_ar?",
+  "runs": [],
+  "conclusion": null
+}
