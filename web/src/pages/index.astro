@@ -67,13 +67,30 @@ function count(n: number, one: string, many: string): string {
 </html>
 
 <style>
+  /* One centred column: on a wide screen the content sits in the middle
+     rather than hugging the left edge. More room above and between sections
+     than the sidebar pages, since this page has little on it. */
   .landing {
-    max-width: 800px;
+    max-width: 640px;
+    margin: 0 auto;
     box-sizing: border-box;
-    padding: var(--content-pad);
+    padding: 80px 40px 64px;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 36px;
+  }
+
+  /* The logo and heading are centred over the column; the cards below keep
+     left-aligned text, which is easier to scan. */
+  .wordmark {
+    justify-content: center;
+  }
+  .page-header {
+    justify-content: center;
+    text-align: center;
+  }
+  .page-header > div {
+    gap: 8px;
   }
 
   .experiment-list {
@@ -82,15 +99,15 @@ function count(n: number, one: string, many: string): string {
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
   }
 
   /* The whole card is the link, so it reads as one block rather than underlined text. */
   .experiment-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 14px 16px;
+    gap: 6px;
+    padding: 20px 24px;
     color: var(--c-ink);
   }
   .experiment-card:hover {
@@ -107,6 +124,7 @@ function count(n: number, one: string, many: string): string {
 
   .credit {
     margin: 0;
+    text-align: center;
     font-size: var(--fs-tiny);
   }
 
