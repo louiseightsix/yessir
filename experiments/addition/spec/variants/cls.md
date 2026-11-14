@@ -2,7 +2,7 @@
 
 The `cls` variant (`experiments/addition/variants/cls/`) frames [the `addition` task](../task.md) as per-step parallel classification through `ParallelClassificationHead`, driven by a step-by-step harness that updates the incoming carry `c_k` and accumulated sum digits `o_0, ..., o_{k-1}` between columns.
 
-At each column step `k` (`0 <= k <= K`), `ParallelClassificationHead.heads[0..2]` read the hidden state at the final position (`lengths - 1`) of the step-`k` sequence to predict `(o_k, c_{k+1}, flag_k)` in parallel:
+At each column step `k` (`0 <= k <= K`), `ParallelClassificationHead.heads[0..2]` (`num_classes = (VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE) = (256, 256, 256)`) read the hidden state at the final position (`lengths - 1`) of the step-`k` sequence to predict `(o_k, c_{k+1}, flag_k)` in parallel:
 - `heads[0]` predicts the sum digit `o_k`.
 - `heads[1]` predicts the outgoing carry `c_{k+1}` (`s_0` or `s_1`).
 - `heads[2]` predicts the halting flag `flag_k` (`FLAG_CONTINUE` for `k < K`, `FLAG_FINISHED` for `k == K`).

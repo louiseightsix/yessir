@@ -103,7 +103,28 @@ Each position has a token in `input_ids`, and (depending on `EmbeddingMode`) opt
 | Operand `b` | `b_0, ..., b_{L_b-1}` | `TokenType.OPERAND_B` (`3`) | `0, 1, ..., L_b - 1` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 
-In the prefix, digit `a_k` in `TokenType.OPERAND_A` and digit `b_k` in `TokenType.OPERAND_B` both sit at `position_id = k` (`0`-indexed from least-significant to most-significant column). How the step state or trace after the third `[SEP]` is laid out—and how its `token_type_ids` and `position_ids` couple to column `k`—is specified in [`variants/cls.md`](variants/cls.md), [`variants/step_fork.md`](variants/step_fork.md), [`variants/step_ar.md`](variants/step_ar.md), [`variants/ar.md`](variants/ar.md), [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md), and [`variants/addressed_ar.md`](variants/addressed_ar.md).
+In the prefix, digit `a_k` in `TokenType.OPERAND_A` and digit `b_k` in `TokenType.OPERAND_B` both sit at `position_id = k` (`0`-indexed from least-significant to most-significant column).
+
+Across all six variants, `experiments/addition/inputs.py` defines seven section types (`TokenType` in `vocab.TOKEN_TYPE_RANGE`, `0..6`) and four experiment-specific special tokens (`AdditionToken` in `vocab.EXPERIMENT_SPECIAL_RANGE`, `0xF8`–`0xFB`, alongside the shared `SpecialToken`s `[SEP] = 0xF0`, `[PAD] = 0xF1`, `[BOS] = 0xF2`, `[EOS] = 0xF3`, `[FLAG_CONTINUE] = 0xF5`, `[FLAG_FINISHED] = 0xF6`):
+
+| `TokenType` | Value | Role | `position_id` at column `k` |
+| :--- | :--- | :--- | :--- |
+| `TokenType.SPECIAL` | `0` | Delimiters (`[BOS]`, `[SEP]`, `[EOS]`, `[IDX]`) and query tokens (`[S]`, `[C]`, `[F]`) | `0` in prefix; `k` for column-`k` markers/queries |
+| `TokenType.ALPHABET` | `1` | Alphabet symbols `s_0, ..., s_{B-1}` | `0, 1, ..., B - 1` |
+| `TokenType.OPERAND_A` | `2` | Operand `a` digits `a_0, ..., a_{L_a-1}` | `0, 1, ..., L_a - 1` |
+| `TokenType.OPERAND_B` | `3` | Operand `b` digits `b_0, ..., b_{L_b-1}` | `0, 1, ..., L_b - 1` |
+| `TokenType.CARRY` | `4` | Incoming carry `c_k` (`k`) and emitted outgoing carry `c_{k+1}` (`k + 1`) | `k` (incoming) / `k + 1` (outgoing) |
+| `TokenType.OUTPUT` | `5` | Emitted sum digits `o_j` | `1..k` in [`cls`](variants/cls.md); `0..k` in all `SubspaceLMHead` variants |
+| `TokenType.ADDRESS` | `6` | Base-`B` column address digits `addr(j)` in [`addressed_step_ar`](variants/addressed_step_ar.md) and [`addressed_ar`](variants/addressed_ar.md) | `j` |
+
+| `AdditionToken` | Byte ID | Glyph | Purpose |
+| :--- | :--- | :--- | :--- |
+| `AdditionToken.QUERY_SUM` | `0xF8` | `[S]` | Queries or marks the sum digit `o_k` |
+| `AdditionToken.QUERY_CARRY` | `0xF9` | `[C]` | Queries or marks the outgoing carry `c_{k+1}` |
+| `AdditionToken.QUERY_FLAG` | `0xFA` | `[F]` | Queries the halting flag `flag_k` |
+| `AdditionToken.IDX` | `0xFB` | `[IDX]` | Opens a base-`B` column-addressed entry `[IDX] addr(j) ...` |
+
+How the step state or trace after the third `[SEP]` is laid out in each variant is specified in [`variants/cls.md`](variants/cls.md), [`variants/step_fork.md`](variants/step_fork.md), [`variants/step_ar.md`](variants/step_ar.md), [`variants/ar.md`](variants/ar.md), [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md), and [`variants/addressed_ar.md`](variants/addressed_ar.md).
 
 ### Embedding modes (`EmbeddingMode`)
 
@@ -129,9 +150,9 @@ Evaluation over a set of problems (computed under teacher forcing across all `K 
 
 ### First-error taxonomy (`FirstErrorType`)
 
-For every evaluated problem that fails `exact_match`, the earliest column `k` (`0 <= k <= K`) where the model's prediction deviates from the ground truth is classified into one of four mutually exclusive error categories:
+For every evaluated problem that fails `exact_match`, the earliest column `k` (`0 <= k <= K`) where the model's teacher-forced predictions deviate from the ground truth is classified into one of four mutually exclusive error categories (checking within column `k` in deterministic order: first any supervised trace structure/address/query tokens `[IDX]`, `addr(k)`, `[S]`, `[C]`; then the value tokens `(o_k, c_{k+1})` in emission order; and finally the halting prediction `flag_k` / `[EOS]` / next `[IDX]`):
 
-1. **`out_of_alphabet`**: a predicted sum digit or outgoing carry at column `k` is not a member of the problem's `alphabet`.
-2. **`prior_intrusion`**: when evaluated on a permuted canonical alphabet, the predicted token at column `k` belongs to `alphabet` and is wrong under the prompt's alphabet, but equals the symbol that conventional canonical numeral order (`'0'..'9'`, `'A'..'F'`) would assign to that digit value (`total % B` or `total // B`).
+1. **`out_of_alphabet`**: a predicted sum digit `o_k` or outgoing carry `c_{k+1}` at column `k` is not a member of the problem's `alphabet`.
+2. **`prior_intrusion`**: when evaluated on a permuted canonical alphabet (`SymbolSet.DECIMAL[:B]` or `SymbolSet.HEX[:B]`), the predicted sum digit or outgoing carry at column `k` belongs to `alphabet` and is wrong under the prompt's alphabet, but equals the symbol that conventional canonical numeral order (`'0'..'9'`, `'A'..'F'`) would assign to that digit value (`total % B` or `total // B`).
 3. **`procedural_error`**: the predicted sum digit or outgoing carry belongs to `alphabet`, but has the wrong arithmetic value (and is not a `prior_intrusion`).
-4. **`syntax_malformation`**: the sum digit and outgoing carry at column `k` are valid, or a non-value token was expected, and the model emitted a premature or missing halting/step control token (`FLAG_FINISHED` / `FLAG_CONTINUE` / `[EOS]` / `[IDX]`) or an ill-formed column address `addr(k)`.
+4. **`syntax_malformation`**: a non-value prediction at column `k` failed—either a supervised trace header/query/address token (`[IDX]`, `addr(k)`, `[S]`, `[C]`) was ill-formed, or `(o_k, c_{k+1})` were valid and the model emitted a premature or missing halting/step control token (`FLAG_FINISHED` / `FLAG_CONTINUE` / `[EOS]` / `[IDX]`).

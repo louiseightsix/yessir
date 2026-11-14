@@ -42,9 +42,11 @@ Using the base-`B` column address encoding `addr(j, alphabet)` ([`addressed_ar.m
 | Output history entry `j` (`0 <= j < k`) | `[IDX]`, `addr(j)`, `o_j` | `SPECIAL` (`0`), `ADDRESS` (`6`), `OUTPUT` (`5`) | `j` |
 | Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
 | Step `k` index hint | `[IDX]`, `addr(k)` | `SPECIAL` (`0`), `ADDRESS` (`6`) | `k` |
-| Step `k` sum digit *(with optional `[S]`)* | `([S],) o_k` | `(SPECIAL (0),) OUTPUT` (`5`) | `k` |
-| Step `k` outgoing carry *(with optional `[C]`)* | `([C],) c_{k+1}` | `(SPECIAL (0),) CARRY` (`4`) | `k + 1` |
-| Step `k` flag query token *(if `use_query_tokens=True`)* | `[F]` | `TokenType.SPECIAL` (`0`) | `k` |
+| Step `k` query tokens *(if `use_query_tokens=True`)* | `[S]`, `[C]`, `[F]` | `TokenType.SPECIAL` (`0`) | `k` |
+| Step `k` sum digit | `o_k` | `TokenType.OUTPUT` (`5`) | `k` |
+| Step `k` outgoing carry | `c_{k+1}` | `TokenType.CARRY` (`4`) | `k + 1` |
+
+*(Under `carry_first`, the outgoing carry `c_{k+1}` and sum digit `o_k`—along with their preceding `[C]` and `[S]` query tokens when `use_query_tokens=True`—appear in the order carry then sum, keeping the exact same `token_type_ids` and `position_ids`.)*
 
 ## 2. Examples
 
