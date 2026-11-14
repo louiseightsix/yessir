@@ -1,4 +1,9 @@
-# Yessir! 🫡
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="wordmark/yessir-wordmark-dark.svg">
+    <img alt="Yessir! 🫡" src="wordmark/yessir-wordmark-light.svg" width="383">
+  </picture>
+</h1>
 
 **Yessir!** is a playground for exploring rule-following behaviour in transformer-based models. 
 
@@ -43,3 +48,7 @@ Needs [uv](https://docs.astral.sh/uv/) (and [pnpm](https://pnpm.io/) for `./yess
 ### Agent sandboxes
 
 The environment is per OS (`.venv-darwin`, `.venv-linux`), so a checkout shared between a macOS host and a Linux VM works from both. Set `UV_PROJECT_ENVIRONMENT` to override.
+
+## Credits
+
+The saluting face in the wordmark is designed by [OpenMoji](https://openmoji.org/), the open-source emoji and icon project, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The wordmark is shared under the same licence.
