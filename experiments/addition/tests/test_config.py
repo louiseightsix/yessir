@@ -128,6 +128,13 @@ def test_eval_splits_construction_and_seed_non_collision():
     assert [s.name for s in collide_splits] == ["id", "extrap_len"]
     assert collide_splits[1].seed == 3000 != cfg_collide.seed
 
+    # The stored value keeps only the OOD bases that get a split.
+    assert cfg.eval_ood_bases == "12"
+    assert cfg.parsed_eval_ood_bases == (12,)
+    all_trained = AdditionConfig(bases="2,3,12", eval_ood_bases="3,12")
+    assert all_trained.eval_ood_bases is None
+    assert [s.name for s in all_trained.eval_splits()] == ["id", "extrap_len"]
+
     splits = cfg.eval_splits()
     assert splits == (
         EvalSplit(

@@ -374,7 +374,13 @@ def sample_problem(
     base = rng.choice(bases)
 
     if permuted_canonical:
-        alphabet = create_alphabet(SymbolSet.HEX[:base], rng=rng)
+        # A shuffle returns the ascending order 1 time in B! (half the time in
+        # base 2), which would not be a permuted alphabet at all, so redraw
+        # until the order differs from the canonical one.
+        canonical = create_alphabet(SymbolSet.HEX[:base])
+        alphabet = canonical
+        while alphabet == canonical:
+            alphabet = create_alphabet(SymbolSet.HEX[:base], rng=rng)
     elif p_prior > 0.0 and rng.random() < p_prior:
         alphabet = create_alphabet(SymbolSet.HEX[:base])
     else:

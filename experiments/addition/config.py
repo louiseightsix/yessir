@@ -153,11 +153,20 @@ class AdditionConfig(ExperimentConfig):
         if self.eval_ood_bases is not None and not self.eval_ood_bases.strip():
             object.__setattr__(self, "eval_ood_bases", None)
         if self.eval_ood_bases is not None:
-            ood_bases = parse_bases_csv(
-                self.eval_ood_bases, field_name="eval_ood_bases"
+            # A base that is also trained on is not out of distribution, so it
+            # gets no OOD split. Drop it from the stored value too, so that
+            # `config.json` lists exactly the OOD bases that were evaluated.
+            ood_bases = tuple(
+                b
+                for b in parse_bases_csv(
+                    self.eval_ood_bases, field_name="eval_ood_bases"
+                )
+                if b not in train_bases
             )
             object.__setattr__(
-                self, "eval_ood_bases", ",".join(str(b) for b in ood_bases)
+                self,
+                "eval_ood_bases",
+                ",".join(str(b) for b in ood_bases) if ood_bases else None,
             )
         else:
             ood_bases = ()

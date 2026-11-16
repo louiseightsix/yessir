@@ -278,7 +278,14 @@ def test_prior_mixture_and_permuted_canonical_alphabets():
     )
     canonical_10 = tuple(SymbolSet.DECIMAL)
     assert all(set(p.alphabet) == set(canonical_10) for p in perm_probs)
-    assert any(p.alphabet != canonical_10 for p in perm_probs)
+    assert all(p.alphabet != canonical_10 for p in perm_probs)
+
+    # A shuffle of 2 symbols returns the ascending order half the time; the
+    # permuted alphabet must never be the canonical one, so base 2 is always '10'.
+    perm_base_2 = list(
+        itertools.islice(iter_problems(bases=(2,), permuted_canonical=True, seed=7), 50)
+    )
+    assert all(p.alphabet == (ord("1"), ord("0")) for p in perm_base_2)
 
 
 def test_carry_chain_injection_produces_multi_column_carries():
