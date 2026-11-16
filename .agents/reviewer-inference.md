@@ -31,7 +31,7 @@ This persona asks one question: **assuming the numbers are real and the code is 
 
 ### Diagnostic metrics, baselines, and controls
 
-- Do the diagnostic sub-metrics in `eval_splits.json` (such as `digit_accuracy`, `carry_accuracy`, `halt_accuracy`, and the first-error rates `prior_intrusion`, `procedural_error`, `out_of_alphabet`, `syntax_malformation`) actually support the explanation given for `exact_match`? For example, a `0%` `exact_match` caused solely by failing to emit `<halt>` does not support a claim that the model cannot compute sums or carries.
+- Do the diagnostic sub-metrics in `eval_splits.json` (such as `digit_accuracy`, `carry_accuracy`, `halt_accuracy`, and the first-error rates `prior_intrusion`, `procedural_error`, `out_of_alphabet`, `syntax_malformation`) actually support the explanation given for `exact_match`? For example, a `0%` `exact_match` caused solely by failing to halt (emitting `[FLAG_FINISHED]` in step-wise variants, `[EOS]` in full-trace variants) does not support a claim that the model cannot compute sums or carries.
 - What would a trivial strategy score on this metric and split (always predicting the most common token, copying an input)? Is the reported number well clear of it?
 - Is there an ablation showing that the ingredient credited for the result actually matters?
 

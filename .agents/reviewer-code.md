@@ -31,7 +31,7 @@ Read the code at the commit the run was built from (`git_commit_sha` in its `con
 ### Evaluation and metrics
 
 - Read `evaluation.py` and `yessir/metrics.py`. Does `exact_match` require every output token to be right, including halting? Do `step_accuracy` and the diagnostic metrics in `eval_splits.json` mean what the claim implies?
-- Is evaluation decoding genuinely autoregressive rather than training-time teacher forcing? In multi-step variants (`cls`, `step_ar`, `step_fork`), check the outer loop in `evaluation.py` as well: step `k + 1` must receive the model's own predicted state (such as carry `c_{k+1}`) and stop on the model's own halt decision, with no access to the reference trajectory after problem setup.
+- Is evaluation decoding genuinely autoregressive rather than training-time teacher forcing? In multi-step variants (`cls`, `step_ar`, `addressed_step_ar`, `step_fork`), check the outer loop in `evaluation.py` as well: step `k + 1` must receive the model's own predicted state (such as carry `c_{k+1}`) and stop on the model's own halt decision, with no access to the reference trajectory after problem setup.
 - Is the model in eval mode, and is there any state carried between evaluation batches?
 
 ### Tests
