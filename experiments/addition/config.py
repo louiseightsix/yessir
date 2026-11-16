@@ -15,6 +15,9 @@ ADDITION_DESCRIPTION = (
 CLS_DESCRIPTION = (
     "Per-step parallel classification variant read through ParallelClassificationHead."
 )
+STEP_FORK_DESCRIPTION = (
+    "Per-step parallel branching queries ([S], [C], [F]) read through SubspaceLMHead."
+)
 
 
 @unique
@@ -388,8 +391,8 @@ class AdditionConfig(ExperimentConfig):
 
 
 @dataclass(frozen=True, kw_only=True)
-class AdditionClsConfig(AdditionConfig):
-    """Configuration schema for the `cls` variant of `addition` (adds harnessed step-sampling controls)."""
+class AdditionStepConfig(AdditionConfig):
+    """Shared base config for harnessed step-by-step `addition` variants (`p_terminal`, `all_steps`)."""
 
     p_terminal: float = field(
         default=0.2, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
@@ -400,3 +403,13 @@ class AdditionClsConfig(AdditionConfig):
         super().__post_init__()
         if not (0.0 <= self.p_terminal <= 1.0):
             raise ValueError(f"p_terminal must be in 0.0..1.0, got {self.p_terminal}")
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdditionClsConfig(AdditionStepConfig):
+    """Configuration schema for the `cls` variant of `addition`."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdditionStepForkConfig(AdditionStepConfig):
+    """Configuration schema for the `step_fork` variant of `addition`."""

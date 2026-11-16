@@ -7,6 +7,9 @@ from experiments.addition.reference import reference_add
 from experiments.addition.variants.cls.dataset import AdditionClsDataset
 from experiments.addition.variants.cls.evaluation import evaluate_cls
 from experiments.addition.variants.cls.generation import rollout_cls
+from experiments.addition.variants.step_fork.dataset import AdditionStepForkDataset
+from experiments.addition.variants.step_fork.evaluation import evaluate_step_fork
+from experiments.addition.variants.step_fork.generation import rollout_step_fork
 from yessir.alphabet import SymbolSet
 from yessir.heads import HeadType
 from yessir.model import Transformer
@@ -86,3 +89,66 @@ def test_addition_cls_cpu_convergence():
                 for step in reference_add(alphabet, a, b)
             ]
             assert rollout_cls(model, alphabet, a, b) == expected
+
+
+def test_addition_step_fork_cpu_convergence():
+    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under `step_fork` and verify >=98% exact match.
+
+    Why `n_layers=3` (vs `n_layers=2` for `cls`):
+    - With the parameter-free `SubspaceLMHead` (`RMSNorm(x)[:, :, :256]`), the
+      trailing query token (`[S]`/`[C]`/`[F]`) needs three attention hops to write
+      the target byte into coordinates `0..255`: (1) fetch `(a_k, b_k, c_k)` at
+      `position_id == k`, (2) match them against `alphabet` to compute the target
+      digit/carry index, and (3) attend back to `alphabet` to copy `s_{idx}`.
+    """
+    seed_everything(42)
+
+    symbols = SymbolSet.DECIMAL[:2]
+    bases = (2,)
+    min_length = 1
+    max_length = 2
+
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=8,
+        d_ff=64,
+        d_position=8,
+        d_scratch=16,
+    )
+
+    train_dataset = AdditionStepForkDataset(
+        bases=bases,
+        min_length=min_length,
+        max_length=max_length,
+        symbols=symbols,
+        all_steps=True,
+        seed=42,
+    )
+    eval_problems = iter_problems(
+        bases=bases,
+        min_length=min_length,
+        max_length=max_length,
+        symbols=symbols,
+        seed=999,
+    )
+
+    # `batch_size = 3 * 12 = 36` collates `[S], [C], [F]` branches for 12 column transitions per step.
+    train(model, train_dataset, max_steps=900, batch_size=3 * 12, lr=8e-4)
+
+    metrics = evaluate_step_fork(model, eval_problems, num_problems=100)
+    assert metrics.exact_match >= 0.98
+    assert metrics.step_accuracy >= 0.99
+    assert metrics.halt_accuracy >= 0.99
+
+    for alphabet in (b"01", b"10"):
+        s0, s1 = alphabet[0], alphabet[1]
+        for a, b in (
+            (bytes([s1, s0]), bytes([s1])),
+            (bytes([s1, s1]), bytes([s1])),
+        ):
+            expected = [
+                (step.sum_digit, step.carry_out, int(step.flag))
+                for step in reference_add(alphabet, a, b)
+            ]
+            assert rollout_step_fork(model, alphabet, a, b) == expected

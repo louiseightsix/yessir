@@ -9,6 +9,8 @@ import pytest
 from experiments.addition.config import (
     AdditionClsConfig,
     AdditionConfig,
+    AdditionStepConfig,
+    AdditionStepForkConfig,
     EvalSplit,
     SymbolSetName,
     parse_bases_csv,
@@ -57,8 +59,14 @@ def test_default_configs_and_derived_properties():
     )
 
     cls_cfg = AdditionClsConfig()
+    assert isinstance(cls_cfg, AdditionStepConfig)
     assert cls_cfg.p_terminal == 0.2
     assert cls_cfg.all_steps is False
+
+    fork_cfg = AdditionStepForkConfig()
+    assert isinstance(fork_cfg, AdditionStepConfig)
+    assert fork_cfg.p_terminal == 0.2
+    assert fork_cfg.all_steps is False
 
 
 def test_embedding_mode_and_fixed_d_model_combinations():

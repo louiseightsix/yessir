@@ -9,7 +9,9 @@ from experiments.addition.config import (
     CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
 )
 from experiments.addition.config import (
+    STEP_FORK_DESCRIPTION,
     AdditionClsConfig,
+    AdditionStepForkConfig,
 )
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
@@ -65,6 +67,15 @@ def test_web_export_prints_schemas_with_stdlib_only():
                     "default_config": AdditionClsConfig().to_dict(),
                     "fields": [
                         spec.to_dict() for spec in build_field_specs(AdditionClsConfig)
+                    ],
+                },
+                {
+                    "name": "step_fork",
+                    "description": STEP_FORK_DESCRIPTION,
+                    "default_config": AdditionStepForkConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict()
+                        for spec in build_field_specs(AdditionStepForkConfig)
                     ],
                 },
             ],

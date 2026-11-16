@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from experiments.__main__ import EXPERIMENTS
-from experiments.addition.config import AdditionClsConfig
+from experiments.addition.config import AdditionClsConfig, AdditionStepForkConfig
 from experiments.addition.run import ADDITION_EXPERIMENT
 from experiments.addition.run import main as addition_main
 from yessir.experiment import run_experiments_cli
@@ -16,13 +16,14 @@ def test_addition_registered_in_top_level_experiments():
     names = [exp.name for exp in EXPERIMENTS]
     assert "addition" in names
     assert ADDITION_EXPERIMENT in EXPERIMENTS
-    assert [v.name for v in ADDITION_EXPERIMENT.variants] == ["cls"]
+    assert [v.name for v in ADDITION_EXPERIMENT.variants] == ["cls", "step_fork"]
 
 
 def test_addition_main_no_args_prints_help(capsys: pytest.CaptureFixture[str]):
     addition_main([])
     out = capsys.readouterr().out
     assert "cls" in out
+    assert "step_fork" in out
 
 
 def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefacts(
@@ -144,3 +145,66 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     assert "[addition:cls] eval[id] (4 problems):" in out
     assert "[addition:cls] eval[ood_base3] (4 problems):" in out
     assert f"artefacts written to {run_dir}" in out
+
+
+def test_dispatch_addition_step_fork_smoke_run_writes_artefacts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    run_dir = tmp_path / "2026-11-16-0000000-brisk-finch"
+    eval_results = run_experiments_cli(
+        EXPERIMENTS,
+        [
+            "addition",
+            "step_fork",
+            "--out-dir",
+            str(run_dir),
+            "--bases",
+            "2,4",
+            "--min-length",
+            "1",
+            "--max-length",
+            "2",
+            "--eval-ood-bases",
+            "3",
+            "--eval-extrap-max-length",
+            "4",
+            "--max-steps",
+            "2",
+            "--batch-size",
+            "2",
+            "--num-eval-problems",
+            "3",
+            "--eval-batch-size",
+            "2",
+            "--n-layers",
+            "1",
+            "--n-heads",
+            "4",
+            "--d-ff",
+            "32",
+            "--d-position",
+            "8",
+            "--d-scratch",
+            "0",
+        ],
+    )
+    assert eval_results is not None
+    assert list(eval_results.keys()) == [
+        "exact_match",
+        "step_accuracy",
+        "ood_base3_exact_match",
+        "ood_base3_step_accuracy",
+        "extrap_len_exact_match",
+        "extrap_len_step_accuracy",
+    ]
+
+    config_payload = json.loads((run_dir / "config.json").read_text())
+    assert config_payload["experiment"] == "addition"
+    assert config_payload["variant"] == "step_fork"
+    loaded_cfg = AdditionStepForkConfig.from_dict(config_payload["config"])
+    assert loaded_cfg.batch_size == 2
+    assert (run_dir / "eval.json").is_file()
+    assert (run_dir / "eval_splits.json").is_file()
+
+    out = capsys.readouterr().out
+    assert "[addition:step_fork] Starting run:" in out

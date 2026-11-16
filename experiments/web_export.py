@@ -11,7 +11,9 @@ from typing import Any
 
 from experiments.addition.config import (
     ADDITION_DESCRIPTION,
+    STEP_FORK_DESCRIPTION,
     AdditionClsConfig,
+    AdditionStepForkConfig,
 )
 from experiments.addition.config import (
     CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
@@ -34,7 +36,10 @@ VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
         ("cls", CLS_DESCRIPTION, SirYesSirClsConfig),
         ("ar", AR_DESCRIPTION, SirYesSirConfig),
     ),
-    "addition": (("cls", ADDITION_CLS_DESCRIPTION, AdditionClsConfig),),
+    "addition": (
+        ("cls", ADDITION_CLS_DESCRIPTION, AdditionClsConfig),
+        ("step_fork", STEP_FORK_DESCRIPTION, AdditionStepForkConfig),
+    ),
 }
 DESCRIPTIONS: dict[str, str] = {
     "sir_yes_sir": SIR_YES_SIR_DESCRIPTION,
