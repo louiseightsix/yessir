@@ -3,12 +3,14 @@
 from collections.abc import Sequence
 
 from experiments.addition.inputs import (
-    AdditionToken,
     EmbeddingMode,
     StepOrder,
     TokenType,
     build_prefix_tokens,
     make_example,
+    pack_step_order,
+    step_query_tokens,
+    unpack_step_order,
 )
 from experiments.addition.reference import ColumnStep, reference_add
 from yessir.dataset import IGNORE_INDEX, LabelledExample
@@ -16,47 +18,13 @@ from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token, TokenSequence
 
-
-def pack_step_order(
-    sum_digit: Token,
-    carry_out: Token,
-    step_order: StepOrder,
-) -> tuple[Token, Token]:
-    """Order `(sum_digit, carry_out)` into `(t_0, t_1)` according to `step_order`."""
-    order = StepOrder(step_order)
-    if order == StepOrder.SUM_FIRST:
-        return int(sum_digit), int(carry_out)
-    return int(carry_out), int(sum_digit)
-
-
-def unpack_step_order(
-    t_0: Token,
-    t_1: Token,
-    step_order: StepOrder,
-) -> tuple[Token, Token]:
-    """Unpack `(t_0, t_1)` back into `(sum_digit, carry_out)` according to `step_order`."""
-    order = StepOrder(step_order)
-    if order == StepOrder.SUM_FIRST:
-        return int(t_0), int(t_1)
-    return int(t_1), int(t_0)
-
-
-def step_query_tokens(
-    step_order: StepOrder,
-) -> tuple[AdditionToken, AdditionToken, AdditionToken]:
-    """Return `(Q_0, Q_1, Q_2)` (`([S], [C], [F])` or `([C], [S], [F])`) for `step_order`."""
-    order = StepOrder(step_order)
-    if order == StepOrder.SUM_FIRST:
-        return (
-            AdditionToken.QUERY_SUM,
-            AdditionToken.QUERY_CARRY,
-            AdditionToken.QUERY_FLAG,
-        )
-    return (
-        AdditionToken.QUERY_CARRY,
-        AdditionToken.QUERY_SUM,
-        AdditionToken.QUERY_FLAG,
-    )
+__all__ = [
+    "build_step_ar_example",
+    "build_step_ar_step_labelled_example",
+    "pack_step_order",
+    "step_query_tokens",
+    "unpack_step_order",
+]
 
 
 def _step_slot_metadata(

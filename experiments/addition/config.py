@@ -21,6 +21,7 @@ STEP_FORK_DESCRIPTION = (
 STEP_AR_DESCRIPTION = (
     "Per-step sequential next-token prediction variant read through SubspaceLMHead."
 )
+AR_DESCRIPTION = "Full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
 
 
 @unique
@@ -430,6 +431,18 @@ class AdditionStepForkConfig(AdditionStepConfig):
 @dataclass(frozen=True, kw_only=True)
 class AdditionStepArConfig(AdditionStepConfig):
     """Configuration schema for the `step_ar` variant of `addition`."""
+
+    step_order: StepOrder = StepOrder.SUM_FIRST
+    use_query_tokens: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "step_order", StepOrder(self.step_order))
+        super().__post_init__()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdditionArConfig(AdditionConfig):
+    """Configuration schema for the full-trace `ar` variant of `addition`."""
 
     step_order: StepOrder = StepOrder.SUM_FIRST
     use_query_tokens: bool = False

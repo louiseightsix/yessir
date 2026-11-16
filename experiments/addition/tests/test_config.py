@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from experiments.addition.config import (
+    AdditionArConfig,
     AdditionClsConfig,
     AdditionConfig,
     AdditionStepArConfig,
@@ -73,6 +74,11 @@ def test_default_configs_and_derived_properties():
     assert isinstance(step_ar_cfg, AdditionStepConfig)
     assert step_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert step_ar_cfg.use_query_tokens is False
+
+    ar_cfg = AdditionArConfig()
+    assert not isinstance(ar_cfg, AdditionStepConfig)
+    assert ar_cfg.step_order == StepOrder.SUM_FIRST
+    assert ar_cfg.use_query_tokens is False
 
 
 def test_embedding_mode_and_fixed_d_model_combinations():
@@ -303,6 +309,11 @@ def test_json_round_trip():
     )
     assert restored_step_ar == step_ar
     assert isinstance(restored_step_ar.step_order, StepOrder)
+
+    ar = AdditionArConfig(step_order=StepOrder.CARRY_FIRST, use_query_tokens=True)
+    restored_ar = AdditionArConfig.from_dict(json.loads(json.dumps(ar.to_dict())))
+    assert restored_ar == ar
+    assert isinstance(restored_ar.step_order, StepOrder)
 
 
 def test_config_import_does_not_load_torch():

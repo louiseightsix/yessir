@@ -126,4 +126,4 @@ def evaluate_step_ar(
             )
         evaluated.append((alphabet, steps, tuple(step_preds)))
 
-    return score_predictions(evaluated)
+    return score_predictions(evaluated, step_order=order)

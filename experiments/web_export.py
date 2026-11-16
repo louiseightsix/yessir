@@ -13,9 +13,13 @@ from experiments.addition.config import (
     ADDITION_DESCRIPTION,
     STEP_AR_DESCRIPTION,
     STEP_FORK_DESCRIPTION,
+    AdditionArConfig,
     AdditionClsConfig,
     AdditionStepArConfig,
     AdditionStepForkConfig,
+)
+from experiments.addition.config import (
+    AR_DESCRIPTION as ADDITION_AR_DESCRIPTION,
 )
 from experiments.addition.config import (
     CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
@@ -42,6 +46,7 @@ VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
         ("cls", ADDITION_CLS_DESCRIPTION, AdditionClsConfig),
         ("step_fork", STEP_FORK_DESCRIPTION, AdditionStepForkConfig),
         ("step_ar", STEP_AR_DESCRIPTION, AdditionStepArConfig),
+        ("ar", ADDITION_AR_DESCRIPTION, AdditionArConfig),
     ),
 }
 DESCRIPTIONS: dict[str, str] = {

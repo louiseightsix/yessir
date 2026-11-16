@@ -7,6 +7,7 @@ import pytest
 
 from experiments.__main__ import EXPERIMENTS
 from experiments.addition.config import (
+    AdditionArConfig,
     AdditionClsConfig,
     AdditionStepArConfig,
     AdditionStepForkConfig,
@@ -25,15 +26,15 @@ def test_addition_registered_in_top_level_experiments():
         "cls",
         "step_fork",
         "step_ar",
+        "ar",
     ]
 
 
 def test_addition_main_no_args_prints_help(capsys: pytest.CaptureFixture[str]):
     addition_main([])
     out = capsys.readouterr().out
-    assert "cls" in out
-    assert "step_fork" in out
-    assert "step_ar" in out
+    for name in ("cls", "step_fork", "step_ar", "ar"):
+        assert name in out
 
 
 def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefacts(
@@ -278,3 +279,63 @@ def test_dispatch_addition_step_ar_smoke_run_writes_artefacts(
 
     out = capsys.readouterr().out
     assert "[addition:step_ar] Starting run:" in out
+
+
+def test_dispatch_addition_ar_smoke_run_writes_artefacts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    run_dir = tmp_path / "2026-11-16-0000000-swift-otter"
+    eval_results = run_experiments_cli(
+        EXPERIMENTS,
+        [
+            "addition",
+            "ar",
+            "--out-dir",
+            str(run_dir),
+            "--bases",
+            "2,4",
+            "--min-length",
+            "1",
+            "--max-length",
+            "2",
+            "--eval-ood-bases",
+            "3",
+            "--eval-extrap-max-length",
+            "4",
+            "--step-order",
+            "carry_first",
+            "--use-query-tokens",
+            "--max-steps",
+            "2",
+            "--batch-size",
+            "2",
+            "--num-eval-problems",
+            "3",
+            "--eval-batch-size",
+            "2",
+            "--n-layers",
+            "1",
+            "--n-heads",
+            "4",
+            "--d-ff",
+            "32",
+            "--d-position",
+            "8",
+            "--d-scratch",
+            "0",
+        ],
+    )
+    assert eval_results is not None
+    assert "exact_match" in eval_results
+
+    config_payload = json.loads((run_dir / "config.json").read_text())
+    assert config_payload["experiment"] == "addition"
+    assert config_payload["variant"] == "ar"
+    loaded_cfg = AdditionArConfig.from_dict(config_payload["config"])
+    assert loaded_cfg.step_order == StepOrder.CARRY_FIRST
+    assert loaded_cfg.use_query_tokens is True
+    assert (run_dir / "eval.json").is_file()
+    assert (run_dir / "eval_splits.json").is_file()
+
+    out = capsys.readouterr().out
+    assert "[addition:ar] Starting run:" in out

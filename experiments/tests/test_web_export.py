@@ -6,11 +6,15 @@ import sys
 
 from experiments.__main__ import EXPERIMENTS
 from experiments.addition.config import (
+    AR_DESCRIPTION as ADDITION_AR_DESCRIPTION,
+)
+from experiments.addition.config import (
     CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
 )
 from experiments.addition.config import (
     STEP_AR_DESCRIPTION,
     STEP_FORK_DESCRIPTION,
+    AdditionArConfig,
     AdditionClsConfig,
     AdditionStepArConfig,
     AdditionStepForkConfig,
@@ -87,6 +91,14 @@ def test_web_export_prints_schemas_with_stdlib_only():
                     "fields": [
                         spec.to_dict()
                         for spec in build_field_specs(AdditionStepArConfig)
+                    ],
+                },
+                {
+                    "name": "ar",
+                    "description": ADDITION_AR_DESCRIPTION,
+                    "default_config": AdditionArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict() for spec in build_field_specs(AdditionArConfig)
                     ],
                 },
             ],

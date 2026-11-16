@@ -4,6 +4,10 @@ import pytest
 
 from experiments.addition.inputs import StepOrder, iter_problems
 from experiments.addition.reference import reference_add
+from experiments.addition.variants.ar.dataset import AdditionArDataset
+from experiments.addition.variants.ar.evaluation import evaluate_ar
+from experiments.addition.variants.ar.generation import rollout_ar
+from experiments.addition.variants.ar.inputs import build_ar_trace_tokens
 from experiments.addition.variants.cls.dataset import AdditionClsDataset
 from experiments.addition.variants.cls.evaluation import evaluate_cls
 from experiments.addition.variants.cls.generation import rollout_cls
@@ -16,6 +20,7 @@ from experiments.addition.variants.step_fork.generation import rollout_step_fork
 from yessir.alphabet import SymbolSet
 from yessir.heads import HeadType
 from yessir.model import Transformer
+from yessir.special_tokens import SpecialToken
 from yessir.training import seed_everything, train
 from yessir.vocab import VOCAB_SIZE
 
@@ -215,3 +220,59 @@ def test_addition_step_ar_cpu_convergence():
                 rollout_step_ar(model, alphabet, a, b, step_order=step_order)
                 == expected
             )
+
+
+def test_addition_ar_cpu_convergence():
+    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under full-trace `ar` (`carry_first`) and verify >=98% exact match."""
+    seed_everything(42)
+
+    symbols = SymbolSet.DECIMAL[:2]
+    bases = (2,)
+    min_length = 1
+    max_length = 2
+    step_order = StepOrder.CARRY_FIRST
+
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=8,
+        d_ff=64,
+        d_position=8,
+        d_scratch=16,
+    )
+
+    train_dataset = AdditionArDataset(
+        bases=bases,
+        min_length=min_length,
+        max_length=max_length,
+        symbols=symbols,
+        step_order=step_order,
+        seed=42,
+    )
+    eval_problems = iter_problems(
+        bases=bases,
+        min_length=min_length,
+        max_length=max_length,
+        symbols=symbols,
+        seed=999,
+    )
+
+    train(model, train_dataset, max_steps=600, batch_size=20, lr=8e-4)
+
+    metrics = evaluate_ar(model, eval_problems, num_problems=100, step_order=step_order)
+    assert metrics.exact_match >= 0.98
+    assert metrics.step_accuracy >= 0.99
+    assert metrics.halt_accuracy >= 0.99
+
+    for alphabet in (b"01", b"10"):
+        s0, s1 = alphabet[0], alphabet[1]
+        for a, b in (
+            (bytes([s1, s0]), bytes([s1])),
+            (bytes([s1, s1]), bytes([s1])),
+        ):
+            steps = reference_add(alphabet, a, b)
+            expected = [
+                *build_ar_trace_tokens(steps, step_order=step_order),
+                int(SpecialToken.EOS),
+            ]
+            assert rollout_ar(model, alphabet, a, b, step_order=step_order) == expected
