@@ -1,7 +1,7 @@
 """Shared evaluation metrics (`EvalMetrics`), 4-way first-error taxonomy (`FirstErrorType`), and variant-agnostic scoring (`StepPrediction`, `classify_first_error`, `score_predictions`) for `addition`."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum, unique
 
 from experiments.addition.inputs import StepOrder
@@ -53,23 +53,17 @@ class EvalMetrics:
     digit_accuracy: float
     carry_accuracy: float | None
     halt_accuracy: float
-    out_of_alphabet: float = 0.0
-    prior_intrusion: float = 0.0
-    procedural_error: float = 0.0
-    syntax_malformation: float = 0.0
+    out_of_alphabet: float
+    prior_intrusion: float
+    procedural_error: float
+    syntax_malformation: float
 
     def to_dict(self, *, prefix: str = "") -> dict[str, float | None]:
         """Serialise metrics to a flat JSON-ready dict (with `exact_match` first for `web/`)."""
+        # Fields come out in declaration order, so `exact_match` stays first and
+        # a newly added field cannot be left out.
         return {
-            f"{prefix}exact_match": self.exact_match,
-            f"{prefix}step_accuracy": self.step_accuracy,
-            f"{prefix}digit_accuracy": self.digit_accuracy,
-            f"{prefix}carry_accuracy": self.carry_accuracy,
-            f"{prefix}halt_accuracy": self.halt_accuracy,
-            f"{prefix}out_of_alphabet": self.out_of_alphabet,
-            f"{prefix}prior_intrusion": self.prior_intrusion,
-            f"{prefix}procedural_error": self.procedural_error,
-            f"{prefix}syntax_malformation": self.syntax_malformation,
+            f"{prefix}{field.name}": getattr(self, field.name) for field in fields(self)
         }
 
 
@@ -98,6 +92,9 @@ def _classify_value_mismatch(
         # or `total // B` (for `c_{k+1}`). Under a permuted canonical alphabet,
         # emitting `SymbolSet.HEX[value]` means the model fell back to conventional
         # ASCII numeral order ('0'..'9', 'A'..'F') for that digit value.
+        # Chance baseline (`spec/task.md` §3): this is one of only `B - 1` wrong
+        # in-alphabet symbols, and in base 2 it is the only one, so every
+        # in-alphabet error there lands in this branch.
         digit_value = alphabet.index(expected_token)
         if pred_token == SymbolSet.HEX[digit_value]:
             return FirstErrorType.PRIOR_INTRUSION
@@ -120,6 +117,8 @@ def classify_first_error(
     2. Value tokens `(o_k, c_{k+1})` in `step_order` (`sum_first` or `carry_first`).
     3. Halting / step-continuation prediction (`pred.halt_ok`).
     """
+    if not alphabet:
+        raise ValueError("alphabet must not be empty")
     if not steps:
         raise ValueError("steps must contain at least 1 ColumnStep")
     if len(predictions) != len(steps):
@@ -182,14 +181,13 @@ def score_predictions(
     error_counts: dict[FirstErrorType, int] = dict.fromkeys(FirstErrorType, 0)
 
     for alphabet, steps, preds in evaluated_problems:
-        if not alphabet:
-            raise ValueError("alphabet must not be empty")
-        if not steps:
-            raise ValueError("steps must contain at least 1 ColumnStep")
-        if len(preds) != len(steps):
-            raise ValueError(
-                f"predictions length ({len(preds)}) must match steps length ({len(steps)})"
-            )
+        # Classify first: it also checks that this problem's inputs are
+        # non-empty and aligned, before any of its steps are counted.
+        first_err = classify_first_error(alphabet, steps, preds, step_order=step_order)
+        if first_err is None:
+            em_count += 1
+        else:
+            error_counts[first_err] += 1
 
         s_0 = alphabet[0]
         for step, pred in zip(steps, preds, strict=True):
@@ -207,12 +205,6 @@ def score_predictions(
 
         if all(p.halt_ok for p in preds):
             halt_ok_count += 1
-
-        first_err = classify_first_error(alphabet, steps, preds, step_order=step_order)
-        if first_err is None:
-            em_count += 1
-        else:
-            error_counts[first_err] += 1
 
     return EvalMetrics(
         exact_match=em_count / num_problems,

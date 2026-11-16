@@ -7,6 +7,7 @@ from experiments.addition.evaluation import (
     FirstErrorType,
     StepPrediction,
     classify_first_error,
+    is_canonical_symbol_set,
     score_predictions,
 )
 from experiments.addition.inputs import AdditionToken, StepOrder
@@ -39,6 +40,17 @@ def test_perfect_predictions_score_100_percent_and_zero_errors():
     # First key of `to_dict()` is `exact_match` (drives `headlineMetric` in `web/`).
     as_dict = metrics.to_dict()
     assert next(iter(as_dict)) == "exact_match"
+    assert as_dict == {
+        "exact_match": 1.0,
+        "step_accuracy": 1.0,
+        "digit_accuracy": 1.0,
+        "carry_accuracy": 1.0,
+        "halt_accuracy": 1.0,
+        "out_of_alphabet": 0.0,
+        "prior_intrusion": 0.0,
+        "procedural_error": 0.0,
+        "syntax_malformation": 0.0,
+    }
     assert metrics.to_dict(prefix="ood_base3_")["ood_base3_exact_match"] == 1.0
 
 
@@ -121,7 +133,6 @@ def test_prior_intrusion_on_permuted_canonical_sum_and_carry():
 
 def test_prior_intrusion_never_fires_on_non_canonical_or_ascending_canonical():
     # Random non-canonical alphabet containing '3' by chance: must classify as PROCEDURAL_ERROR, not PRIOR_INTRUSION.
-    non_canon = b"q#73"  # B=4, '3' is at index 3, wait: pick '3' at index 1 so expected index 3 is '3'? No:
     non_canon = b"q3#7"  # q=0, 3=1, #=2, 7=3 -> 1 ('3') + 2 ('#') = 3 ('7'); canonical[3] is '3'
     steps = reference_add(non_canon, b"3", b"#")
     assert steps[0].sum_digit == ord("7")
@@ -181,6 +192,75 @@ def test_emission_order_and_within_column_precedence():
     )
 
 
+def test_earliest_failing_column_decides_the_first_error():
+    """An error in an earlier column wins over any error in a later column."""
+    alphabet = SymbolSet.DECIMAL
+    steps = reference_add(alphabet, b"789", b"52")  # 4 columns
+    perfect = _perfect_preds(steps)
+
+    # Halt failure at k=0 (checked last within its column) still precedes an
+    # out-of-alphabet sum digit at k=1.
+    halt_then_value = list(perfect)
+    halt_then_value[0] = StepPrediction(
+        sum_digit=steps[0].sum_digit, carry_out=steps[0].carry_out, halt_ok=False
+    )
+    halt_then_value[1] = StepPrediction(
+        sum_digit=ord("x"), carry_out=steps[1].carry_out
+    )
+    assert (
+        classify_first_error(alphabet, steps, halt_then_value)
+        == FirstErrorType.SYNTAX_MALFORMATION
+    )
+
+    # Out-of-alphabet sum digit at k=1 precedes a procedural error at k=2 and a
+    # syntax failure at k=3.
+    value_then_later = list(perfect)
+    value_then_later[1] = StepPrediction(
+        sum_digit=ord("x"), carry_out=steps[1].carry_out
+    )
+    value_then_later[2] = StepPrediction(
+        sum_digit=ord("5"), carry_out=steps[2].carry_out
+    )
+    value_then_later[3] = StepPrediction(
+        sum_digit=steps[3].sum_digit, carry_out=steps[3].carry_out, syntax_ok=False
+    )
+    assert (
+        classify_first_error(alphabet, steps, value_then_later)
+        == FirstErrorType.OUT_OF_ALPHABET
+    )
+
+
+def test_base_2_permuted_canonical_in_alphabet_errors_are_all_prior_intrusion():
+    """In base 2 the only wrong in-alphabet symbol is the canonical one (`spec/task.md` §3)."""
+    alphabet = b"10"  # '1' = 0, '0' = 1
+    steps = reference_add(alphabet, b"1", b"0")  # 0 + 1: o_0 = '0', c_1 = '1'
+    assert (steps[0].sum_digit, steps[0].carry_out) == (ord("0"), ord("1"))
+
+    wrong_predictions = [
+        (sum_digit, carry_out)
+        for sum_digit in alphabet
+        for carry_out in alphabet
+        if (sum_digit, carry_out) != (ord("0"), ord("1"))
+    ]
+    assert len(wrong_predictions) == 3
+    for sum_digit, carry_out in wrong_predictions:
+        preds = (StepPrediction(sum_digit=sum_digit, carry_out=carry_out),)
+        assert (
+            classify_first_error(alphabet, steps, preds)
+            == FirstErrorType.PRIOR_INTRUSION
+        )
+
+
+def test_is_canonical_symbol_set():
+    assert is_canonical_symbol_set(b"0123")
+    assert is_canonical_symbol_set(b"2031")  # permuted
+    assert is_canonical_symbol_set(SymbolSet.HEX)
+    assert not is_canonical_symbol_set(b"q3#7")
+    assert not is_canonical_symbol_set(b"0124")  # '4' is not in HEX[:4]
+    # No canonical numerals exist beyond base 16.
+    assert not is_canonical_symbol_set(bytes(range(0x30, 0x30 + 17)))
+
+
 def test_partition_of_unity_across_mixed_outcomes():
     alphabet = b"2031"  # permuted canonical B=4 ('2'=0, '0'=1, '3'=2, '1'=3)
     steps = reference_add(alphabet, b"0", b"3")  # o_0='1' (val 3), c_1='2' (val 0)
@@ -226,3 +306,11 @@ def test_score_predictions_rejects_empty_or_mismatched_inputs():
         score_predictions([(alphabet, steps, ())])
     with pytest.raises(ValueError, match="must match steps length"):
         classify_first_error(alphabet, steps, ())
+    with pytest.raises(ValueError, match="at least 1 ColumnStep"):
+        score_predictions([(alphabet, (), ())])
+    with pytest.raises(ValueError, match="at least 1 ColumnStep"):
+        classify_first_error(alphabet, (), ())
+    with pytest.raises(ValueError, match="alphabet must not be empty"):
+        score_predictions([(b"", steps, _perfect_preds(steps))])
+    with pytest.raises(ValueError, match="alphabet must not be empty"):
+        classify_first_error(b"", steps, _perfect_preds(steps))
