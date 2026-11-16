@@ -23,6 +23,7 @@ STEP_AR_DESCRIPTION = (
 )
 AR_DESCRIPTION = "Full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
 ADDRESSED_STEP_AR_DESCRIPTION = "Explicitly base-B addressed per-step sequential next-token prediction variant read through SubspaceLMHead."
+ADDRESSED_AR_DESCRIPTION = "Explicitly base-B addressed full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
 
 
 @unique
@@ -453,6 +454,26 @@ class AdditionArConfig(AdditionConfig):
         super().__post_init__()
 
 
+def _validate_zero_preamble_lengths(
+    config: AdditionConfig, *, include_alphabet: bool
+) -> None:
+    """Validate that `max_length >= B` across training and OOD bases when `include_alphabet=False`."""
+    if include_alphabet:
+        return
+    max_train_base = max(config.parsed_bases)
+    if config.max_length < max_train_base:
+        raise ValueError(
+            f"include_alphabet=False requires max_length ({config.max_length}) >= "
+            f"max(bases) ({max_train_base}) so every alphabet symbol appears in operand addresses"
+        )
+    for b in config.parsed_eval_ood_bases:
+        if config.max_length < b:
+            raise ValueError(
+                f"include_alphabet=False requires max_length ({config.max_length}) >= "
+                f"eval_ood_bases entry ({b}) so OOD splits can sample L >= B"
+            )
+
+
 @dataclass(frozen=True, kw_only=True)
 class AdditionAddressedStepArConfig(AdditionStepArConfig):
     """Configuration schema for the `addressed_step_ar` variant of `addition`."""
@@ -461,16 +482,15 @@ class AdditionAddressedStepArConfig(AdditionStepArConfig):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        if not self.include_alphabet:
-            max_train_base = max(self.parsed_bases)
-            if self.max_length < max_train_base:
-                raise ValueError(
-                    f"include_alphabet=False requires max_length ({self.max_length}) >= "
-                    f"max(bases) ({max_train_base}) so every alphabet symbol appears in operand addresses"
-                )
-            for b in self.parsed_eval_ood_bases:
-                if self.max_length < b:
-                    raise ValueError(
-                        f"include_alphabet=False requires max_length ({self.max_length}) >= "
-                        f"eval_ood_bases entry ({b}) so OOD splits can sample L >= B"
-                    )
+        _validate_zero_preamble_lengths(self, include_alphabet=self.include_alphabet)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdditionAddressedArConfig(AdditionArConfig):
+    """Configuration schema for the full-trace `addressed_ar` variant of `addition`."""
+
+    include_alphabet: bool = True
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        _validate_zero_preamble_lengths(self, include_alphabet=self.include_alphabet)

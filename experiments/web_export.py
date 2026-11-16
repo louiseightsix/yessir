@@ -11,9 +11,11 @@ from typing import Any
 
 from experiments.addition.config import (
     ADDITION_DESCRIPTION,
+    ADDRESSED_AR_DESCRIPTION,
     ADDRESSED_STEP_AR_DESCRIPTION,
     STEP_AR_DESCRIPTION,
     STEP_FORK_DESCRIPTION,
+    AdditionAddressedArConfig,
     AdditionAddressedStepArConfig,
     AdditionArConfig,
     AdditionClsConfig,
@@ -53,6 +55,11 @@ VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
             "addressed_step_ar",
             ADDRESSED_STEP_AR_DESCRIPTION,
             AdditionAddressedStepArConfig,
+        ),
+        (
+            "addressed_ar",
+            ADDRESSED_AR_DESCRIPTION,
+            AdditionAddressedArConfig,
         ),
     ),
 }

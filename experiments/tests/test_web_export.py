@@ -6,9 +6,11 @@ import sys
 
 from experiments.__main__ import EXPERIMENTS
 from experiments.addition.config import (
+    ADDRESSED_AR_DESCRIPTION,
     ADDRESSED_STEP_AR_DESCRIPTION,
     STEP_AR_DESCRIPTION,
     STEP_FORK_DESCRIPTION,
+    AdditionAddressedArConfig,
     AdditionAddressedStepArConfig,
     AdditionArConfig,
     AdditionClsConfig,
@@ -110,6 +112,15 @@ def test_web_export_prints_schemas_with_stdlib_only():
                     "fields": [
                         spec.to_dict()
                         for spec in build_field_specs(AdditionAddressedStepArConfig)
+                    ],
+                },
+                {
+                    "name": "addressed_ar",
+                    "description": ADDRESSED_AR_DESCRIPTION,
+                    "default_config": AdditionAddressedArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict()
+                        for spec in build_field_specs(AdditionAddressedArConfig)
                     ],
                 },
             ],

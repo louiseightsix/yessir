@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 
 from experiments.addition.config import ADDITION_DESCRIPTION
+from experiments.addition.variants.addressed_ar.run import ADDRESSED_AR_VARIANT
 from experiments.addition.variants.addressed_step_ar.run import (
     ADDRESSED_STEP_AR_VARIANT,
 )
@@ -21,6 +22,7 @@ ADDITION_EXPERIMENT = Experiment(
         STEP_AR_VARIANT,
         AR_VARIANT,
         ADDRESSED_STEP_AR_VARIANT,
+        ADDRESSED_AR_VARIANT,
     ),
 )
 
