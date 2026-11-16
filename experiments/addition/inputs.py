@@ -6,7 +6,11 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum, unique
 
-from experiments.addition.reference import ColumnStep, reference_add
+from experiments.addition.reference import (
+    ColumnStep,
+    _validate_inputs,
+    reference_add,
+)
 from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
@@ -105,26 +109,11 @@ def validate_problem(
     `addressed_ar`), both operands must have length `>= len(alphabet)` so all `B`
     symbols appear in ascending order as single-digit addresses `addr(0)..addr(B-1)`.
     """
-    alphabet_tokens = create_alphabet(alphabet)
-    alphabet_set = set(alphabet_tokens)
-
     a_tokens = tuple(a)
     b_tokens = tuple(b)
-    if not a_tokens:
-        raise ValueError("Operand a must contain at least 1 symbol")
-    if not b_tokens:
-        raise ValueError("Operand b must contain at least 1 symbol")
-
-    for idx, sym in enumerate(a_tokens):
-        if sym not in alphabet_set:
-            raise ValueError(
-                f"Operand a symbol 0x{sym:02X} at index {idx} not found in alphabet"
-            )
-    for idx, sym in enumerate(b_tokens):
-        if sym not in alphabet_set:
-            raise ValueError(
-                f"Operand b symbol 0x{sym:02X} at index {idx} not found in alphabet"
-            )
+    # The alphabet and operand checks are the oracle's, so a problem that builds
+    # a prefix is always one `reference_add` accepts.
+    alphabet_tokens, _ = _validate_inputs(alphabet, a_tokens, b_tokens)
 
     if not include_alphabet:
         base = len(alphabet_tokens)
@@ -331,6 +320,9 @@ def validate_sampling_params(
         if isinstance(base, bool) or not isinstance(base, int) or base < 2:
             raise ValueError(f"Each base must be an int >= 2, got {base!r}")
 
+    for name, length in (("min_length", min_length), ("max_length", max_length)):
+        if isinstance(length, bool) or not isinstance(length, int):
+            raise TypeError(f"{name} must be an int, got {length!r}")
     if min_length < 1:
         raise ValueError(f"min_length must be >= 1, got {min_length}")
     if max_length < min_length:

@@ -1,5 +1,6 @@
 """Unit tests for `addition` shared input primitives and problem/step generators (`inputs.py`)."""
 
+import argparse
 import itertools
 
 import pytest
@@ -10,6 +11,7 @@ from experiments.addition.inputs import (
     EmbeddingMode,
     StepOrder,
     TokenType,
+    add_common_dataset_args,
     build_addressed_prefix_example,
     build_prefix_example,
     encode_address,
@@ -121,7 +123,7 @@ def test_build_prefix_example_layout_and_embedding_modes():
 
 def test_build_addressed_prefix_with_and_without_alphabet():
     """Verify addressed prefix layout with multi-digit addresses and zero-preamble mode."""
-    # Base 2 ('q' = 0, '#' = 1), a = ['7'? no, '#' 'q' '#'], length 3 >= B=2 so column 2 has 2-digit addr ('q', '#')
+    # Base 2 ('q' = 0, '#' = 1). L_a = 3 > B = 2, so column 2 has the 2-digit address ('q', '#').
     alphabet = (ord("q"), ord("#"))
     a = (ord("#"), ord("q"), ord("#"))  # L_a = 3: j=0 ('q'), j=1 ('#'), j=2 ('q', '#')
     b = (ord("#"), ord("#"))  # L_b = 2: j=0 ('q'), j=1 ('#')
@@ -365,3 +367,58 @@ def test_iter_problems_eagerly_rejects_invalid_sampling_params():
         iter_problems(bases=(10,), max_length=8, include_alphabet=False)
     with pytest.raises(ValueError, match="p_terminal must be in 0.0..1.0"):
         iter_problem_steps(p_terminal=-0.1)
+    with pytest.raises(ValueError, match="min_length must be >= 1"):
+        iter_problems(min_length=0)
+    with pytest.raises(ValueError, match="must be >= min_length"):
+        iter_problems(min_length=5, max_length=4)
+    with pytest.raises(ValueError, match="p_chain must be in 0.0..1.0"):
+        iter_problems(p_chain=1.5)
+    with pytest.raises(ValueError, match="exceeds symbol_pool size"):
+        iter_problems(bases=(5,), symbols=b"0123")
+
+
+@pytest.mark.parametrize("bad_length", [1.5, "3", True])
+def test_iter_problems_eagerly_rejects_non_int_lengths(bad_length):
+    with pytest.raises(TypeError, match="min_length must be an int"):
+        iter_problems(min_length=bad_length)
+    with pytest.raises(TypeError, match="max_length must be an int"):
+        iter_problems(max_length=bad_length)
+
+
+def test_add_common_dataset_args_defaults_and_parsing():
+    parser = argparse.ArgumentParser()
+    add_common_dataset_args(parser)
+
+    defaults = parser.parse_args([])
+    assert defaults.bases == [2, 4, 8, 10]
+    assert defaults.min_length == 1
+    assert defaults.max_length == 20
+    assert defaults.p_prior == 0.0
+    assert defaults.permuted_canonical is False
+    assert defaults.p_chain == 0.25
+    assert defaults.embedding_mode is EmbeddingMode.TOKEN_TYPE_PE
+    assert defaults.seed == 42
+
+    args = parser.parse_args(
+        [
+            "--bases", "3", "12",
+            "--min-length", "21",
+            "--max-length", "40",
+            "--p-prior", "0.5",
+            "--permuted-canonical",
+            "--p-chain", "0.0",
+            "--embedding-mode", "nope",
+            "--seed", "7",
+        ]
+    )  # fmt: skip
+    assert args.bases == [3, 12]
+    assert args.min_length == 21
+    assert args.max_length == 40
+    assert args.p_prior == 0.5
+    assert args.permuted_canonical is True
+    assert args.p_chain == 0.0
+    assert args.embedding_mode is EmbeddingMode.NOPE
+    assert args.seed == 7
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--embedding-mode", "pe"])
