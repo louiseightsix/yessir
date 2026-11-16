@@ -61,11 +61,7 @@ def test_spec_example_1_base_10_with_carry_overflow():
 
     # Individual `reference_step` calls match every step in `steps`.
     for step in steps:
-        assert reference_step(alphabet, a, b, step.k, step.carry_in) == (
-            step.sum_digit,
-            step.carry_out,
-            step.flag,
-        )
+        assert reference_step(alphabet, a, b, step.k, step.carry_in) == step
 
 
 def test_spec_example_2_arbitrary_symbols_base_3_no_overflow():
@@ -194,6 +190,20 @@ def test_rejects_invalid_carry_symbol():
     # '2' is in alphabet, but not a valid carry (must be s_0='0' or s_1='1')
     with pytest.raises(ValueError, match="Incoming carry .* must be s_0 .* or s_1"):
         reference_step(alphabet, b"789", b"52", k=0, carry=ord("2"))
+
+
+def test_rejects_carry_into_column_zero():
+    """Column 0 always starts with `c_0 = s_0`."""
+    alphabet = SymbolSet.DECIMAL
+    with pytest.raises(ValueError, match="Incoming carry at step k=0 must be s_0"):
+        reference_step(alphabet, b"789", b"52", k=0, carry=ord("1"))
+
+
+def test_rejects_overflow_column_without_carry():
+    """The overflow column `k = max(L_a, L_b)` only runs with `c_k = s_1`."""
+    alphabet = SymbolSet.DECIMAL
+    with pytest.raises(ValueError, match="overflow step k=3 must be s_1"):
+        reference_step(alphabet, b"789", b"52", k=3, carry=ord("0"))
 
 
 def test_rejects_empty_operands():
