@@ -22,6 +22,7 @@ STEP_AR_DESCRIPTION = (
     "Per-step sequential next-token prediction variant read through SubspaceLMHead."
 )
 AR_DESCRIPTION = "Full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
+ADDRESSED_STEP_AR_DESCRIPTION = "Explicitly base-B addressed per-step sequential next-token prediction variant read through SubspaceLMHead."
 
 
 @unique
@@ -450,3 +451,26 @@ class AdditionArConfig(AdditionConfig):
     def __post_init__(self) -> None:
         object.__setattr__(self, "step_order", StepOrder(self.step_order))
         super().__post_init__()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdditionAddressedStepArConfig(AdditionStepArConfig):
+    """Configuration schema for the `addressed_step_ar` variant of `addition`."""
+
+    include_alphabet: bool = True
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not self.include_alphabet:
+            max_train_base = max(self.parsed_bases)
+            if self.max_length < max_train_base:
+                raise ValueError(
+                    f"include_alphabet=False requires max_length ({self.max_length}) >= "
+                    f"max(bases) ({max_train_base}) so every alphabet symbol appears in operand addresses"
+                )
+            for b in self.parsed_eval_ood_bases:
+                if self.max_length < b:
+                    raise ValueError(
+                        f"include_alphabet=False requires max_length ({self.max_length}) >= "
+                        f"eval_ood_bases entry ({b}) so OOD splits can sample L >= B"
+                    )

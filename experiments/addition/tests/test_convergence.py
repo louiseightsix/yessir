@@ -4,6 +4,15 @@ import pytest
 
 from experiments.addition.inputs import StepOrder, iter_problems
 from experiments.addition.reference import reference_add
+from experiments.addition.variants.addressed_step_ar.dataset import (
+    AdditionAddressedStepArDataset,
+)
+from experiments.addition.variants.addressed_step_ar.evaluation import (
+    evaluate_addressed_step_ar,
+)
+from experiments.addition.variants.addressed_step_ar.generation import (
+    rollout_addressed_step_ar,
+)
 from experiments.addition.variants.ar.dataset import AdditionArDataset
 from experiments.addition.variants.ar.evaluation import evaluate_ar
 from experiments.addition.variants.ar.generation import rollout_ar
@@ -276,3 +285,76 @@ def test_addition_ar_cpu_convergence():
                 int(SpecialToken.EOS),
             ]
             assert rollout_ar(model, alphabet, a, b, step_order=step_order) == expected
+
+
+def test_addition_addressed_step_ar_cpu_convergence():
+    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under `addressed_step_ar` (`use_query_tokens=True`) and verify >=98% exact match."""
+    seed_everything(42)
+
+    symbols = SymbolSet.DECIMAL[:2]
+    bases = (2,)
+    min_length = 1
+    max_length = 2
+    step_order = StepOrder.SUM_FIRST
+    use_query_tokens = True
+
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=8,
+        d_ff=64,
+        d_position=8,
+        d_scratch=16,
+    )
+
+    train_dataset = AdditionAddressedStepArDataset(
+        bases=bases,
+        min_length=min_length,
+        max_length=max_length,
+        symbols=symbols,
+        step_order=step_order,
+        use_query_tokens=use_query_tokens,
+        seed=42,
+    )
+    eval_problems = iter_problems(
+        bases=bases,
+        min_length=min_length,
+        max_length=max_length,
+        symbols=symbols,
+        seed=999,
+    )
+
+    train(model, train_dataset, max_steps=1000, batch_size=24, lr=6e-4)
+
+    metrics = evaluate_addressed_step_ar(
+        model,
+        eval_problems,
+        num_problems=100,
+        step_order=step_order,
+        use_query_tokens=use_query_tokens,
+    )
+    assert metrics.exact_match >= 0.98
+    assert metrics.step_accuracy >= 0.99
+    assert metrics.halt_accuracy >= 0.99
+
+    for alphabet in (b"01", b"10"):
+        s0, s1 = alphabet[0], alphabet[1]
+        for a, b in (
+            (bytes([s1, s0]), bytes([s1])),
+            (bytes([s1, s1]), bytes([s1])),
+        ):
+            expected = [
+                (step.sum_digit, step.carry_out, int(step.flag))
+                for step in reference_add(alphabet, a, b)
+            ]
+            assert (
+                rollout_addressed_step_ar(
+                    model,
+                    alphabet,
+                    a,
+                    b,
+                    step_order=step_order,
+                    use_query_tokens=use_query_tokens,
+                )
+                == expected
+            )

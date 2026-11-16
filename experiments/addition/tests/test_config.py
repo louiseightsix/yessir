@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from experiments.addition.config import (
+    AdditionAddressedStepArConfig,
     AdditionArConfig,
     AdditionClsConfig,
     AdditionConfig,
@@ -79,6 +80,12 @@ def test_default_configs_and_derived_properties():
     assert not isinstance(ar_cfg, AdditionStepConfig)
     assert ar_cfg.step_order == StepOrder.SUM_FIRST
     assert ar_cfg.use_query_tokens is False
+
+    addr_step_ar_cfg = AdditionAddressedStepArConfig()
+    assert isinstance(addr_step_ar_cfg, AdditionStepArConfig)
+    assert addr_step_ar_cfg.step_order == StepOrder.SUM_FIRST
+    assert addr_step_ar_cfg.use_query_tokens is False
+    assert addr_step_ar_cfg.include_alphabet is True
 
 
 def test_embedding_mode_and_fixed_d_model_combinations():
@@ -260,6 +267,19 @@ def test_config_validation_rejections():
         AdditionConfig(seed=42, eval_seed=42)
     with pytest.raises(ValueError, match="p_terminal must be in 0.0..1.0"):
         AdditionClsConfig(p_terminal=1.5)
+    with pytest.raises(ValueError, match="include_alphabet=False requires max_length"):
+        AdditionAddressedStepArConfig(
+            bases="2,10", max_length=8, eval_ood_bases=None, include_alphabet=False
+        )
+    with pytest.raises(
+        ValueError, match="include_alphabet=False requires max_length .* eval_ood_bases"
+    ):
+        AdditionAddressedStepArConfig(
+            bases="2,8",
+            max_length=10,
+            eval_ood_bases="3,12",
+            include_alphabet=False,
+        )
 
 
 def test_json_round_trip():
@@ -314,6 +334,18 @@ def test_json_round_trip():
     restored_ar = AdditionArConfig.from_dict(json.loads(json.dumps(ar.to_dict())))
     assert restored_ar == ar
     assert isinstance(restored_ar.step_order, StepOrder)
+
+    addr_step_ar = AdditionAddressedStepArConfig(
+        step_order=StepOrder.CARRY_FIRST,
+        use_query_tokens=True,
+        include_alphabet=False,
+    )
+    restored_addr_step_ar = AdditionAddressedStepArConfig.from_dict(
+        json.loads(json.dumps(addr_step_ar.to_dict()))
+    )
+    assert restored_addr_step_ar == addr_step_ar
+    assert isinstance(restored_addr_step_ar.step_order, StepOrder)
+    assert restored_addr_step_ar.include_alphabet is False
 
 
 def test_config_import_does_not_load_torch():
