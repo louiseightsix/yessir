@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
-from experiments.addition.inputs import EmbeddingMode
+from experiments.addition.inputs import EmbeddingMode, StepOrder
 from yessir.alphabet import SymbolSet
 from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
@@ -17,6 +17,9 @@ CLS_DESCRIPTION = (
 )
 STEP_FORK_DESCRIPTION = (
     "Per-step parallel branching queries ([S], [C], [F]) read through SubspaceLMHead."
+)
+STEP_AR_DESCRIPTION = (
+    "Per-step sequential next-token prediction variant read through SubspaceLMHead."
 )
 
 
@@ -422,3 +425,15 @@ class AdditionClsConfig(AdditionStepConfig):
 @dataclass(frozen=True, kw_only=True)
 class AdditionStepForkConfig(AdditionStepConfig):
     """Configuration schema for the `step_fork` variant of `addition`."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdditionStepArConfig(AdditionStepConfig):
+    """Configuration schema for the `step_ar` variant of `addition`."""
+
+    step_order: StepOrder = StepOrder.SUM_FIRST
+    use_query_tokens: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "step_order", StepOrder(self.step_order))
+        super().__post_init__()
