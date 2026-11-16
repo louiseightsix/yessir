@@ -2,10 +2,11 @@
 
 from collections.abc import Sequence
 
+from experiments.addition.run import ADDITION_EXPERIMENT
 from experiments.sir_yes_sir.run import SIR_YES_SIR_EXPERIMENT
 from yessir.experiment import Experiment, run_experiments_cli
 
-EXPERIMENTS: tuple[Experiment, ...] = (SIR_YES_SIR_EXPERIMENT,)
+EXPERIMENTS: tuple[Experiment, ...] = (SIR_YES_SIR_EXPERIMENT, ADDITION_EXPERIMENT)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

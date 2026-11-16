@@ -5,6 +5,12 @@ import subprocess
 import sys
 
 from experiments.__main__ import EXPERIMENTS
+from experiments.addition.config import (
+    CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
+)
+from experiments.addition.config import (
+    AdditionClsConfig,
+)
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
@@ -49,7 +55,20 @@ def test_web_export_prints_schemas_with_stdlib_only():
                     ],
                 },
             ],
-        }
+        },
+        "addition": {
+            "description": DESCRIPTIONS["addition"],
+            "variants": [
+                {
+                    "name": "cls",
+                    "description": ADDITION_CLS_DESCRIPTION,
+                    "default_config": AdditionClsConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict() for spec in build_field_specs(AdditionClsConfig)
+                    ],
+                },
+            ],
+        },
     }
 
 

@@ -9,6 +9,13 @@ nothing beyond the standard library, so it works without the project's venv
 import json
 from typing import Any
 
+from experiments.addition.config import (
+    ADDITION_DESCRIPTION,
+    AdditionClsConfig,
+)
+from experiments.addition.config import (
+    CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
+)
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
@@ -27,8 +34,12 @@ VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
         ("cls", CLS_DESCRIPTION, SirYesSirClsConfig),
         ("ar", AR_DESCRIPTION, SirYesSirConfig),
     ),
+    "addition": (("cls", ADDITION_CLS_DESCRIPTION, AdditionClsConfig),),
 }
-DESCRIPTIONS: dict[str, str] = {"sir_yes_sir": SIR_YES_SIR_DESCRIPTION}
+DESCRIPTIONS: dict[str, str] = {
+    "sir_yes_sir": SIR_YES_SIR_DESCRIPTION,
+    "addition": ADDITION_DESCRIPTION,
+}
 
 
 def export_schemas() -> dict[str, dict[str, Any]]:
