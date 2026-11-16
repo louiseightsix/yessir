@@ -9,13 +9,14 @@ import pytest
 from experiments.addition.config import (
     AdditionClsConfig,
     AdditionConfig,
+    AdditionStepArConfig,
     AdditionStepConfig,
     AdditionStepForkConfig,
     EvalSplit,
     SymbolSetName,
     parse_bases_csv,
 )
-from experiments.addition.inputs import EmbeddingMode
+from experiments.addition.inputs import EmbeddingMode, StepOrder
 from yessir.alphabet import SymbolSet
 
 
@@ -67,6 +68,11 @@ def test_default_configs_and_derived_properties():
     assert isinstance(fork_cfg, AdditionStepConfig)
     assert fork_cfg.p_terminal == 0.2
     assert fork_cfg.all_steps is False
+
+    step_ar_cfg = AdditionStepArConfig()
+    assert isinstance(step_ar_cfg, AdditionStepConfig)
+    assert step_ar_cfg.step_order == StepOrder.SUM_FIRST
+    assert step_ar_cfg.use_query_tokens is False
 
 
 def test_embedding_mode_and_fixed_d_model_combinations():
@@ -288,6 +294,15 @@ def test_json_round_trip():
     assert restored == original
     assert isinstance(restored.symbol_set, SymbolSetName)
     assert isinstance(restored.embedding_mode, EmbeddingMode)
+
+    step_ar = AdditionStepArConfig(
+        step_order=StepOrder.CARRY_FIRST, use_query_tokens=True
+    )
+    restored_step_ar = AdditionStepArConfig.from_dict(
+        json.loads(json.dumps(step_ar.to_dict()))
+    )
+    assert restored_step_ar == step_ar
+    assert isinstance(restored_step_ar.step_order, StepOrder)
 
 
 def test_config_import_does_not_load_torch():
