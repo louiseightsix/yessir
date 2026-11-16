@@ -181,7 +181,6 @@ def test_addition_step_ar_cpu_convergence():
         min_length=min_length,
         max_length=max_length,
         symbols=symbols,
-        all_steps=True,
         step_order=step_order,
         seed=42,
     )
@@ -193,7 +192,7 @@ def test_addition_step_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=900, batch_size=16, lr=8e-4)
+    train(model, train_dataset, max_steps=1000, batch_size=24, lr=6e-4)
 
     metrics = evaluate_step_ar(
         model, eval_problems, num_problems=100, step_order=step_order
