@@ -92,11 +92,36 @@ class _ScriptedRolloutAddressedArModel:
 
 
 class _ScriptedEvalAddressedArModel:
-    """Fake `SubspaceLMHead` model placing scripted target sequences at `n - len(targets) .. n - 1`."""
+    """Stateless prefix-keyed fake `SubspaceLMHead` model for rollout + oracle `evaluate_addressed_ar` tests."""
 
-    def __init__(self, scripted_targets: Sequence[Sequence[Token]]) -> None:
-        self._targets = [list(seq) for seq in scripted_targets]
-        self._cursor = 0
+    def __init__(
+        self,
+        problems: Sequence[AdditionProblem],
+        scripted_targets: Sequence[Sequence[Token]],
+        *,
+        include_alphabet: bool = True,
+        oracle_targets: Sequence[Sequence[Token]] | None = None,
+    ) -> None:
+        self._entries: list[
+            tuple[tuple[int, ...], tuple[int, ...], list[int], list[int]]
+        ] = []
+        oracle_list = (
+            [list(seq) for seq in oracle_targets]
+            if oracle_targets is not None
+            else [list(seq) for seq in scripted_targets]
+        )
+        for prob, roll_seq, ora_seq in zip(
+            problems, scripted_targets, oracle_list, strict=True
+        ):
+            prefix = build_addressed_ar_example(
+                prob.alphabet, prob.a, prob.b, include_alphabet=include_alphabet
+            ).input_ids
+            steps = reference_add(prob.alphabet, prob.a, prob.b)
+            oracle_full_noq = prefix + build_addressed_ar_trace_tokens(
+                steps, prob.alphabet, use_query_tokens=False
+            )
+            self._entries.append((prefix, oracle_full_noq, list(roll_seq), ora_seq))
+        self._has_custom_oracle = oracle_targets is not None
         self.training = True
         self.device = torch.device("cpu")
 
@@ -117,14 +142,22 @@ class _ScriptedEvalAddressedArModel:
 
         for b in range(batch_size):
             n = int(lengths[b].item())
-            # Poison all positions (including prefix and padded tail) with PAD first.
+            row = tuple(input_ids[b, :n].tolist())
             logits[b, :, int(SpecialToken.PAD)] = 50.0
-            seq = self._targets[self._cursor]
-            self._cursor += 1
-            start = n - len(seq)
+            matched = next(
+                entry for entry in self._entries if row[: len(entry[0])] == entry[0]
+            )
+            prefix, oracle_full_noq, roll_seq, ora_seq = matched
+            seq = (
+                ora_seq
+                if (self._has_custom_oracle and row == oracle_full_noq)
+                else roll_seq
+            )
+            start = len(prefix) - 1
             for idx, tok in enumerate(seq):
-                logits[b, start + idx, int(SpecialToken.PAD)] = 0.0
-                logits[b, start + idx, tok] = 100.0
+                if start + idx < n:
+                    logits[b, start + idx, int(SpecialToken.PAD)] = 0.0
+                    logits[b, start + idx, tok] = 100.0
         return logits
 
 
@@ -838,8 +871,11 @@ def test_evaluate_addressed_ar_all_modes_and_batch_size_invariance(
     )
     t1[2 + body_sum_offset] = wrong_digit
 
+    model = _ScriptedEvalAddressedArModel(
+        problems, [t0, t1], include_alphabet=include_alphabet
+    )
     m_b1 = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([t0, t1]),  # ty: ignore[invalid-argument-type]
+        model,  # ty: ignore[invalid-argument-type]
         problems,
         num_problems=2,
         batch_size=1,
@@ -848,7 +884,7 @@ def test_evaluate_addressed_ar_all_modes_and_batch_size_invariance(
         include_alphabet=include_alphabet,
     )
     m_b5 = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([t0, t1]),  # ty: ignore[invalid-argument-type]
+        model,  # ty: ignore[invalid-argument-type]
         problems,
         num_problems=2,
         batch_size=5,
@@ -859,8 +895,10 @@ def test_evaluate_addressed_ar_all_modes_and_batch_size_invariance(
     assert m_b1 == m_b5
     assert m_b1.exact_match == pytest.approx(0.5)
     assert m_b1.halt_accuracy == pytest.approx(1.0)
+    assert m_b1.address_accuracy == pytest.approx(1.0)
     total_steps = len(s0) + len(s1)
     assert m_b1.step_accuracy == pytest.approx((total_steps - 1) / total_steps)
+    assert m_b1.oracle_step_accuracy == pytest.approx((total_steps - 1) / total_steps)
 
 
 def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
@@ -878,65 +916,77 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     ]
     # gold_noq = [IDX, 'q', o_0, c_1, IDX, '#', o_1, c_2, EOS]
 
-    # 1. Wrong `addr(0)` token -> syntax_malformation=1.0, exact_match=0.0, step_accuracy=1.0, halt_accuracy=1.0!
+    # 1. Wrong `addr(0)` token -> syntax_malformation=1.0, exact_match=0.0,
+    # and `syntax_ok` gates column 0 in `step_accuracy` & `address_accuracy` (`E-1`).
     bad_addr = list(gold_noq)
     bad_addr[1] = ord("#")  # expected 'q' (addr(0))
     m_addr = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([bad_addr]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalAddressedArModel([prob], [bad_addr]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
     assert m_addr.exact_match == 0.0
-    assert m_addr.step_accuracy == 1.0
+    assert m_addr.address_accuracy == pytest.approx(0.5)
+    assert m_addr.step_accuracy == pytest.approx(0.5)
+    assert m_addr.oracle_step_accuracy == pytest.approx(0.5)
     assert m_addr.halt_accuracy == 1.0
     assert m_addr.syntax_malformation == 1.0
 
-    # 2. Wrong initial `[IDX]` at index 0 (non-EOS) -> syntax_malformation=1.0, halt_accuracy=1.0.
+    # 2. Wrong initial `[IDX]` at index 0 (non-EOS) -> syntax_malformation=1.0,
+    # column 0 fails `address_accuracy` & `step_accuracy`, column 1 succeeds, halt_accuracy=1.0.
     bad_init_idx = list(gold_noq)
     bad_init_idx[0] = ord("q")
     m_init = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([bad_init_idx]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalAddressedArModel([prob], [bad_init_idx]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
     assert m_init.exact_match == 0.0
-    assert m_init.step_accuracy == 1.0
+    assert m_init.address_accuracy == pytest.approx(0.5)
+    assert m_init.step_accuracy == pytest.approx(0.5)
     assert m_init.halt_accuracy == 1.0
     assert m_init.syntax_malformation == 1.0
 
-    # 3. Wrong continuation `[IDX]` after column 0 (index 4) -> syntax_malformation=1.0 AND halt_accuracy=0.0!
+    # 3. Wrong continuation `[IDX]` after column 0 (index 4) -> merges into 1 malformed segment,
+    # failing `address_accuracy`, `step_accuracy`, and `halt_accuracy` with `syntax_malformation=1.0`.
     bad_cont_idx = list(gold_noq)
     bad_cont_idx[4] = ord("q")  # expected IDX after column 0
     m_cont = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([bad_cont_idx]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalAddressedArModel([prob], [bad_cont_idx]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
     assert m_cont.exact_match == 0.0
-    assert m_cont.step_accuracy == 1.0
+    assert m_cont.address_accuracy == 0.0
+    assert m_cont.step_accuracy == 0.0
     assert m_cont.halt_accuracy == 0.0
     assert m_cont.syntax_malformation == 1.0
 
-    # 4. Premature `[EOS]` inside column 0 -> halt_accuracy=0.0.
+    # 4. Premature `[EOS]` inside column 0 after valid `[IDX] addr(0)` -> `address_accuracy = 0.5`,
+    # `step_accuracy = 0.0`, `halt_accuracy = 0.0`, `out_of_alphabet = 1.0`.
     premature = list(gold_noq)
     premature[2] = eos  # o_0 replaced by EOS
     m_prem = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([premature]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalAddressedArModel([prob], [premature]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
+    assert m_prem.address_accuracy == pytest.approx(0.5)
+    assert m_prem.step_accuracy == 0.0
     assert m_prem.halt_accuracy == 0.0
     assert m_prem.out_of_alphabet == 1.0
 
-    # 5. Missing final `[EOS]` after column K -> syntax_malformation=1.0, halt_accuracy=0.0, step_accuracy=1.0.
+    # 5. Missing final `[EOS]` after column K -> syntax_malformation=1.0, halt_accuracy=0.0,
+    # while columns 0..1 retain `address_accuracy = 1.0` and `step_accuracy = 1.0`.
     missing_eos = list(gold_noq)
     missing_eos[-1] = idx
     m_miss = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([missing_eos]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalAddressedArModel([prob], [missing_eos]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
     assert m_miss.exact_match == 0.0
+    assert m_miss.address_accuracy == 1.0
     assert m_miss.step_accuracy == 1.0
     assert m_miss.halt_accuracy == 0.0
     assert m_miss.syntax_malformation == 1.0
@@ -959,7 +1009,7 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
             eos,
         ]
         m_ord = evaluate_addressed_ar(
-            _ScriptedEvalAddressedArModel([seq]),  # ty: ignore[invalid-argument-type]
+            _ScriptedEvalAddressedArModel([prob], [seq]),  # ty: ignore[invalid-argument-type]
             [prob],
             num_problems=1,
             step_order=order,
@@ -967,65 +1017,155 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
         assert m_ord.procedural_error == expected_proc
         assert m_ord.out_of_alphabet == expected_ooa
 
+    # 7. Wrong-width address on multi-digit column (`k = 2` in base 2 expects `addr(2) = ('0', '1')`;
+    # emitting 1-digit `('0',)` fails both `address_accuracy` and `step_accuracy`).
+    bin_prob = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"101"), b=tuple(b"010"))
+    bin_steps = reference_add(bin_prob.alphabet, bin_prob.a, bin_prob.b)
+    assert len(bin_steps) == 3
+    wrong_width_rollout = [
+        idx,
+        ord("0"),
+        bin_steps[0].sum_digit,
+        bin_steps[0].carry_out,
+        idx,
+        ord("1"),
+        bin_steps[1].sum_digit,
+        bin_steps[1].carry_out,
+        idx,
+        ord("0"),  # 1-bit address instead of ('0', '1')
+        bin_steps[2].sum_digit,
+        bin_steps[2].carry_out,
+        eos,
+    ]
+    m_width = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([bin_prob], [wrong_width_rollout]),  # ty: ignore[invalid-argument-type]
+        [bin_prob],
+        num_problems=1,
+    )
+    assert m_width.exact_match == 0.0
+    assert m_width.address_accuracy == pytest.approx(2 / 3)
+    assert m_width.step_accuracy == pytest.approx(2 / 3)
+    assert m_width.syntax_malformation == 1.0
 
-def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation():
+
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
+    embedding_mode: EmbeddingMode,
+):
     seed_everything(0)
+    use_tt = embedding_mode in (
+        EmbeddingMode.TOKEN_TYPE_PE,
+        EmbeddingMode.TOKEN_TYPE_NOPE,
+    )
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        d_position=8,
-        d_scratch=0,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=d_scratch,
     )
-    problems = iter_problems(
-        bases=(2, 3), min_length=1, max_length=4, include_alphabet=False, seed=77
+    problems = list(
+        itertools.islice(
+            iter_problems(
+                bases=(2, 3),
+                min_length=1,
+                max_length=4,
+                include_alphabet=False,
+                seed=77,
+            ),
+            4,
+        )
     )
-    metrics = evaluate_addressed_ar(
+    m_b1 = evaluate_addressed_ar(
         model,
         problems,
         num_problems=4,
-        batch_size=2,
+        batch_size=1,
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
         include_alphabet=False,
+        embedding_mode=embedding_mode,
     )
-    assert 0.0 <= metrics.exact_match <= 1.0
-    assert 0.0 <= metrics.step_accuracy <= 1.0
-    assert 0.0 <= metrics.halt_accuracy <= 1.0
-
-    emitted = rollout_addressed_ar(
+    m_b3 = evaluate_addressed_ar(
         model,
-        b"01",
-        b"10",
-        b"11",
+        problems,
+        num_problems=4,
+        batch_size=3,
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
         include_alphabet=False,
+        embedding_mode=embedding_mode,
     )
-    assert 1 <= len(emitted) <= 20
+    assert m_b1 == m_b3
+    assert 0.0 <= m_b3.exact_match <= 1.0
+    assert 0.0 <= m_b3.step_accuracy <= 1.0
+    assert 0.0 <= m_b3.oracle_step_accuracy <= 1.0
+    assert m_b3.address_accuracy is not None
+    assert 0.0 <= m_b3.address_accuracy <= 1.0
+    assert 0.0 <= m_b3.halt_accuracy <= 1.0
 
-    with pytest.raises(ValueError, match="num_problems must be >= 1"):
-        evaluate_addressed_ar(model, problems, num_problems=0)
-    with pytest.raises(ValueError, match="batch_size must be >= 1"):
-        evaluate_addressed_ar(model, problems, num_problems=1, batch_size=0)
-    with pytest.raises(ValueError, match="exhausted early"):
-        evaluate_addressed_ar(model, [], num_problems=1)
-
-    cls_model = Transformer(
-        head_type=HeadType.PARALLEL_CLASSIFICATION,
-        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
-        n_layers=1,
-        n_heads=4,
-        d_ff=32,
-        d_position=8,
-        d_scratch=0,
+    # Verify KV-cached `evaluate_addressed_ar` rollout matches uncached `rollout_addressed_ar`.
+    from experiments.addition.variants.addressed_ar.evaluation import (
+        _rollout_addressed_ar_chunk,
     )
-    with pytest.raises(ValueError, match="SubspaceLMHead"):
-        evaluate_addressed_ar(
-            cls_model,
-            iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
-            num_problems=1,
+
+    max_tokens_all = [
+        sum(
+            1 + len(encode_address(k, p.alphabet)) + 4
+            for k in range(max(len(p.a), len(p.b)) + 1)
         )
-    with pytest.raises(ValueError, match="SubspaceLMHead"):
-        rollout_addressed_ar(cls_model, b"01", b"0", b"1")
+        + 1
+        for p in problems
+    ]
+    cached_rollouts = _rollout_addressed_ar_chunk(
+        model,
+        problems,
+        max_tokens_all,
+        step_order=StepOrder.CARRY_FIRST,
+        use_query_tokens=True,
+        include_alphabet=False,
+        embedding_mode=embedding_mode,
+        device=model.device,
+    )
+    for prob, cached in zip(problems, cached_rollouts, strict=True):
+        uncached = rollout_addressed_ar(
+            model,
+            prob.alphabet,
+            prob.a,
+            prob.b,
+            step_order=StepOrder.CARRY_FIRST,
+            use_query_tokens=True,
+            include_alphabet=False,
+            embedding_mode=embedding_mode,
+        )
+        assert cached == uncached
+
+    if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
+        with pytest.raises(ValueError, match="num_problems must be >= 1"):
+            evaluate_addressed_ar(model, problems, num_problems=0)
+        with pytest.raises(ValueError, match="batch_size must be >= 1"):
+            evaluate_addressed_ar(model, problems, num_problems=1, batch_size=0)
+        with pytest.raises(ValueError, match="exhausted early"):
+            evaluate_addressed_ar(model, [], num_problems=1)
+
+        cls_model = Transformer(
+            head_type=HeadType.PARALLEL_CLASSIFICATION,
+            num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+            n_layers=1,
+            n_heads=4,
+            d_ff=32,
+            d_position=8,
+            d_scratch=0,
+        )
+        with pytest.raises(ValueError, match="SubspaceLMHead"):
+            evaluate_addressed_ar(
+                cls_model,
+                iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
+                num_problems=1,
+            )
+        with pytest.raises(ValueError, match="SubspaceLMHead"):
+            rollout_addressed_ar(cls_model, b"01", b"0", b"1")

@@ -83,11 +83,33 @@ class _ScriptedRolloutArModel:
 
 
 class _ScriptedEvalArModel:
-    """Fake `SubspaceLMHead` model placing scripted target sequences at `n - len(targets) .. n - 1`."""
+    """Stateless prefix-keyed fake `SubspaceLMHead` model for rollout + oracle `evaluate_ar` tests."""
 
-    def __init__(self, scripted_targets: Sequence[Sequence[Token]]) -> None:
-        self._targets = [list(seq) for seq in scripted_targets]
-        self._cursor = 0
+    def __init__(
+        self,
+        problems: Sequence[AdditionProblem],
+        scripted_targets: Sequence[Sequence[Token]],
+        *,
+        oracle_targets: Sequence[Sequence[Token]] | None = None,
+    ) -> None:
+        self._entries: list[
+            tuple[tuple[int, ...], tuple[int, ...], list[int], list[int]]
+        ] = []
+        oracle_list = (
+            [list(seq) for seq in oracle_targets]
+            if oracle_targets is not None
+            else [list(seq) for seq in scripted_targets]
+        )
+        for prob, roll_seq, ora_seq in zip(
+            problems, scripted_targets, oracle_list, strict=True
+        ):
+            prefix = build_ar_example(prob.alphabet, prob.a, prob.b).input_ids
+            steps = reference_add(prob.alphabet, prob.a, prob.b)
+            oracle_full_noq = prefix + build_ar_trace_tokens(
+                steps, use_query_tokens=False
+            )
+            self._entries.append((prefix, oracle_full_noq, list(roll_seq), ora_seq))
+        self._has_custom_oracle = oracle_targets is not None
         self.training = True
         self.device = torch.device("cpu")
 
@@ -108,14 +130,22 @@ class _ScriptedEvalArModel:
 
         for b in range(batch_size):
             n = int(lengths[b].item())
-            # Poison all positions (including prefix and padded tail) with PAD first.
+            row = tuple(input_ids[b, :n].tolist())
             logits[b, :, int(SpecialToken.PAD)] = 50.0
-            seq = self._targets[self._cursor]
-            self._cursor += 1
-            start = n - len(seq)
+            matched = next(
+                entry for entry in self._entries if row[: len(entry[0])] == entry[0]
+            )
+            prefix, oracle_full_noq, roll_seq, ora_seq = matched
+            seq = (
+                ora_seq
+                if (self._has_custom_oracle and row == oracle_full_noq)
+                else roll_seq
+            )
+            start = len(prefix) - 1
             for idx, tok in enumerate(seq):
-                logits[b, start + idx, int(SpecialToken.PAD)] = 0.0
-                logits[b, start + idx, tok] = 100.0
+                if start + idx < n:
+                    logits[b, start + idx, int(SpecialToken.PAD)] = 0.0
+                    logits[b, start + idx, tok] = 100.0
         return logits
 
 
@@ -437,8 +467,9 @@ def test_evaluate_ar_all_modes_and_batch_size_invariance(
     )
     t1[sum_idx_in_col0] = wrong_digit
 
+    model = _ScriptedEvalArModel(problems, [t0, t1])
     m_b1 = evaluate_ar(
-        _ScriptedEvalArModel([t0, t1]),  # ty: ignore[invalid-argument-type]
+        model,  # ty: ignore[invalid-argument-type]
         problems,
         num_problems=2,
         batch_size=1,
@@ -446,7 +477,7 @@ def test_evaluate_ar_all_modes_and_batch_size_invariance(
         use_query_tokens=use_query_tokens,
     )
     m_b5 = evaluate_ar(
-        _ScriptedEvalArModel([t0, t1]),  # ty: ignore[invalid-argument-type]
+        model,  # ty: ignore[invalid-argument-type]
         problems,
         num_problems=2,
         batch_size=5,
@@ -456,8 +487,10 @@ def test_evaluate_ar_all_modes_and_batch_size_invariance(
     assert m_b1 == m_b5
     assert m_b1.exact_match == pytest.approx(0.5)
     assert m_b1.halt_accuracy == pytest.approx(1.0)
+    assert m_b1.address_accuracy is None
     total_steps = len(s0) + len(s1)
     assert m_b1.step_accuracy == pytest.approx((total_steps - 1) / total_steps)
+    assert m_b1.oracle_step_accuracy == pytest.approx((total_steps - 1) / total_steps)
 
 
 def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
@@ -465,7 +498,8 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
     steps = reference_add(prob.alphabet, prob.a, prob.b)
     eos = int(SpecialToken.EOS)
 
-    # 1. Wrong query token [S] -> syntax_malformation=1.0, exact_match=0.0, but step_accuracy=1.0 & halt_accuracy=1.0!
+    # 1. Wrong query token [S] on column 0 of 2 -> syntax_malformation=1.0, exact_match=0.0,
+    # and `syntax_ok` gates column 0 in both `step_accuracy` and `oracle_step_accuracy` (`E-1`).
     q_targets = [
         *build_ar_trace_tokens(
             steps, step_order=StepOrder.SUM_FIRST, use_query_tokens=True
@@ -475,36 +509,44 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
     bad_q = list(q_targets)
     bad_q[0] = int(AdditionToken.QUERY_CARRY)  # expected [S]
     m_bad_q = evaluate_ar(
-        _ScriptedEvalArModel([bad_q]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalArModel([prob], [bad_q]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
         step_order=StepOrder.SUM_FIRST,
         use_query_tokens=True,
     )
     assert m_bad_q.exact_match == 0.0
-    assert m_bad_q.step_accuracy == 1.0
+    assert m_bad_q.step_accuracy == pytest.approx(0.5)
+    assert m_bad_q.oracle_step_accuracy == pytest.approx(0.5)
+    assert m_bad_q.digit_accuracy == pytest.approx(0.5)
     assert m_bad_q.halt_accuracy == 1.0
     assert m_bad_q.syntax_malformation == 1.0
 
-    # 2. Boundary premature EOS (`preds[2 * k]`, e.g. at k = 0 or between columns k = 0 and k = 1)
-    # under both `use_query_tokens=False` and `use_query_tokens=True` -> syntax_malformation=1.0,
-    # halt_accuracy=0.0; mid-column EOS (`preds[2 * k + 1]` after valid `t_0`) -> out_of_alphabet=1.0.
+    # 2. Boundary premature EOS (`preds[2 * k]`) stops free-running rollout immediately (`E-3`):
+    # - `boundary_idx = 0`: stops before column 0 (`step_accuracy = 0.0`), while single-pass
+    #   teacher-forced `oracle_step_accuracy` still scores column 1 (`0.5`).
+    # - `boundary_idx = 2`: completes column 0, stops before column 1 (`step_accuracy = 0.5`).
+    # - Mid-column EOS (`preds[1]` after valid `o_0`) -> `out_of_alphabet = 1.0`.
     noq_targets = [
         *build_ar_trace_tokens(
             steps, step_order=StepOrder.SUM_FIRST, use_query_tokens=False
         ),
         eos,
     ]
-    for boundary_idx, expected_step_acc in ((0, 0.5), (2, 0.5)):
+    for boundary_idx, expected_rollout_acc, expected_oracle_acc in (
+        (0, 0.0, 0.5),
+        (2, 0.5, 0.5),
+    ):
         premature_boundary = list(noq_targets)
         premature_boundary[boundary_idx] = eos
         m_prem = evaluate_ar(
-            _ScriptedEvalArModel([premature_boundary]),  # ty: ignore[invalid-argument-type]
+            _ScriptedEvalArModel([prob], [premature_boundary]),  # ty: ignore[invalid-argument-type]
             [prob],
             num_problems=1,
         )
         assert m_prem.exact_match == 0.0
-        assert m_prem.step_accuracy == pytest.approx(expected_step_acc)
+        assert m_prem.step_accuracy == pytest.approx(expected_rollout_acc)
+        assert m_prem.oracle_step_accuracy == pytest.approx(expected_oracle_acc)
         assert m_prem.halt_accuracy == 0.0
         assert m_prem.syntax_malformation == 1.0
         assert m_prem.out_of_alphabet == 0.0
@@ -512,28 +554,50 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
     premature_q_boundary = list(q_targets)
     premature_q_boundary[4] = eos  # boundary before column 1 (`[S]`)
     m_prem_q = evaluate_ar(
-        _ScriptedEvalArModel([premature_q_boundary]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalArModel([prob], [premature_q_boundary]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
         use_query_tokens=True,
     )
     assert m_prem_q.exact_match == 0.0
-    assert m_prem_q.step_accuracy == 1.0
+    assert m_prem_q.step_accuracy == pytest.approx(0.5)
+    assert m_prem_q.oracle_step_accuracy == pytest.approx(0.5)
     assert m_prem_q.halt_accuracy == 0.0
     assert m_prem_q.syntax_malformation == 1.0
 
     premature_mid = list(noq_targets)
     premature_mid[1] = eos  # mid-column `c_1` slot after valid `o_0`
     m_prem_mid = evaluate_ar(
-        _ScriptedEvalArModel([premature_mid]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalArModel([prob], [premature_mid]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
+    assert m_prem_mid.step_accuracy == 0.0
     assert m_prem_mid.halt_accuracy == 0.0
     assert m_prem_mid.out_of_alphabet == 1.0
     assert m_prem_mid.syntax_malformation == 0.0
 
-    # 3. `step_order` determines first-error classification when both o_0 (in-alphabet wrong)
+    # 3. Carry cascade: wrong carry on column 0 corrupts column 1 in rollout (`step_accuracy = 0.0`)
+    # while teacher-forced `oracle_step_accuracy` recovers column 1 (`0.5`).
+    rollout_cascade = [steps[0].sum_digit, ord("q"), ord("q"), ord("q"), eos]
+    oracle_recover = [
+        steps[0].sum_digit,
+        ord("q"),
+        steps[1].sum_digit,
+        steps[1].carry_out,
+        eos,
+    ]
+    m_casc = evaluate_ar(
+        _ScriptedEvalArModel(  # ty: ignore[invalid-argument-type]
+            [prob], [rollout_cascade], oracle_targets=[oracle_recover]
+        ),
+        [prob],
+        num_problems=1,
+    )
+    assert m_casc.step_accuracy == 0.0
+    assert m_casc.oracle_step_accuracy == pytest.approx(0.5)
+
+    # 4. `step_order` determines first-error classification when both o_0 (in-alphabet wrong)
     # and c_1 (out-of-alphabet 255) fail in column 0:
     # - Under SUM_FIRST, o_0 is checked first -> procedural_error=1.0.
     # - Under CARRY_FIRST, c_1 is checked first -> out_of_alphabet=1.0.
@@ -549,7 +613,7 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
             eos,
         ]
         m_ord = evaluate_ar(
-            _ScriptedEvalArModel([seq]),  # ty: ignore[invalid-argument-type]
+            _ScriptedEvalArModel([prob], [seq]),  # ty: ignore[invalid-argument-type]
             [prob],
             num_problems=1,
             step_order=order,
@@ -558,60 +622,102 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
         assert m_ord.out_of_alphabet == expected_ooa
 
 
-def test_evaluate_and_rollout_ar_with_real_transformer_and_validation():
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_evaluate_and_rollout_ar_with_real_transformer_and_validation(
+    embedding_mode: EmbeddingMode,
+):
     seed_everything(0)
+    use_tt = embedding_mode in (
+        EmbeddingMode.TOKEN_TYPE_PE,
+        EmbeddingMode.TOKEN_TYPE_NOPE,
+    )
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        d_position=8,
-        d_scratch=0,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=d_scratch,
     )
-    problems = iter_problems(bases=(2, 4), min_length=1, max_length=3, seed=77)
-    metrics = evaluate_ar(
+    problems = list(
+        itertools.islice(
+            iter_problems(bases=(2, 4), min_length=1, max_length=3, seed=77), 4
+        )
+    )
+    m_b1 = evaluate_ar(
         model,
         problems,
         num_problems=4,
-        batch_size=2,
+        batch_size=1,
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
+        embedding_mode=embedding_mode,
     )
-    assert 0.0 <= metrics.exact_match <= 1.0
-    assert 0.0 <= metrics.step_accuracy <= 1.0
-    assert 0.0 <= metrics.halt_accuracy <= 1.0
-
-    emitted = rollout_ar(
+    m_b3 = evaluate_ar(
         model,
-        b"01",
-        b"10",
-        b"1",
+        problems,
+        num_problems=4,
+        batch_size=3,
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
+        embedding_mode=embedding_mode,
     )
-    assert 1 <= len(emitted) <= 13
+    assert m_b1 == m_b3
+    assert 0.0 <= m_b3.exact_match <= 1.0
+    assert 0.0 <= m_b3.step_accuracy <= 1.0
+    assert 0.0 <= m_b3.oracle_step_accuracy <= 1.0
+    assert 0.0 <= m_b3.halt_accuracy <= 1.0
 
-    with pytest.raises(ValueError, match="num_problems must be >= 1"):
-        evaluate_ar(model, problems, num_problems=0)
-    with pytest.raises(ValueError, match="batch_size must be >= 1"):
-        evaluate_ar(model, problems, num_problems=1, batch_size=0)
-    with pytest.raises(ValueError, match="exhausted early"):
-        evaluate_ar(model, [], num_problems=1)
+    # Verify KV-cached `evaluate_ar` rollout matches uncached `rollout_ar` on every problem.
+    from experiments.addition.variants.ar.evaluation import _rollout_ar_chunk
 
-    cls_model = Transformer(
-        head_type=HeadType.PARALLEL_CLASSIFICATION,
-        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
-        n_layers=1,
-        n_heads=4,
-        d_ff=32,
-        d_position=8,
-        d_scratch=0,
+    max_tokens_all = [4 * (max(len(p.a), len(p.b)) + 1) + 1 for p in problems]
+    cached_rollouts = _rollout_ar_chunk(
+        model,
+        problems,
+        max_tokens_all,
+        step_order=StepOrder.CARRY_FIRST,
+        use_query_tokens=True,
+        embedding_mode=embedding_mode,
+        device=model.device,
     )
-    with pytest.raises(ValueError, match="SubspaceLMHead"):
-        evaluate_ar(
-            cls_model,
-            iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
-            num_problems=1,
+    for prob, cached in zip(problems, cached_rollouts, strict=True):
+        uncached = rollout_ar(
+            model,
+            prob.alphabet,
+            prob.a,
+            prob.b,
+            step_order=StepOrder.CARRY_FIRST,
+            use_query_tokens=True,
+            embedding_mode=embedding_mode,
         )
-    with pytest.raises(ValueError, match="SubspaceLMHead"):
-        rollout_ar(cls_model, b"01", b"0", b"1")
+        assert cached == uncached
+
+    if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
+        with pytest.raises(ValueError, match="num_problems must be >= 1"):
+            evaluate_ar(model, problems, num_problems=0)
+        with pytest.raises(ValueError, match="batch_size must be >= 1"):
+            evaluate_ar(model, problems, num_problems=1, batch_size=0)
+        with pytest.raises(ValueError, match="exhausted early"):
+            evaluate_ar(model, [], num_problems=1)
+
+        cls_model = Transformer(
+            head_type=HeadType.PARALLEL_CLASSIFICATION,
+            num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+            n_layers=1,
+            n_heads=4,
+            d_ff=32,
+            d_position=8,
+            d_scratch=0,
+        )
+        with pytest.raises(ValueError, match="SubspaceLMHead"):
+            evaluate_ar(
+                cls_model,
+                iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
+                num_problems=1,
+            )
+        with pytest.raises(ValueError, match="SubspaceLMHead"):
+            rollout_ar(cls_model, b"01", b"0", b"1")

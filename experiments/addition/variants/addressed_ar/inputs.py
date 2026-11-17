@@ -1,6 +1,7 @@
-"""Input sequence and full-trace label construction (`build_addressed_ar_trace_tokens`, `build_addressed_ar_example`, `build_addressed_ar_labelled_example`) for the `addressed_ar` variant of `addition`."""
+"""Input sequence and full-trace label construction (`AddressedTraceMetadataState`, `build_addressed_ar_trace_tokens`, `build_addressed_ar_example`, `build_addressed_ar_labelled_example`) for the `addressed_ar` variant of `addition`."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from experiments.addition.inputs import (
     AdditionToken,
@@ -58,6 +59,76 @@ def build_addressed_ar_trace_tokens(
     return tuple(trace)
 
 
+@dataclass
+class AddressedTraceMetadataState:
+    """Per-sequence state machine assigning `(token_type_id, position_id)` to `addressed_ar` trace tokens.
+
+    Shared by `build_addressed_ar_example` and KV-cached `evaluate_addressed_ar` so
+    teacher-forced training/oracle passes, single-problem `rollout_addressed_ar`,
+    and batched cached rollouts assign identical coordinates even on wrong-width or
+    malformed segments.
+    """
+
+    alphabet: tuple[Token, ...]
+    step_order: StepOrder
+    use_query_tokens: bool
+    k: int = 0
+    in_segment: bool = False
+    slot: int = 0
+    addr_len: int = 1
+    pending_query: int | None = None
+
+    def __post_init__(self) -> None:
+        self.step_order = StepOrder(self.step_order)
+        self.addr_len = len(encode_address(self.k, self.alphabet))
+
+    def step(self, raw_tok: Token) -> tuple[TokenType, int]:
+        """Advance state for emitted trace token `raw_tok` and return `(token_type_id, position_id)`."""
+        tok = int(raw_tok)
+        idx_tok = int(AdditionToken.IDX)
+        q_sum = int(AdditionToken.QUERY_SUM)
+        q_carry = int(AdditionToken.QUERY_CARRY)
+
+        if tok == idx_tok:
+            if self.in_segment:
+                self.k += 1
+                self.addr_len = len(encode_address(self.k, self.alphabet))
+            self.in_segment = True
+            self.slot = 1
+            self.pending_query = None
+            return TokenType.SPECIAL, self.k
+
+        if not self.in_segment:
+            self.in_segment = True
+            self.slot = 1
+        if self.use_query_tokens:
+            if tok in (q_sum, q_carry):
+                self.pending_query = tok
+                tt, pos = TokenType.SPECIAL, self.k
+            elif self.pending_query == q_sum:
+                self.pending_query = None
+                tt, pos = TokenType.OUTPUT, self.k
+            elif self.pending_query == q_carry:
+                self.pending_query = None
+                tt, pos = TokenType.CARRY, self.k + 1
+            else:
+                tt, pos = TokenType.ADDRESS, self.k
+        else:
+            if self.slot <= self.addr_len:
+                tt, pos = TokenType.ADDRESS, self.k
+            elif self.slot <= self.addr_len + 2:
+                tt, pos = _column_body_slot_metadata(
+                    self.k,
+                    self.slot - 1 - self.addr_len,
+                    step_order=self.step_order,
+                )
+            else:
+                # Hold column `k` on overlong malformed segments until `[IDX]` arrives.
+                tt, pos = TokenType.SPECIAL, self.k
+        self.slot += 1
+        return tt, pos
+
+
 def build_addressed_ar_example(
     alphabet: TokenSequence,
     a: TokenSequence,
@@ -74,58 +145,15 @@ def build_addressed_ar_example(
     input_ids, token_type_ids, position_ids = build_addressed_prefix_tokens(
         alphabet, a, b, include_alphabet=include_alphabet
     )
-    alphabet_tokens = tuple(alphabet)
-    idx_tok = int(AdditionToken.IDX)
-    q_sum = int(AdditionToken.QUERY_SUM)
-    q_carry = int(AdditionToken.QUERY_CARRY)
-
-    k = 0
-    in_segment = False
-    slot = 0
-    addr_len = len(encode_address(0, alphabet_tokens))
-    pending_query: int | None = None
+    meta_state = AddressedTraceMetadataState(
+        alphabet=tuple(alphabet),
+        step_order=order,
+        use_query_tokens=use_query_tokens,
+    )
 
     for raw_tok in trace:
-        tok = int(raw_tok)
-        if tok == idx_tok:
-            if in_segment:
-                k += 1
-                addr_len = len(encode_address(k, alphabet_tokens))
-            in_segment = True
-            slot = 1
-            pending_query = None
-            tt, pos = TokenType.SPECIAL, k
-        else:
-            if not in_segment:
-                in_segment = True
-                slot = 1
-            if use_query_tokens:
-                if tok in (q_sum, q_carry):
-                    pending_query = tok
-                    tt, pos = TokenType.SPECIAL, k
-                elif pending_query == q_sum:
-                    pending_query = None
-                    tt, pos = TokenType.OUTPUT, k
-                elif pending_query == q_carry:
-                    pending_query = None
-                    tt, pos = TokenType.CARRY, k + 1
-                else:
-                    tt, pos = TokenType.ADDRESS, k
-            else:
-                if slot <= addr_len:
-                    tt, pos = TokenType.ADDRESS, k
-                elif slot <= addr_len + 2:
-                    tt, pos = _column_body_slot_metadata(
-                        k,
-                        slot - 1 - addr_len,
-                        step_order=order,
-                    )
-                else:
-                    # Hold column `k` on overlong malformed segments until `[IDX]` arrives.
-                    tt, pos = TokenType.SPECIAL, k
-            slot += 1
-
-        input_ids.append(tok)
+        tt, pos = meta_state.step(raw_tok)
+        input_ids.append(int(raw_tok))
         token_type_ids.append(tt)
         position_ids.append(pos)
 

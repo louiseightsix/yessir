@@ -353,6 +353,35 @@ def test_score_predictions_variable_length_rollout_and_oracle_diagnostic():
     assert m_empty.halt_accuracy == 0.0
     assert m_empty.syntax_malformation == 1.0
 
+    # 4. `syntax_ok=False` gates `digit_accuracy`, `step_accuracy`, and `carry_accuracy` (`E-1`).
+    bad_syntax = list(_perfect_preds(steps))
+    bad_syntax[0] = StepPrediction(
+        sum_digit=steps[0].sum_digit,
+        carry_out=steps[0].carry_out,
+        syntax_ok=False,
+        address_ok=False,
+    )
+    bad_syntax[1] = StepPrediction(
+        sum_digit=steps[1].sum_digit,
+        carry_out=steps[1].carry_out,
+        syntax_ok=False,
+        address_ok=True,  # e.g. valid address, bad query token
+    )
+    for k in (2, 3):
+        bad_syntax[k] = StepPrediction(
+            sum_digit=steps[k].sum_digit,
+            carry_out=steps[k].carry_out,
+            syntax_ok=True,
+            address_ok=True,
+        )
+    m_syn = score_predictions([(alphabet, steps, bad_syntax)], track_addresses=True)
+    assert m_syn.exact_match == 0.0
+    assert m_syn.digit_accuracy == pytest.approx(0.5)
+    assert m_syn.step_accuracy == pytest.approx(0.5)
+    assert m_syn.carry_accuracy == pytest.approx(0.5)
+    assert m_syn.address_accuracy == pytest.approx(0.75)
+    assert m_syn.syntax_malformation == 1.0
+
 
 def test_score_predictions_rejects_empty_inputs():
     alphabet = b"01"

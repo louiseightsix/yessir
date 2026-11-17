@@ -208,7 +208,7 @@ def score_predictions(
 
             if k < len(preds):
                 pred = preds[k]
-                digit_ok = pred.sum_digit == step.sum_digit
+                digit_ok = pred.syntax_ok and (pred.sum_digit == step.sum_digit)
                 both_ok = digit_ok and (pred.carry_out == step.carry_out)
                 if digit_ok:
                     digit_ok_count += 1
