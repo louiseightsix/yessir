@@ -110,10 +110,12 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
 
     config_file = run_dir / "config.json"
     train_file = run_dir / "train.jsonl"
+    eval_jsonl_file = run_dir / "eval.jsonl"
     eval_file = run_dir / "eval.json"
     eval_splits_file = run_dir / "eval_splits.json"
     assert config_file.is_file()
     assert train_file.is_file()
+    assert eval_jsonl_file.is_file()
     assert eval_file.is_file()
     assert eval_splits_file.is_file()
 
@@ -476,3 +478,103 @@ def test_dispatch_addition_addressed_ar_zero_preamble_smoke_run(
 
     out = capsys.readouterr().out
     assert "[addition:addressed_ar] Starting run:" in out
+
+
+def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_training(
+    tmp_path: Path,
+):
+    periodic_dir = tmp_path / "periodic"
+    final_only_dir = tmp_path / "final_only"
+    common_args = [
+        "addition",
+        "step_ar",
+        "--bases",
+        "2,4",
+        "--min-length",
+        "1",
+        "--max-length",
+        "2",
+        "--eval-ood-bases",
+        "3",
+        "--eval-extrap-max-length",
+        "4",
+        "--max-steps",
+        "5",
+        "--log-every",
+        "2",
+        "--batch-size",
+        "2",
+        "--num-eval-problems",
+        "3",
+        "--eval-batch-size",
+        "2",
+        "--n-layers",
+        "1",
+        "--n-heads",
+        "4",
+        "--d-ff",
+        "32",
+        "--d-position",
+        "8",
+        "--d-scratch",
+        "0",
+        "--seed",
+        "77",
+    ]
+    res_periodic = run_experiments_cli(
+        EXPERIMENTS,
+        [*common_args, "--out-dir", str(periodic_dir), "--eval-every", "2"],
+    )
+    res_final = run_experiments_cli(
+        EXPERIMENTS,
+        [*common_args, "--out-dir", str(final_only_dir), "--eval-every", "0"],
+    )
+    assert res_periodic == res_final
+
+    # Training steps and losses must be identical regardless of mid-training evaluations.
+    periodic_train = [
+        (row["step"], row["loss"])
+        for row in (
+            json.loads(line)
+            for line in (periodic_dir / "train.jsonl").read_text().splitlines()
+        )
+    ]
+    final_train = [
+        (row["step"], row["loss"])
+        for row in (
+            json.loads(line)
+            for line in (final_only_dir / "train.jsonl").read_text().splitlines()
+        )
+    ]
+    assert [step for step, _ in periodic_train] == [1, 2, 4, 5]
+    assert periodic_train == final_train
+    assert json.loads((periodic_dir / "eval_splits.json").read_text()) == json.loads(
+        (final_only_dir / "eval_splits.json").read_text()
+    )
+
+    eval_rows = [
+        json.loads(line)
+        for line in (periodic_dir / "eval.jsonl").read_text().splitlines()
+    ]
+    assert [row["step"] for row in eval_rows] == [2, 4, 5]
+    headline_keys = [
+        "exact_match",
+        "step_accuracy",
+        "ood_base3_exact_match",
+        "ood_base3_step_accuracy",
+        "extrap_len_exact_match",
+        "extrap_len_step_accuracy",
+    ]
+    for row in eval_rows:
+        assert isinstance(row["elapsed_sec"], float)
+        for key in headline_keys:
+            assert 0.0 <= row[key] <= 1.0
+        assert list(row["splits"].keys()) == ["id", "ood_base3", "extrap_len"]
+        assert row["splits"]["id"]["exact_match"] == row["exact_match"]
+        assert row["splits"]["ood_base3"]["exact_match"] == row["ood_base3_exact_match"]
+        assert len(row["splits"]["id"]) == 9
+
+    assert {k: eval_rows[-1][k] for k in headline_keys} == res_periodic
+    assert eval_rows[-1]["splits"] == json.loads(
+        (periodic_dir / "eval_splits.json").read_text()
+    )

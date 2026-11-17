@@ -160,3 +160,11 @@ For every evaluated problem that fails `exact_match`, the earliest column `k` (`
 Each first-error rate divides by the number of evaluated problems, not the number of failed problems, so the rates stay defined when `exact_match == 1.0` and partition the evaluated problems: `exact_match + out_of_alphabet + prior_intrusion + procedural_error + syntax_malformation == 1.0`.
 
 **Chance baseline for `prior_intrusion`**: a wrong in-alphabet prediction is one of `B - 1` symbols, and at most one of them is the canonical symbol for that digit value, so errors with no canonical-order preference still land on it up to `1 / (B - 1)` of the time. In base `B = 2` the only wrong in-alphabet symbol is the canonical one, so every in-alphabet value error on a permuted canonical alphabet is counted as `prior_intrusion` and none as `procedural_error`; there the rate carries no evidence of a prior. Read `prior_intrusion` as evidence of a canonical-order prior only for `B >= 3`, and only where it clearly exceeds that chance share of the in-alphabet value errors (`prior_intrusion + procedural_error`).
+
+### Evaluation schedule & artefacts (`experiments/addition/train_and_evaluate.py`)
+
+By default (`eval_every=None`), `train_and_evaluate` evaluates all enabled splits every `max(2500, max_steps // 20)` steps (targeting 20 checkpoints across a run, floored at `2500` steps; setting `eval_every=0` runs only the final evaluation at `max_steps`), reusing each split's deterministic `seed` at every checkpoint while preserving a single continuous training stream and optimiser state:
+
+- **`eval.jsonl`**: one JSON Lines record per evaluated checkpoint (including `max_steps`) containing `step`, `elapsed_sec`, the top-level headline pairs (`{prefix}exact_match`, `{prefix}step_accuracy`), and a nested `"splits"` mapping holding all nine `EvalMetrics` fields per split.
+- **`eval.json`**: final-step headline pairs (`{prefix}exact_match`, `{prefix}step_accuracy`) across enabled splits (`exact_match` first).
+- **`eval_splits.json`**: final-step full nine-field `EvalMetrics` dictionaries keyed by split name (`id`, `ood_base3`, `ood_base12`, `extrap_len`, `permuted`).

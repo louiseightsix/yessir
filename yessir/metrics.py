@@ -9,18 +9,20 @@ from typing import Any
 
 
 def json_safe(metrics: Mapping[str, Any]) -> dict[str, Any]:
-    """Replace non-finite floats (`NaN`, `±inf`) with `None` so JSON output is strictly valid."""
+    """Recursively replace non-finite floats (`NaN`, `±inf`) with `None` so JSON output is strictly valid."""
     cleaned: dict[str, Any] = {}
     for key, val in metrics.items():
         if isinstance(val, float) and not math.isfinite(val):
             cleaned[key] = None
+        elif isinstance(val, Mapping):
+            cleaned[key] = json_safe(val)
         else:
             cleaned[key] = val
     return cleaned
 
 
 class MetricsLogger:
-    """Appends `NaN`-safe JSON Lines records (`train.jsonl`) during a training run."""
+    """Appends `NaN`-safe JSON Lines records (`train.jsonl`, `eval.jsonl`) during a training run."""
 
     def __init__(self, path: Path) -> None:
         self.path = path

@@ -243,7 +243,7 @@ def _add_run_control_args(
         "--no-save",
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
-        help="Do not write run artefacts (config.json, train.jsonl, eval.json) to disk",
+        help="Do not write run artefacts (config.json, train.jsonl, eval.jsonl, eval.json) to disk",
     )
     parser.add_argument(
         "--device",

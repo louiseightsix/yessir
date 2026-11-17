@@ -14,6 +14,7 @@ def test_json_safe_replaces_nan_and_inf():
         "pos_inf": math.inf,
         "neg_inf": -math.inf,
         "count": 10,
+        "splits": {"id": {"exact_match": 1.0, "carry_accuracy": math.nan}},
     }
     cleaned = json_safe(raw)
     assert cleaned == {
@@ -22,6 +23,7 @@ def test_json_safe_replaces_nan_and_inf():
         "pos_inf": None,
         "neg_inf": None,
         "count": 10,
+        "splits": {"id": {"exact_match": 1.0, "carry_accuracy": None}},
     }
     # Must be accepted by strict JSON (allow_nan=False).
     assert json.loads(json.dumps(cleaned, allow_nan=False)) == cleaned

@@ -5,7 +5,7 @@ from enum import StrEnum, unique
 
 from experiments.addition.inputs import EmbeddingMode, StepOrder
 from yessir.alphabet import SymbolSet
-from yessir.defaults import DEFAULT_LR
+from yessir.defaults import DEFAULT_LR, default_eval_every
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
@@ -133,6 +133,14 @@ class AdditionConfig(ExperimentConfig):
     seed: int = field(default=42, metadata={"domain": "int (!= eval_seed)"})
 
     # Evaluation splits
+    eval_every: int | None = field(
+        default=None,
+        metadata={
+            "domain": "int >= 0 or None (None = max(2500, max_steps // 20); 0 = final only)",
+            "step": 500,
+            "min": 0,
+        },
+    )
     num_eval_problems: int = field(
         default=200, metadata={"domain": "int >= 1", "step": 50}
     )
@@ -262,6 +270,14 @@ class AdditionConfig(ExperimentConfig):
             raise ValueError(f"lr must be > 0, got {self.lr}")
         if self.log_every < 1:
             raise ValueError(f"log_every must be >= 1, got {self.log_every}")
+        if self.eval_every is not None and (
+            isinstance(self.eval_every, bool)
+            or not isinstance(self.eval_every, int)
+            or self.eval_every < 0
+        ):
+            raise ValueError(
+                f"eval_every must be an int >= 0 or None, got {self.eval_every!r}"
+            )
         if self.num_eval_problems < 1:
             raise ValueError(
                 f"num_eval_problems must be >= 1, got {self.num_eval_problems}"
@@ -399,10 +415,25 @@ class AdditionConfig(ExperimentConfig):
             )
         return tuple(splits)
 
+    @property
+    def effective_eval_every(self) -> int | None:
+        """Periodic evaluation interval in steps (`None` when `eval_every == 0` disables mid-run checkpoints)."""
+        if self.eval_every is None:
+            return default_eval_every(self.max_steps)
+        return self.eval_every if self.eval_every > 0 else None
+
     def derived_summary(self) -> str:
         """Derived quantities displayed in the interactive TUI status bar."""
         split_names = ",".join(s.name for s in self.eval_splits())
-        return f"d_model={self.d_model}, symbol_pool={len(self.symbol_pool)}, splits=[{split_names}]"
+        eval_str = (
+            str(self.effective_eval_every)
+            if self.effective_eval_every is not None
+            else "final"
+        )
+        return (
+            f"d_model={self.d_model}, symbol_pool={len(self.symbol_pool)}, "
+            f"eval_every={eval_str}, splits=[{split_names}]"
+        )
 
 
 @dataclass(frozen=True, kw_only=True)

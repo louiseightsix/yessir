@@ -57,9 +57,19 @@ def test_default_configs_and_derived_properties():
     assert cfg.effective_d_scratch == 208
     assert cfg.d_model == 256 + 16 + 32 + 208 == 512
     assert cfg.log_every == 100
+    assert cfg.eval_every is None
+    assert cfg.effective_eval_every == 5_000
     assert (
         cfg.derived_summary()
-        == "d_model=512, symbol_pool=240, splits=[id,ood_base3,ood_base12,extrap_len]"
+        == "d_model=512, symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len]"
+    )
+    assert AdditionConfig(max_steps=500_000).effective_eval_every == 25_000
+    assert AdditionConfig(max_steps=30_000).effective_eval_every == 2_500
+    assert AdditionConfig(eval_every=250).effective_eval_every == 250
+    assert AdditionConfig(eval_every=0).effective_eval_every is None
+    assert (
+        AdditionConfig(eval_every=0).derived_summary()
+        == "d_model=512, symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len]"
     )
 
     cls_cfg = AdditionClsConfig()
@@ -267,6 +277,10 @@ def test_config_validation_rejections():
         AdditionConfig(lr=0.0)
     with pytest.raises(ValueError, match="log_every must be >= 1"):
         AdditionConfig(log_every=0)
+    with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
+        AdditionConfig(eval_every=-5)
+    with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
+        AdditionConfig(eval_every=False)
     with pytest.raises(ValueError, match="num_eval_problems must be >= 1"):
         AdditionConfig(num_eval_problems=0)
     with pytest.raises(ValueError, match="eval_batch_size must be >= 1"):
