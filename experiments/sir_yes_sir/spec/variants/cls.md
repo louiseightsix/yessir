@@ -52,8 +52,8 @@ Using the shared `[BOS] alphabet [SEP] x [SEP] output` sequence layout ([`task.m
 
 ## 3. Evaluation Metrics (`evaluate_cls`)
 
-Given teacher-forced greedy predictions `(pred_o[k], pred_flag[k])` from `heads[0..1]` at query positions `P - 1 + k` for `k` in `0 .. L - 1` (`L` steps per problem):
+`evaluate_cls` runs batched KV-cached free-running greedy rollout from each problem's `[BOS] alphabet [SEP] x [SEP]` prompt, feeding predicted `o_k` tokens forward and stopping per problem as soon as `pred_flag[k] == FLAG_FINISHED` or `L` steps have been emitted (`emitted_steps`, matching `greedy_generate_cls`):
 
-- **`exact_match`** *(per problem)*: fraction of problems where every step `k` in `0 .. L - 1` predicts both `pred_o[k] == o_k` and `pred_flag[k] == flag_k`.
-- **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` steps across all evaluated problems where `pred_o[k] == o_k`.
-- **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right step—no premature halt (`pred_flag[k] == FLAG_CONTINUE` for every `k < L - 1`) and halts on the final step (`pred_flag[L - 1] == FLAG_FINISHED`).
+- **`exact_match`** *(per problem)*: fraction of problems where `emitted_steps` has length `L` and every step `k` in `0 .. L - 1` predicts both `pred_o[k] == o_k` and `pred_flag[k] == flag_k`.
+- **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` reference steps across all evaluated problems where step `k` was reached (`k < len(emitted_steps)`) and `pred_o[k] == o_k`. Because rollout stops immediately on `FLAG_FINISHED`, post-halt steps `k + 1 .. L - 1` after a premature halt at step `k` receive zero credit; note that at the premature halt step `k` itself, `cls` still emits `(pred_o[k], FLAG_FINISHED)` on separate heads (stopping *after* step `k`), whereas emitting `[EOS]` at index `k` in [`ar`](ar.md) occupies the symbol slot and stops *before* `o_k`.
+- **`halt_accuracy`** *(per problem)*: fraction of problems where the rollout halts at the exact right step—`len(emitted_steps) == L`, `pred_flag[k] == FLAG_CONTINUE` for every `k < L - 1`, and `pred_flag[L - 1] == FLAG_FINISHED`.

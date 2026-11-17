@@ -6,8 +6,7 @@ from collections.abc import Sequence
 import pytest
 import torch
 
-from experiments.sir_yes_sir.evaluation import EvalMetrics
-from experiments.sir_yes_sir.inputs import build_example
+from experiments.sir_yes_sir.inputs import EmbeddingMode, build_example
 from experiments.sir_yes_sir.reference import reference_step
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
 from experiments.sir_yes_sir.variants.ar.evaluation import evaluate_ar
@@ -211,40 +210,77 @@ def test_greedy_generate_cls_stops_at_len_x_when_flag_finished_never_emitted():
 
 
 def test_evaluate_cls_computes_exact_match_step_and_halt_accuracy():
-    dataset = SirYesSirClsDataset(alphabet_size=4, x_length=2, seed=7)
-    # 2 problems of length L = 2 (each item is one problem with 2 non-ignored steps)
-    items = list(itertools.islice(dataset, 2))
-    p0_steps = [
-        s for s in items[0].labels if isinstance(s, tuple) and s[0] != IGNORE_INDEX
-    ]
-    p1_steps = [
-        s for s in items[1].labels if isinstance(s, tuple) and s[0] != IGNORE_INDEX
-    ]
+    dataset = SirYesSirClsDataset(alphabet_size=4, x_length=3, seed=7)
+    # 3 problems of length L = 3:
+    # - Problem 0: all 3 steps completely right -> EM=True, steps=3/3, halt=True
+    # - Problem 1: wrong o_0 (CONTINUE), right o_1 (CONTINUE), right o_2 (wrong CONTINUE) -> EM=False, steps=2/3, halt=False
+    # - Problem 2: premature FLAG_FINISHED on step 0 (`(o_0, FLAG_FINISHED)`) -> rollout stops at k=0,
+    #   so unreached steps 1..2 score 0 (`E-3`, `E-8`) -> EM=False, steps=1/3, halt=False
+    items = list(itertools.islice(dataset, 3))
+    table: dict[tuple[tuple[int, ...], tuple[int, ...]], list[tuple[int, int]]] = {}
+    for idx, item in enumerate(items):
+        alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
+        steps = [
+            (s[0], s[1])
+            for s in item.labels
+            if isinstance(s, tuple) and s[0] != IGNORE_INDEX
+        ]
+        if idx == 0:
+            table[(alphabet, x)] = steps
+        elif idx == 1:
+            table[(alphabet, x)] = [
+                ((steps[0][0] + 1) % VOCAB_SIZE, steps[0][1]),
+                steps[1],
+                (steps[2][0], int(SpecialToken.FLAG_CONTINUE)),
+            ]
+        else:
+            table[(alphabet, x)] = [
+                (steps[0][0], int(SpecialToken.FLAG_FINISHED)),
+                steps[1],
+                steps[2],
+            ]
 
-    # Problem 0 (steps 0, 1): both steps completely right -> EM=True, steps=2/2, halt=True
-    # Problem 1 (steps 0, 1):
-    #   step 0: wrong o_0, right flag_0 (step_ok=False)
-    #   step 1: right o_1, wrong flag_1 (step_ok=True, halt_ok=False for problem 1)
-    scripted = [
-        p0_steps[0],
-        p0_steps[1],
-        ((p1_steps[0][0] + 1) % VOCAB_SIZE, p1_steps[0][1]),
-        (p1_steps[1][0], int(SpecialToken.FLAG_CONTINUE)),
-    ]
-    model = _ScriptedModel(scripted)
+    class _TableClsModel:
+        training = True
+        device = torch.device("cpu")
 
-    metrics = evaluate_cls(
+        def eval(self):
+            self.training = False
+            return self
+
+        def __call__(
+            self, input_ids, lengths=None, token_type_ids=None, position_ids=None
+        ):
+            assert lengths is not None
+            b_sz = input_ids.size(0)
+            logits_o = torch.zeros(b_sz, VOCAB_SIZE)
+            logits_f = torch.zeros(b_sz, VOCAB_SIZE)
+            for b in range(b_sz):
+                seq = input_ids[b, : int(lengths[b].item())].tolist()
+                alphabet, x, output = _parse_example_input_ids(seq)
+                o_k, flag_k = table[(alphabet, x)][len(output)]
+                logits_o[b, o_k] = 10.0
+                logits_f[b, flag_k] = 10.0
+            return logits_o, logits_f
+
+    model = _TableClsModel()
+    m_b1 = evaluate_cls(
         model,  # ty: ignore[invalid-argument-type]
         items,
-        num_problems=2,
+        num_problems=3,
+        batch_size=1,
+    )
+    m_b2 = evaluate_cls(
+        model,  # ty: ignore[invalid-argument-type]
+        items,
+        num_problems=3,
         batch_size=2,
     )
     assert model.training is False
-    assert metrics == EvalMetrics(
-        exact_match=0.5,
-        step_accuracy=0.75,
-        halt_accuracy=0.5,
-    )
+    assert m_b1 == m_b2
+    assert m_b2.exact_match == pytest.approx(1 / 3)
+    assert m_b2.step_accuracy == pytest.approx(6 / 9)
+    assert m_b2.halt_accuracy == pytest.approx(1 / 3)
 
 
 def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invariance():
@@ -292,22 +328,50 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     assert free_running_em_count / num_problems == pytest.approx(metrics_b1.exact_match)
 
 
-def test_evaluate_cls_runs_real_transformer_end_to_end():
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_evaluate_cls_runs_real_transformer_end_to_end(embedding_mode: EmbeddingMode):
     seed_everything(0)
+    use_tt = embedding_mode in (
+        EmbeddingMode.TOKEN_TYPE_PE,
+        EmbeddingMode.TOKEN_TYPE_NOPE,
+    )
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.PARALLEL_CLASSIFICATION,
         num_classes=(VOCAB_SIZE, VOCAB_SIZE),
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        d_position=8,
-        d_scratch=0,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=d_scratch,
     )
-    dataset = SirYesSirClsDataset(alphabet_size=4, x_length=3, seed=99)
-    metrics = evaluate_cls(model, dataset, num_problems=3, batch_size=4)
-    assert 0.0 <= metrics.exact_match <= 1.0
-    assert 0.0 <= metrics.step_accuracy <= 1.0
-    assert 0.0 <= metrics.halt_accuracy <= 1.0
+    dataset = SirYesSirClsDataset(
+        alphabet_size=4, x_length=3, embedding_mode=embedding_mode, seed=99
+    )
+    items = list(itertools.islice(dataset, 4))
+    m_b1 = evaluate_cls(model, items, num_problems=4, batch_size=1)
+    m_b3 = evaluate_cls(model, items, num_problems=4, batch_size=3)
+    assert m_b1 == m_b3
+    assert 0.0 <= m_b3.exact_match <= 1.0
+    assert 0.0 <= m_b3.step_accuracy <= 1.0
+    assert 0.0 <= m_b3.halt_accuracy <= 1.0
+
+    # Verify KV-cached `evaluate_cls` rollout matches uncached `greedy_generate_cls`.
+    from experiments.sir_yes_sir.variants.cls.evaluation import (
+        _rollout_cls_chunk,
+        _slice_prefix_example,
+    )
+
+    prefixes = [_slice_prefix_example(it.example, len(it.example) - 2) for it in items]
+    cached = _rollout_cls_chunk(model, prefixes, [3] * len(items), device=model.device)
+    for it, cached_steps in zip(items, cached, strict=True):
+        alphabet, x, _ = _parse_example_input_ids(it.example.input_ids)
+        uncached_steps = greedy_generate_cls(
+            model, alphabet, x, embedding_mode=embedding_mode
+        )
+        assert cached_steps == uncached_steps
 
 
 def test_evaluate_cls_validation_errors():
@@ -464,29 +528,77 @@ def test_greedy_generate_ar_stops_on_eos_and_caps_at_len_x_plus_one():
     assert len(never_halt_model.seen_examples) == 3
 
 
-def test_evaluate_ar_metrics_and_validation():
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_evaluate_ar_metrics_and_validation(embedding_mode: EmbeddingMode):
     seed_everything(0)
+    use_tt = embedding_mode in (
+        EmbeddingMode.TOKEN_TYPE_PE,
+        EmbeddingMode.TOKEN_TYPE_NOPE,
+    )
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        d_position=8,
-        d_scratch=0,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=d_scratch,
     )
-    dataset = SirYesSirArDataset(alphabet_size=4, x_length=2, seed=99)
-    metrics = evaluate_ar(model, dataset, num_problems=3, batch_size=2)
-    assert 0.0 <= metrics.exact_match <= 1.0
-    assert 0.0 <= metrics.step_accuracy <= 1.0
-    assert 0.0 <= metrics.halt_accuracy <= 1.0
+    dataset = SirYesSirArDataset(
+        alphabet_size=4, x_length=2, embedding_mode=embedding_mode, seed=99
+    )
+    real_items = list(itertools.islice(dataset, 4))
+    m_b1 = evaluate_ar(model, real_items, num_problems=4, batch_size=1)
+    m_b3 = evaluate_ar(model, real_items, num_problems=4, batch_size=3)
+    assert m_b1 == m_b3
+    assert 0.0 <= m_b3.exact_match <= 1.0
+    assert 0.0 <= m_b3.step_accuracy <= 1.0
+    assert 0.0 <= m_b3.halt_accuracy <= 1.0
+
+    # Verify KV-cached `evaluate_ar` rollout matches uncached `greedy_generate_ar`.
+    from experiments.sir_yes_sir.variants.ar.evaluation import (
+        _rollout_ar_chunk,
+        _slice_prefix_example,
+    )
+
+    prefixes = [
+        _slice_prefix_example(it.example, len(it.example) - 2) for it in real_items
+    ]
+    cached = _rollout_ar_chunk(
+        model, prefixes, [3] * len(real_items), device=model.device
+    )
+    for it, cached_tokens in zip(real_items, cached, strict=True):
+        alphabet, x, _ = _parse_example_input_ids(it.example.input_ids)
+        uncached_tokens = greedy_generate_ar(
+            model, alphabet, x, embedding_mode=embedding_mode
+        )
+        assert cached_tokens == uncached_tokens
+
+    if embedding_mode != EmbeddingMode.TOKEN_TYPE_PE:
+        return
 
     # Verify exact_match, step_accuracy (per L step), and halt_accuracy (per problem)
-    # across 2 problems of L = 2 (targets of length L + 1 = 3):
+    # across 3 problems of L = 2 (targets of length L + 1 = 3):
     # - Problem 0: perfect [o_0, o_1, EOS] -> EM=True, steps=2/2, halt=True
     # - Problem 1: [o_0, wrong_non_eos, wrong_non_eos] -> EM=False, steps=1/2, halt=False
-    items = list(itertools.islice(dataset, 2))
-    t0 = [t for t in items[0].labels if isinstance(t, int) and t != IGNORE_INDEX]
-    t1 = [t for t in items[1].labels if isinstance(t, int) and t != IGNORE_INDEX]
+    # - Problem 2: premature [EOS, o_1, EOS] -> stops at k=0 (`E-3`) -> EM=False, steps=0/2, halt=False
+    items = list(itertools.islice(dataset, 3))
+    ar_table: dict[tuple[tuple[int, ...], tuple[int, ...]], list[int]] = {}
+    for idx, item in enumerate(items):
+        alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
+        t = [tok for tok in item.labels if isinstance(tok, int) and tok != IGNORE_INDEX]
+        if idx == 0:
+            ar_table[(alphabet, x)] = t
+        elif idx == 1:
+            ar_table[(alphabet, x)] = [t[0], (t[1] + 1) % 4, ord("0")]
+        else:
+            ar_table[(alphabet, x)] = [
+                int(SpecialToken.EOS),
+                t[1],
+                int(SpecialToken.EOS),
+            ]
 
     class _BatchArModel:
         training = True
@@ -499,29 +611,34 @@ def test_evaluate_ar_metrics_and_validation():
         def __call__(
             self, input_ids, lengths=None, token_type_ids=None, position_ids=None
         ):
+            assert lengths is not None
             b_sz, seq_len = input_ids.shape
             logits = torch.zeros(b_sz, seq_len, VOCAB_SIZE)
-            # Supervised positions are the last 3 positions of each unpadded sequence
-            preds_per_prob = [
-                t0,
-                [t1[0], (t1[1] + 1) % 4, ord("0")],
-            ]
             for b in range(b_sz):
-                for idx, tok in enumerate(preds_per_prob[b]):
-                    logits[b, seq_len - 3 + idx, tok] = 10.0
+                n = int(lengths[b].item())
+                alphabet, x, output = _parse_example_input_ids(
+                    input_ids[b, :n].tolist()
+                )
+                tok = ar_table[(alphabet, x)][len(output)]
+                logits[b, n - 1, tok] = 10.0
             return logits
 
-    custom_metrics = evaluate_ar(
+    custom_b1 = evaluate_ar(
         _BatchArModel(),  # ty: ignore[invalid-argument-type]
         items,
-        num_problems=2,
+        num_problems=3,
+        batch_size=1,
+    )
+    custom_b2 = evaluate_ar(
+        _BatchArModel(),  # ty: ignore[invalid-argument-type]
+        items,
+        num_problems=3,
         batch_size=2,
     )
-    assert custom_metrics == EvalMetrics(
-        exact_match=0.5,
-        step_accuracy=0.75,
-        halt_accuracy=0.5,
-    )
+    assert custom_b1 == custom_b2
+    assert custom_b2.exact_match == pytest.approx(1 / 3)
+    assert custom_b2.step_accuracy == pytest.approx(3 / 6)
+    assert custom_b2.halt_accuracy == pytest.approx(1 / 3)
 
     with pytest.raises(ValueError, match="num_problems must be >= 1"):
         evaluate_ar(model, dataset, num_problems=0)

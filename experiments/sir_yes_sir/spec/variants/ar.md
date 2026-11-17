@@ -31,8 +31,8 @@ Using the shared `[BOS] alphabet [SEP] x [SEP] output` sequence layout ([`task.m
 
 ## 3. Evaluation Metrics (`evaluate_ar`)
 
-Given teacher-forced greedy predictions `preds[0 .. L]` at positions `P - 1 .. P + L - 1` (`L + 1` predictions per problem):
+`evaluate_ar` runs batched KV-cached free-running greedy rollout from each problem's `[BOS] alphabet [SEP] x [SEP]` prompt up to `L + 1` tokens, stopping per problem as soon as `[EOS]` is emitted (`emitted`, matching `greedy_generate_ar`):
 
-- **`exact_match`** *(per problem)*: fraction of problems where all `L + 1` predictions match `(o_0, ..., o_{L-1}, EOS)`.
-- **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` symbol positions across all evaluated problems where `preds[k] == o_k`.
-- **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right step—no premature halt (`preds[k] != EOS` for every `k < L`) and halts immediately after `o_{L-1}` (`preds[L] == EOS`).
+- **`exact_match`** *(per problem)*: fraction of problems where `emitted` equals `(o_0, ..., o_{L-1}, EOS)`.
+- **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` reference symbol steps across all evaluated problems where step `k` was reached before `[EOS]` and `emitted[k] == o_k`.
+- **`halt_accuracy`** *(per problem)*: fraction of problems where the rollout halts at the exact right step—emitting `L` non-`[EOS]` tokens followed immediately by `emitted[L] == EOS`.
