@@ -229,3 +229,101 @@ Non-functional polish, documentation alignment, and unit-test symmetry.
 - **Problem**:
   1. `sir_yes_sir/tests/` tests teacher-forced vs free-running `exact_match` equivalence, mixed-length batch invariance, `_validate_*_item` error branches, dataset `EmbeddingMode`/pool bounds, and `eval_every` training non-perturbation for `cls`, but omits the symmetric tests for `ar`.
   2. `ParallelClassificationHead.forward` checks `lengths.shape == (batch_size,)` without checking `(1 <= lengths) & (lengths <= hidden_states.size(1))` (`lengths = 0` would silently index `-1` if called outside `Example`/`collate`); `_validate_cls_item` in `sir_yes_sir/cls` checks `step[0] != IGNORE_INDEX` without asserting `(step[0] == IGNORE_INDEX) == (step[1] == IGNORE_INDEX)`.
+
+## Addendum to review-code-issues.md
+  ### New Item (Group 2: Medium — Evaluation Semantics & Study-Validity Gaps)
+
+  #### E-8. sir_yes_sir: Premature halting penalises step_accuracy in ar ([EOS] takes the symbol slot) while leaving step_accuracy
+  untouched in cls (independent heads)
+  • Where: experiments/sir_yes_sir/variants/cls/evaluation.py:98-135 vs experiments/sir_yes_sir/variants/ar/evaluation.py:102-125;
+  relevant to studies/sir_yes_sir/cls-vs-ar.json:5.
+  • Affected variants: sir_yes_sir/cls vs sir_yes_sir/ar.
+  • Problem: In sir_yes_sir/cls, heads[0] (symbol) and heads[1] (flag) are evaluated independently under teacher forcing, so predicting
+  FLAG_FINISHED prematurely at k = 0 still allows all L symbol predictions to score step_accuracy = 1.0 (exact_match = 0.0, halt_accuracy
+  = 0.0). In sir_yes_sir/ar, emitting [EOS] prematurely at k = 0 occupies preds[0] (EOS != o_0), capping step_accuracy at (L - 1) / L.
+  • Suggested fix: Document this structural difference when comparing unconverged step_accuracy trajectories in cls-vs-ar.json (or gate
+  post-halt steps if rollout-style step accuracy is added per E-3).
+  ──────
+  ### Additions, Refinements, and Corrections to Existing Items
+  #### Update to C-1 (addition/ar premature [EOS] under use_query_tokens=False) — existing test lock-in & spec ambiguity
+
+  • Where: experiments/addition/tests/test_ar.py:489-505 and experiments/addition/spec/task.md:153-158.
+  • Addition: test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy already explicitly asserts m_prem.out_of_alphabet == 1.
+  0 when premature[0] = eos (use_query_tokens=False), and task.md §3 can be read either way depending on whether [EOS] in an unseparated
+  value slot counts as a value mismatch or a premature-halt control error. Settle the spec rule first; if premature boundary [EOS] is
+  changed to SYNTAX_MALFORMATION, update test_ar.py:489-505 alongside ar/evaluation.py.
+  #### Update to C-3 (AdditionConfig._split_seed) — relative impact of the two failure modes
+
+  • Where: experiments/addition/config.py:353-387.
+  • Addition: Between the two consequences of +1 collision bumping, cross-seed evaluation drift (seed in {2002, 2011, 2999, 3999} at
+  default eval_seed=999 shifting one split onto 200 different problems mid-sweep) is the practically important hazard; when two adjacent
+  ood_base* splits share a seed, their PRNG streams diverge after problem 0's rng.sample call (1 / 200 shared alphabet prefix).
+  #### Update to E-1 & E-4 (addition diagnostic metrics) — address_accuracy & extrap_len per-base breakdowns
+
+  • Where: experiments/addition/evaluation.py:41-65 (EvalMetrics), experiments/addition/train_and_evaluate.py:162-183.
+  • Addition:
+      1. For addressed_ar (E-1), consider recording an explicit address_accuracy field in EvalMetrics (either alongside or instead of
+      requiring syntax_ok in step_accuracy) so address-counter failures on extrap_len are directly visible in eval_splits.json.
+      2. Beyond permuted (E-4), extrap_len also pools bases="2,4,8,10" without per-base figures in eval_splits.json, mixing bases with
+      different unseen-address profiles (K-5 update below).
+
+
+  #### Update to E-5 (sir_yes_sir & addition study / split caveats) — constant halting in ar + cls, and addition small-universe overlap
+
+  • Where: config.py (sir_yes_sir), studies/sir_yes_sir/cls-vs-ar.json:5, config.py (addition).
+  • Addition:
+      1. Trivial halting in both sir_yes_sir variants: Because x_length is a single fixed integer (L = 3), halting is a constant function
+      of output step count in both ar and cls (halt_accuracy reaches 100% within ~100 steps while exact_match is still < 3%). Answering
+      "halting reliability" in cls-vs-ar.json requires variable input lengths L per problem.
+      2. addition id overlap in restricted regimes: While default addition (240-byte pool, L = 1..20) has 0 / 200 train/eval overlap,
+      restricted settings (p_prior=1.0 -> ~6 / 200 on short binary/quaternary problems; symbol_set="decimal", bases="2,4", max_length=3 -
+      > ~107 / 200) evaluate partly on seen training instances.
+
+
+  #### Update to K-1 (TOKEN_TYPE_PE default trap) — applies to addition/ar as well as addressed_*
+
+  • Where: experiments/addition/config.py:111 & #L477-L485, experiments/addition/variants/ar/inputs.py:21-43,
+  experiments/addition/variants/ar/generation.py:43-51.
+  • Addition: AdditionArConfig also inherits embedding_mode = EmbeddingMode.TOKEN_TYPE_PE by default. Under TOKEN_TYPE_PE,
+  _trace_slot_metadata tags every generated trace token (even during free-running rollout_ar) with an external column counter position_id
+  = k (for o_k, [S], [C]) or k + 1 (for c_{k+1}). Although studies/addition/variants-comparison.json:5 explicitly specifies nope and
+  token_type_nope for comparing continuous ar rollout against step_ar, running ./yessir.sh run addition ar without --embedding-mode
+  supplies external column alignment.
+
+  #### Correction to K-3 (2) (d_position=0 under NoPE with fixed_d_model=True)
+
+  • Where: config.py (addition), config.py (sir_yes_sir).
+  • Correction: Passing --d-position 0 with fixed_d_model=True shrinks d_model from 512 to 480 in both nope (256 + 0 + 224) and
+  token_type_nope (256 + 16 + 208)—not 480 / 496 as previously written in K-3 (2).
+
+  #### Update to K-5 (1) (Unseen address slots on extrap_len L = 21..40) — complete per-base breakdown (B = 2, 4, 8, 10, 12)
+
+  • Where: experiments/addition/inputs.py:115-138 (encode_address, LSD -> MSD minimal width).
+  • Addition: Across all default training/OOD bases when trained on max_length = 20 (addresses 0..19, plus 20 on overflow steps) and
+  evaluated on extrap_len (21..40), none of B in {2, 4, 8, 10, 12} has full address-slot coverage:
+      • B = 2: introduces 6-bit addresses (32..40; training reaches at most 5-bit 16..20, and bit-3 2^3 inside 5-bit addresses only ever
+      saw 0 in 16..20).
+      • B = 4: training reaches 3-digit base-4 addresses only on 16..20 (100_4 .. 110_4), so in 3-digit addresses the 4^2 MSD slot only
+      ever saw s_1 and the 4^1 middle slot only saw {s_0, s_1}; extrap_len introduces {s_2, s_3} in the 4^1 slot (24..31) and s_2 in the
+      4^2 MSD slot (32..40).
+      • B = 8: 2-digit addresses on 24..40 (30_8 .. 50_8) introduce unseen 8^1 MSD symbols s_3, s_4, s_5.
+      • B = 10: 20 (s_2 in 10^1 MSD) is seen in training only on overflow column k = 20 (never on operand digits); 30..40 introduce
+      completely unseen MSDs s_3, s_4.
+      • B = 12: 24..40 introduce completely unseen 12^1 MSDs s_2, s_3.
+
+
+  #### Update to K-6 (2) (flat_examples upfront materialisation in step evaluators)
+
+  • Where: experiments/addition/variants/addressed_step_ar/evaluation.py:58-95 (and sibling evaluate_{cls,step_ar,step_fork}).
+  • Clarification: Upfront materialisation of flat_examples is not a memory issue: flat_examples holds CPU Python Example tuples, while
+  GPU tensors (collate(chunk).to(device)) are allocated per eval_batch_size chunk. Measured via tracemalloc, worst-case 200 all-B=2, L=40
+  problems (8,118 examples up to 802 tokens) take 130.1 MB peak CPU RAM (~25–35 MB on mixed bases) and 0 B extra GPU VRAM. Only guarding
+  very large eval_batch_size values on 802–911-token binary sequences remains relevant.
+
+  #### Update to R-4 (1) (Teacher-forced vs free-running exact_match equivalence tests) — expand to all 8 variants
+
+  • Where: experiments/sir_yes_sir/tests/test_evaluation_and_generation.py:250-293 and experiments/addition/tests/test_*.py.
+  • Addition: sir_yes_sir/cls's existing equivalence test uses a Python fake (_WrapBlindModel), and neither sir_yes_sir/ar nor any of the
+  6 addition variants has a unit test checking evaluate_*.exact_match == rollout_exact_match on a real partially-trained Transformer
+  (where 0 < exact_match < 1) across all three EmbeddingModes (token_type_pe, token_type_nope, nope). Adding a fast parametrised small-
+  Transformer equivalence test per variant would lock in the central causal-invariance invariant of both spec/task.md files.
