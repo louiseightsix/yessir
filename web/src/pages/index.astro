@@ -23,53 +23,63 @@ function count(n: number, one: string, many: string): string {
   </head>
   <body>
     <main class="landing">
-      <div class="wordmark">
-        <span class="wordmark-name"><Wordmark /></span>
-      </div>
-
-      <!-- What yessir is and where it belongs, for a visitor arriving cold. -->
-      <section class="panel intro">
-        <p>
+      <!-- What yessir is and where it belongs, for a visitor arriving cold. The
+           wordmark is the page's h1: its SVG carries the accessible name "Yessir!". -->
+      <header class="intro">
+        <h1 class="wordmark">
+          <span class="wordmark-name"><Wordmark /></span>
+        </h1>
+        <p class="lede">
           <strong>Yessir!</strong> is a playground for exploring rule-following behaviour in transformer-based models.
         </p>
-        <p>
-          It's the experimental side of <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix</a>, an
-          unscripted adventure to the frontiers of AI. The series makes deliberately bold claims about what models can
-          and can't do with rules; yessir is where I build small, controlled experiments to put them to the test.
+        <p class="intro-links">
+          <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix</a>
+          <span aria-hidden="true">·</span>
+          <a href="https://github.com/louiseightsix/yessir">GitHub</a>
         </p>
-      </section>
-
-      <header class="page-header">
-        <div>
-          <h1>Experiments</h1>
-        </div>
       </header>
 
-      {
-        site.experiments.length === 0 ? (
+      <!-- Two columns on desktop (about on the left, experiments on the right),
+           stacked in that order on narrow screens. -->
+      <div class="columns">
+        <section class="about">
           <p class="muted">
-            No experiments found under <code>results/</code>, <code>studies/</code> or the schema export.
+            It's the experimental side of <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix</a>, an
+            unscripted adventure to the frontiers of AI. The series makes deliberately bold claims about what models
+            can and can't do with rules; yessir is where I build small, controlled experiments to put them to the test.
           </p>
-        ) : (
-          <ul class="experiment-list">
-            {site.experiments.map((exp) => {
-              const running = exp.runs.filter((r) => r.status === "in_progress").length;
-              return (
-                <li>
-                  <a class="panel experiment-card" href={`/${exp.name}/`}>
-                    <span class="experiment-name mono">{exp.name}</span>
-                    {exp.schema?.description && <span class="muted">{exp.schema.description}</span>}
-                    <span class="experiment-counts muted">
-                      {count(exp.studies.length, "study", "studies")} · {count(exp.runs.length, "run", "runs")}
-                      {running > 0 && ` · ${running} running`}
-                    </span>
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
-        )
-      }
+        </section>
+
+        <section class="experiments">
+          <h2 class="eyebrow">Experiments</h2>
+
+          {
+            site.experiments.length === 0 ? (
+              <p class="muted">
+                No experiments found under <code>results/</code>, <code>studies/</code> or the schema export.
+              </p>
+            ) : (
+              <ul class="experiment-list">
+                {site.experiments.map((exp) => {
+                  const running = exp.runs.filter((r) => r.status === "in_progress").length;
+                  return (
+                    <li>
+                      <a class="panel experiment-card" href={`/${exp.name}/`}>
+                        <span class="experiment-name mono">{exp.name}</span>
+                        {exp.schema?.description && <span class="muted">{exp.schema.description}</span>}
+                        <span class="experiment-counts muted">
+                          {count(exp.studies.length, "study", "studies")} · {count(exp.runs.length, "run", "runs")}
+                          {running > 0 && ` · ${running} running`}
+                        </span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          }
+        </section>
+      </div>
 
       <p class="muted credit">
         Logo emoji by <a href="https://openmoji.org/">OpenMoji</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>
@@ -79,30 +89,91 @@ function count(n: number, one: string, many: string): string {
 </html>
 
 <style>
-  /* One centred column: on a wide screen the content sits in the middle
-     rather than hugging the left edge. More room above and between sections
-     than the sidebar pages, since this page has little on it. */
+  /* Centred on the screen rather than hugging the left edge. Wide enough for
+     two columns on desktop; on a narrow screen everything stacks. More room
+     above and between sections than the sidebar pages, since this page has
+     little on it. */
   .landing {
-    max-width: 640px;
+    max-width: 960px;
     margin: 0 auto;
     box-sizing: border-box;
     padding: 80px 40px 64px;
     display: flex;
     flex-direction: column;
-    gap: 36px;
+    gap: 56px;
   }
 
-  /* The logo and heading are centred over the column; the cards below keep
-     left-aligned text, which is easier to scan. */
-  .wordmark {
-    justify-content: center;
-  }
-  .page-header {
-    justify-content: center;
+  /* Logo, one-line description and links, centred over both columns. Plain
+     text, not a panel: the only boxes on the page are the experiment cards, so
+     they read as the things to click. */
+  .intro {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
     text-align: center;
   }
-  .page-header > div {
-    gap: 8px;
+  .wordmark {
+    justify-content: center;
+    margin-bottom: 10px;
+  }
+  /* The one-line answer to "what is this?", a step up from body text. */
+  .lede {
+    margin: 0;
+    max-width: 560px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--c-ink);
+  }
+  .intro-links {
+    margin: 0;
+    display: flex;
+    gap: 10px;
+    font-size: var(--fs-small);
+    font-weight: 500;
+    color: var(--c-muted);
+  }
+
+  /* Narrow screens: one column, about first, then experiments. */
+  .columns {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+  }
+
+  .about p {
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* A small label rather than a second big heading: the logo is the page title. */
+  .experiments {
+    display: grid;
+    gap: 12px;
+  }
+
+  /* Desktop: about on the left, experiments (the wider column) on the right.
+     The grid has two rows, the "Experiments" label and then the cards. The
+     experiments section shares those rows with the parent (subgrid), and the
+     about text sits in the second row, so its first line lines up with the top
+     of the first card rather than with the label. */
+  @media (min-width: 860px) {
+    .columns {
+      display: grid;
+      grid-template-columns: 5fr 7fr;
+      grid-template-rows: auto 1fr;
+      column-gap: 56px;
+      row-gap: 12px;
+    }
+    .about {
+      grid-column: 1;
+      grid-row: 2;
+    }
+    .experiments {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      grid-template-rows: subgrid;
+    }
   }
 
   .experiment-list {
@@ -132,19 +203,6 @@ function count(n: number, one: string, many: string): string {
     font-size: 16px;
     font-weight: 600;
     color: var(--c-accent-strong);
-  }
-
-  /* Same panel as the experiment cards, but not a link and with prose at body
-     size, so it reads as the page's introduction rather than another card. */
-  .intro {
-    padding: 20px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    line-height: 1.55;
-  }
-  .intro p {
-    margin: 0;
   }
 
   .credit {
