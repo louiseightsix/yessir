@@ -5,7 +5,7 @@ import math
 import pytest
 import torch
 
-from yessir.batch import collate
+from yessir.batch import collate, collate_left_padded
 from yessir.blocks import TransformerBlock
 from yessir.example import Example
 from yessir.heads import HeadType
@@ -235,3 +235,150 @@ def test_transformer_device_property_tracks_module_device():
     assert model.device == torch.device("cpu")
     model.to("meta")
     assert model.device.type == "meta"
+
+
+@pytest.mark.parametrize(
+    ("use_token_type", "d_position"),
+    [
+        (True, 8),  # token_type_pe
+        (True, 0),  # token_type_nope
+        (False, 0),  # nope
+    ],
+)
+@torch.no_grad()
+def test_transformer_left_padded_kv_cache_rollout_matches_single_example_uncached(
+    use_token_type: bool,
+    d_position: int,
+):
+    torch.manual_seed(11)
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=4,
+        d_ff=64,
+        use_token_type=use_token_type,
+        d_position=d_position,
+        d_scratch=16,
+    )
+    model.eval()
+
+    raw_prompts = [
+        ((1, 10, 20), (0, 1, 3), (0, 0, 0)),
+        ((1, 11, 12, 13, 21, 30), (0, 1, 1, 2, 2, 3), (0, 0, 1, 0, 1, 0)),
+        ((1, 42), (0, 3), (0, 0)),
+    ]
+    examples = [
+        Example(
+            input_ids=ids,
+            token_type_ids=tts if use_token_type else None,
+            position_ids=pos if d_position > 0 else None,
+        )
+        for ids, tts, pos in raw_prompts
+    ]
+
+    prefill = collate_left_padded(examples)
+    decode_steps = 5
+    cache = model.init_kv_cache(
+        max_seq_len=int(prefill.input_ids.size(1)) + decode_steps
+    )
+
+    # Also verify uncached left-padded forward matches single-example prefixes.
+    uncached_prefill_logits = model(
+        prefill.input_ids,
+        token_type_ids=prefill.token_type_ids,
+        position_ids=prefill.position_ids,
+        key_padding_mask=prefill.key_padding_mask,
+    )
+    assert isinstance(uncached_prefill_logits, torch.Tensor)
+    assert not torch.isnan(uncached_prefill_logits).any()
+
+    logits = model(
+        prefill.input_ids,
+        token_type_ids=prefill.token_type_ids,
+        position_ids=prefill.position_ids,
+        key_padding_mask=prefill.key_padding_mask,
+        kv_cache=cache,
+    )
+    assert isinstance(logits, torch.Tensor)
+    assert torch.allclose(logits, uncached_prefill_logits, atol=1e-5)
+
+    cached_step_logits: list[torch.Tensor] = [logits[:, -1, :]]
+    cached_tokens: list[list[int]] = [[] for _ in examples]
+    next_tokens = logits[:, -1, :].argmax(dim=-1)
+    for b_idx, tok in enumerate(next_tokens.tolist()):
+        cached_tokens[b_idx].append(int(tok))
+
+    for step_idx in range(1, decode_steps):
+        step_input = next_tokens.unsqueeze(1)
+        step_tt = (
+            torch.full((len(examples), 1), 4 + (step_idx % 2), dtype=torch.long)
+            if use_token_type
+            else None
+        )
+        step_pos = (
+            torch.full((len(examples), 1), step_idx, dtype=torch.long)
+            if d_position > 0
+            else None
+        )
+        step_out = model(
+            step_input,
+            token_type_ids=step_tt,
+            position_ids=step_pos,
+            kv_cache=cache,
+        )
+        assert isinstance(step_out, torch.Tensor)
+        last_logits = step_out[:, -1, :]
+        cached_step_logits.append(last_logits)
+        next_tokens = last_logits.argmax(dim=-1)
+        for b_idx, tok in enumerate(next_tokens.tolist()):
+            cached_tokens[b_idx].append(int(tok))
+
+    # Compare against unpadded, uncached batch_size=1 autoregressive execution.
+    for b_idx, (ids, tts, pos) in enumerate(raw_prompts):
+        cur_ids = list(ids)
+        cur_tts = list(tts)
+        cur_pos = list(pos)
+        solo_tokens: list[int] = []
+        for step_idx in range(decode_steps):
+            ex = Example(
+                input_ids=tuple(cur_ids),
+                token_type_ids=tuple(cur_tts) if use_token_type else None,
+                position_ids=tuple(cur_pos) if d_position > 0 else None,
+            )
+            solo_batch = collate([ex])
+            solo_out = model(
+                solo_batch.input_ids,
+                token_type_ids=solo_batch.token_type_ids,
+                position_ids=solo_batch.position_ids,
+            )
+            assert isinstance(solo_out, torch.Tensor)
+            assert torch.allclose(
+                solo_out[0, -1, :], cached_step_logits[step_idx][b_idx], atol=1e-5
+            )
+            tok = int(solo_out[0, -1, :].argmax(dim=-1).item())
+            solo_tokens.append(tok)
+            cur_ids.append(tok)
+            cur_tts.append(4 + ((step_idx + 1) % 2))
+            cur_pos.append(step_idx + 1)
+
+        assert solo_tokens == cached_tokens[b_idx]
+
+
+def test_transformer_kv_cache_rejects_grad_enabled_and_bad_key_mask():
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=0,
+    )
+    batch = collate([Example(input_ids=(1, 2, 3))])
+    cache = model.init_kv_cache(max_seq_len=8)
+
+    with pytest.raises(RuntimeError, match="KVCache is inference-only"):
+        model(batch.input_ids, kv_cache=cache)
+
+    with torch.no_grad(), pytest.raises(ValueError, match="key_padding_mask"):
+        model(batch.input_ids, key_padding_mask=torch.ones((1, 2), dtype=torch.bool))
