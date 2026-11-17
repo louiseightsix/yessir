@@ -1,5 +1,6 @@
 """Configuration schemas, evaluation-split specs, and cross-parameter validation for `addition`."""
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
@@ -269,8 +270,8 @@ class AdditionConfig(ExperimentConfig):
             raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
-        if self.lr <= 0:
-            raise ValueError(f"lr must be > 0, got {self.lr}")
+        if not math.isfinite(self.lr) or self.lr <= 0:
+            raise ValueError(f"lr must be > 0 and finite, got {self.lr}")
         if self.log_every < 1:
             raise ValueError(f"log_every must be >= 1, got {self.log_every}")
         if self.eval_every is not None and (

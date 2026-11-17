@@ -1,6 +1,7 @@
 """Minimal training utilities (`resolve_device`, `seed_everything`, `build_optimizer`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
 
 import itertools
+import math
 import os
 import random
 from collections.abc import Callable, Iterable, Sequence
@@ -84,8 +85,8 @@ def build_optimizer(
     lr: float = DEFAULT_LR,
 ) -> torch.optim.AdamW:
     """Create an AdamW optimiser with `betas=(0.9, 0.95)`, `eps=1e-8` (GPT-3), and `weight_decay=0.0`."""
-    if lr <= 0:
-        raise ValueError(f"lr must be > 0, got {lr}")
+    if not math.isfinite(lr) or lr <= 0:
+        raise ValueError(f"lr must be > 0 and finite, got {lr}")
     return torch.optim.AdamW(
         model.parameters(),
         lr=lr,

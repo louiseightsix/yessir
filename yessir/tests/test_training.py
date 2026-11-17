@@ -1,6 +1,7 @@
 """Tests for `yessir/training.py`."""
 
 import itertools
+import math
 import random
 from collections.abc import Iterator
 
@@ -70,10 +71,9 @@ def test_build_optimizer_hyperparameters_and_validation():
     assert group["eps"] == 1e-8
     assert group["weight_decay"] == 0.0
 
-    with pytest.raises(ValueError, match="lr must be > 0"):
-        build_optimizer(model, lr=0.0)
-    with pytest.raises(ValueError, match="lr must be > 0"):
-        build_optimizer(model, lr=-1e-4)
+    for bad_lr in (0.0, -1e-4, math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError, match="lr must be > 0"):
+            build_optimizer(model, lr=bad_lr)
 
 
 def test_parallel_classification_cross_entropy_matches_manual_sum():

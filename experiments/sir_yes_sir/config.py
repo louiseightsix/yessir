@@ -1,5 +1,6 @@
 """Configuration schemas and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`, `SirYesSirClsConfig`)."""
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
@@ -160,8 +161,8 @@ class SirYesSirConfig(ExperimentConfig):
             raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
-        if self.lr <= 0:
-            raise ValueError(f"lr must be > 0, got {self.lr}")
+        if not math.isfinite(self.lr) or self.lr <= 0:
+            raise ValueError(f"lr must be > 0 and finite, got {self.lr}")
         if self.eval_every is not None and (
             isinstance(self.eval_every, bool)
             or not isinstance(self.eval_every, int)

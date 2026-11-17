@@ -332,8 +332,9 @@ def test_config_validation_rejections():
         AdditionConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         AdditionConfig(batch_size=0)
-    with pytest.raises(ValueError, match="lr must be > 0"):
-        AdditionConfig(lr=0.0)
+    for bad_lr in (0.0, -1e-4, float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="lr must be > 0"):
+            AdditionConfig(lr=bad_lr)
     with pytest.raises(ValueError, match="log_every must be >= 1"):
         AdditionConfig(log_every=0)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):

@@ -129,8 +129,9 @@ def test_model_and_training_bounds():
         SirYesSirConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         SirYesSirConfig(batch_size=0)
-    with pytest.raises(ValueError, match="lr must be > 0"):
-        SirYesSirConfig(lr=0.0)
+    for bad_lr in (0.0, -1e-4, float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="lr must be > 0"):
+            SirYesSirConfig(lr=bad_lr)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
         SirYesSirConfig(eval_every=-1)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
