@@ -84,7 +84,7 @@ def train_and_evaluate(
     eval_every_str = str(interval) if interval is not None else "final"
     print(
         f"{tag} Starting run: bases={config.bases}, L={config.min_length}..{config.max_length}, "
-        f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
+        f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
         f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
         f"device={resolved_device} -> {dest}",

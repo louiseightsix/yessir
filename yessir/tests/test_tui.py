@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
 from experiments.addition.config import AdditionClsConfig
-from experiments.sir_yes_sir.config import SirYesSirConfig
+from experiments.sir_yes_sir.config import SirYesSirClsConfig
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.experiment import ExperimentConfig, ExperimentVariant
 from yessir.tui import ConfigEditorState, EditorOutcome
@@ -125,7 +125,7 @@ def test_inline_typing_commit_and_escape_cancel():
 
 
 def test_live_cross_parameter_validation_and_run_blocking():
-    state = ConfigEditorState(SirYesSirConfig, title="sir_yes_sir")
+    state = ConfigEditorState(SirYesSirClsConfig, title="sir_yes_sir")
     cfg, err = state.validate()
     assert cfg is not None and err is None
 
@@ -239,6 +239,7 @@ def test_duplicate_run_alert_and_confirmation():
 
 @dataclass(frozen=True, kw_only=True)
 class _VariantBConfig(_SmallConfig):
+    rate: float = 0.75
     extra_mode: str = "fast"
 
 
@@ -301,8 +302,10 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
         "flag",
         "extra_mode",
     ]
-    # Shared field `count` keeps its edited value 10, and `extra_mode` gets its default.
+    # Edited `count` keeps 10; untouched `rate` syncs to `_VariantBConfig`'s default (0.75);
+    # and `extra_mode` gets its default ("fast").
     assert state.values["count"] == 10
+    assert state.values["rate"] == 0.75
     assert state.values["extra_mode"] == "fast"
     assert state.matching_runs() == []
 
@@ -310,6 +313,7 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
     assert err is None
     assert isinstance(cfg, _VariantBConfig)
     assert cfg.count == 10
+    assert cfg.rate == 0.75
     assert cfg.extra_mode == "fast"
 
 

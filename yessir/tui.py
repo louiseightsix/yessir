@@ -271,18 +271,27 @@ class ConfigEditorState[ConfigT: ExperimentConfig]:
         return self._variants[self.values["variant"]]
 
     def _sync_active_variant(self) -> None:
-        """Update `config_cls` and `specs` when `self.values['variant']` changes."""
+        """Update `config_cls` and `specs` when `self.values['variant']` changes.
+
+        Fields still sitting at the previous variant's default adopt the new
+        variant's default (e.g. `d_scratch` `208 -> 256` or `embedding_mode`
+        `token_type_pe -> nope`), while user-edited shared fields are preserved.
+        """
         if self._variant_spec is None:
             return
         variant = self._variants[self.values["variant"]]
         if variant.config_cls is self.config_cls:
             return
+        old_defaults = self.config_cls().to_dict()
         self.config_cls = variant.config_cls
         self._config_specs = build_field_specs(self.config_cls)
         self.specs = (self._variant_spec, *self._config_specs)
-        defaults = self.config_cls().to_dict()
-        for key, default_val in defaults.items():
-            self.values.setdefault(key, default_val)
+        new_defaults = self.config_cls().to_dict()
+        for key, default_val in new_defaults.items():
+            if key not in self.values or (
+                key in old_defaults and self.values[key] == old_defaults[key]
+            ):
+                self.values[key] = default_val
         self.cursor = min(self.cursor, self.run_row_index)
 
     @property

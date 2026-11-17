@@ -518,9 +518,11 @@ def test_greedy_generate_ar_stops_on_eos_and_caps_at_len_x_plus_one():
     assert model.training is False
     assert output == scripted
     assert model.seen_examples == [
-        build_example(alphabet, x, ()),
-        build_example(alphabet, x, (ord("2"),)),
-        build_example(alphabet, x, (ord("2"), ord("0"))),
+        build_example(alphabet, x, (), embedding_mode=EmbeddingMode.NOPE),
+        build_example(alphabet, x, (ord("2"),), embedding_mode=EmbeddingMode.NOPE),
+        build_example(
+            alphabet, x, (ord("2"), ord("0")), embedding_mode=EmbeddingMode.NOPE
+        ),
     ]
 
     # Premature EOS at step 0 stops generation immediately
@@ -544,27 +546,18 @@ def test_greedy_generate_ar_stops_on_eos_and_caps_at_len_x_plus_one():
     assert len(never_halt_model.seen_examples) == 3
 
 
-@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
-def test_evaluate_ar_metrics_and_validation(embedding_mode: EmbeddingMode):
+def test_evaluate_ar_metrics_and_validation():
     seed_everything(0)
-    use_tt = embedding_mode in (
-        EmbeddingMode.TOKEN_TYPE_PE,
-        EmbeddingMode.TOKEN_TYPE_NOPE,
-    )
-    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
-    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        use_token_type=use_tt,
-        d_position=d_pos,
-        d_scratch=d_scratch,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=24,
     )
-    dataset = SirYesSirArDataset(
-        alphabet_size=4, x_length=2, embedding_mode=embedding_mode, seed=99
-    )
+    dataset = SirYesSirArDataset(alphabet_size=4, x_length=2, seed=99)
     real_items = list(itertools.islice(dataset, 4))
     m_b1 = evaluate_ar(model, real_items, num_problems=4, batch_size=1)
     m_b3 = evaluate_ar(model, real_items, num_problems=4, batch_size=3)
@@ -587,13 +580,8 @@ def test_evaluate_ar_metrics_and_validation(embedding_mode: EmbeddingMode):
     )
     for it, cached_tokens in zip(real_items, cached, strict=True):
         alphabet, x, _ = _parse_example_input_ids(it.example.input_ids)
-        uncached_tokens = greedy_generate_ar(
-            model, alphabet, x, embedding_mode=embedding_mode
-        )
+        uncached_tokens = greedy_generate_ar(model, alphabet, x)
         assert cached_tokens == uncached_tokens
-
-    if embedding_mode != EmbeddingMode.TOKEN_TYPE_PE:
-        return
 
     # Verify exact_match, step_accuracy (per L step), and halt_accuracy (per problem)
     # across 3 problems of L = 2 (targets of length L + 1 = 3):

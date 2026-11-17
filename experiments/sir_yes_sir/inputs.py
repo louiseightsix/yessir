@@ -174,8 +174,12 @@ def iter_problems(
         yield alphabet, x
 
 
-def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
-    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--resample-alphabet`, `--embedding-mode`, and `--seed` flags."""
+def add_common_dataset_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_embedding_mode: bool = True,
+) -> None:
+    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--resample-alphabet`, optional `--embedding-mode`, and `--seed` flags."""
     parser.add_argument(
         "-B",
         "--alphabet-size",
@@ -196,13 +200,14 @@ def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
         default=True,
         help="Sample/permute the alphabet per problem rather than using fixed canonical order (default: True)",
     )
-    parser.add_argument(
-        "--embedding-mode",
-        type=EmbeddingMode,
-        choices=tuple(EmbeddingMode),
-        default=EmbeddingMode.TOKEN_TYPE_PE,
-        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
-    )
+    if include_embedding_mode:
+        parser.add_argument(
+            "--embedding-mode",
+            type=EmbeddingMode,
+            choices=tuple(EmbeddingMode),
+            default=EmbeddingMode.TOKEN_TYPE_PE,
+            help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
+        )
     parser.add_argument(
         "--seed",
         type=int,

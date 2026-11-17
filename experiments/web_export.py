@@ -32,8 +32,8 @@ from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
     SIR_YES_SIR_DESCRIPTION,
+    SirYesSirArConfig,
     SirYesSirClsConfig,
-    SirYesSirConfig,
 )
 from yessir.experiment import ExperimentConfig
 from yessir.tui import build_field_specs
@@ -44,7 +44,7 @@ from yessir.tui import build_field_specs
 VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
     "sir_yes_sir": (
         ("cls", CLS_DESCRIPTION, SirYesSirClsConfig),
-        ("ar", AR_DESCRIPTION, SirYesSirConfig),
+        ("ar", AR_DESCRIPTION, SirYesSirArConfig),
     ),
     "addition": (
         ("cls", ADDITION_CLS_DESCRIPTION, AdditionClsConfig),

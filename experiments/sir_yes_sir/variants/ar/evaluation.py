@@ -6,7 +6,6 @@ from collections.abc import Iterable, Sequence
 import torch
 
 from experiments.sir_yes_sir.evaluation import EvalMetrics, parse_prompt_prefix
-from experiments.sir_yes_sir.inputs import TokenType
 from yessir.batch import collate, collate_left_padded
 from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
@@ -37,40 +36,15 @@ def _validate_ar_item(item: LabelledExample) -> list[int]:
 
 
 def _slice_prefix_example(example: Example, prefix_len: int) -> Example:
-    """Slice `example` down to its `[BOS] alphabet [SEP] x [SEP]` prompt prefix."""
-    return Example(
-        input_ids=example.input_ids[:prefix_len],
-        token_type_ids=(
-            example.token_type_ids[:prefix_len]
-            if example.token_type_ids is not None
-            else None
-        ),
-        position_ids=(
-            example.position_ids[:prefix_len]
-            if example.position_ids is not None
-            else None
-        ),
-    )
+    """Slice `example` down to its `[BOS] alphabet [SEP] x [SEP]` pure `input_ids` prompt prefix."""
+    return Example(input_ids=example.input_ids[:prefix_len])
 
 
 def _extend_prefix_example(prefix: Example, emitted_symbols: Sequence[int]) -> Example:
-    """Append `emitted_symbols` (`TokenType.OUTPUT`, `position_ids = 1..k`) to `prefix`."""
+    """Append `emitted_symbols` directly to `prefix.input_ids`."""
     if not emitted_symbols:
         return prefix
-    k = len(emitted_symbols)
-    return Example(
-        input_ids=prefix.input_ids + tuple(emitted_symbols),
-        token_type_ids=(
-            prefix.token_type_ids + (int(TokenType.OUTPUT),) * k
-            if prefix.token_type_ids is not None
-            else None
-        ),
-        position_ids=(
-            prefix.position_ids + tuple(range(1, k + 1))
-            if prefix.position_ids is not None
-            else None
-        ),
-    )
+    return Example(input_ids=prefix.input_ids + tuple(emitted_symbols))
 
 
 @torch.no_grad()
@@ -81,7 +55,7 @@ def _rollout_ar_chunk(
     *,
     device: torch.device,
 ) -> list[list[int]]:
-    """Run batched free-running `ar` rollout on `prefixes_chunk` using `KVCache` for `Transformer`."""
+    """Run batched pure-LM (`input_ids`-only) `ar` rollout on `prefixes_chunk` using `KVCache`."""
     eos = int(SpecialToken.EOS)
     pad = int(SpecialToken.PAD)
     chunk_size = len(prefixes_chunk)
@@ -95,8 +69,6 @@ def _rollout_ar_chunk(
         )
         logits = model(
             prefill.input_ids,
-            token_type_ids=prefill.token_type_ids,
-            position_ids=prefill.position_ids,
             key_padding_mask=prefill.key_padding_mask,
             kv_cache=kv_cache,
         )
@@ -109,10 +81,6 @@ def _rollout_ar_chunk(
             if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
                 done[b_idx] = True
 
-        use_tt = prefill.token_type_ids is not None
-        use_pe = prefill.position_ids is not None
-        slot_idx = 0
-
         while not all(done):
             step_ids = torch.tensor(
                 [
@@ -122,29 +90,7 @@ def _rollout_ar_chunk(
                 dtype=torch.long,
                 device=device,
             )
-            step_tt = (
-                torch.full(
-                    (chunk_size, 1),
-                    int(TokenType.OUTPUT),
-                    dtype=torch.long,
-                    device=device,
-                )
-                if use_tt
-                else None
-            )
-            step_pos = (
-                torch.full(
-                    (chunk_size, 1), slot_idx + 1, dtype=torch.long, device=device
-                )
-                if use_pe
-                else None
-            )
-            logits = model(
-                step_ids,
-                token_type_ids=step_tt,
-                position_ids=step_pos,
-                kv_cache=kv_cache,
-            )
+            logits = model(step_ids, kv_cache=kv_cache)
             assert isinstance(logits, torch.Tensor)
             next_tokens = logits[:, -1, :].argmax(dim=-1).tolist()
             for b_idx, tok in enumerate(next_tokens):
@@ -152,7 +98,6 @@ def _rollout_ar_chunk(
                     emitted[b_idx].append(tok)
                     if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
                         done[b_idx] = True
-            slot_idx += 1
         return emitted
 
     while not all(done):
@@ -162,12 +107,7 @@ def _rollout_ar_chunk(
             for b_idx in active
         ]
         batch = collate(step_examples).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
             raise ValueError("evaluate_ar requires a Transformer with SubspaceLMHead")
         row_indices = torch.arange(len(active), device=device)

@@ -2,9 +2,9 @@
 
 This experiment is a minimal rule-following task used to test and verify the shared `yessir` machinery end to end.
 
-It is implemented in two variants that share the task definition, input layout, and evaluation metrics below:
-- [`variants/ar.md`](variants/ar.md): autoregressive next-token prediction (`SubspaceLMHead`).
-- [`variants/cls.md`](variants/cls.md): parallel per-step classification (`ParallelClassificationHead`).
+It is implemented in two variants that share the task definition, prompt layout, and evaluation metrics below:
+- [`variants/ar.md`](variants/ar.md): pure language-model autoregressive next-token prediction (`SubspaceLMHead`, `input_ids` only—no side-channel `token_type_ids` or `position_ids`).
+- [`variants/cls.md`](variants/cls.md): step-harnessed parallel per-step classification (`ParallelClassificationHead`, supporting `token_type_pe`, `token_type_nope`, and `nope` embedding modes).
 
 ## 1. Task: In-Context Successor Lookup (`experiments/sir_yes_sir/reference.py`)
 
@@ -59,13 +59,11 @@ Output `position_ids` start at `1` (`o_0` at `1`, `o_{k-1}` at `k`) while the se
 
 See [`variants/ar.md`](variants/ar.md) and [`variants/cls.md`](variants/cls.md) for how each variant constructs training targets and runs greedy generation over this sequence.
 
-### Embedding modes (`EmbeddingMode`)
+### Embedding modes (`EmbeddingMode`, harnessed `cls` variant)
 
 In `SubspaceEmbedding`, token identities (`256`-d one-hot), `token_type_ids` (`16`-d one-hot), `position_ids` (parameter-free unit-norm sinusoidal positional encodings, `d_position`-d), and a zero-initialised scratchpad (`d_scratch`-d) occupy orthogonal slices of the residual stream.
 
-**Residual width (default: held constant)**: `d_model` is the same in every mode. `TOKEN_TYPE_PE` uses `d_model = 256 + 16 + d_position + d_scratch`; when a mode drops the token-type slice (`16`) or the position slice (`d_position`), `d_scratch` grows by the same width, so the modes differ only in what the embedding encodes, not in model capacity.
-
-All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SEP]` delimiters) so sequence length, attention distances, and the prompt-ending `[SEP]` that triggers `o_0` at `k = 0` are held constant across ablations:
+Because [`ar`](variants/ar.md) is a pure language-model variant where the generation loop only appends predicted tokens and checks for `[EOS]`, `ar` operates strictly on `input_ids` (`use_token_type=False, d_position=0, d_scratch=256 -> d_model=512`). In the step-harnessed [`cls`](variants/cls.md) variant, `SirYesSirClsConfig` exposes `EmbeddingMode` across three ablations:
 
 - **`TOKEN_TYPE_PE`**: attaches both `token_type_ids` and section-coupled sinusoidal `position_ids`.
 - **`TOKEN_TYPE_NOPE`**: attaches `token_type_ids` only (`position_ids=None`).

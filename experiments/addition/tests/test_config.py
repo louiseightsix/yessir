@@ -50,12 +50,13 @@ def test_default_configs_and_derived_properties():
     assert cfg.symbol_set == SymbolSetName.ALL
     assert cfg.symbol_pool_size is None
     assert cfg.symbol_pool == bytes(SymbolSet.ALL)
-    assert cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
-    assert cfg.use_token_type is True
-    assert cfg.fixed_d_model is True
-    assert cfg.effective_d_position == 32
-    assert cfg.effective_d_scratch == 208
-    assert cfg.d_model == 256 + 16 + 32 + 208 == 512
+    assert not hasattr(cfg, "embedding_mode")
+    assert not hasattr(cfg, "d_position")
+    assert not hasattr(cfg, "fixed_d_model")
+    assert cfg.use_token_type is False
+    assert cfg.effective_d_position == 0
+    assert cfg.effective_d_scratch == 256
+    assert cfg.d_model == 256 + 256 == 512
     assert cfg.log_every == 100
     assert cfg.eval_every is None
     assert cfg.effective_eval_every == 5_000
@@ -74,26 +75,42 @@ def test_default_configs_and_derived_properties():
 
     cls_cfg = AdditionClsConfig()
     assert isinstance(cls_cfg, AdditionStepConfig)
+    assert cls_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
+    assert cls_cfg.use_token_type is True
+    assert cls_cfg.fixed_d_model is True
+    assert cls_cfg.effective_d_position == 32
+    assert cls_cfg.effective_d_scratch == 208
+    assert cls_cfg.d_model == 512
     assert cls_cfg.p_terminal == 0.2
     assert cls_cfg.all_steps is False
 
     fork_cfg = AdditionStepForkConfig()
     assert isinstance(fork_cfg, AdditionStepConfig)
+    assert fork_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
     assert fork_cfg.p_terminal == 0.2
     assert fork_cfg.all_steps is False
 
     step_ar_cfg = AdditionStepArConfig()
     assert isinstance(step_ar_cfg, AdditionStepConfig)
+    assert step_ar_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
     assert step_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert step_ar_cfg.use_query_tokens is False
 
     ar_cfg = AdditionArConfig()
     assert not isinstance(ar_cfg, AdditionStepConfig)
+    assert not hasattr(ar_cfg, "embedding_mode")
+    assert ar_cfg.d_scratch == 256
+    assert ar_cfg.d_model == 512
     assert ar_cfg.step_order == StepOrder.SUM_FIRST
     assert ar_cfg.use_query_tokens is False
 
     addr_step_ar_cfg = AdditionAddressedStepArConfig()
     assert isinstance(addr_step_ar_cfg, AdditionStepArConfig)
+    assert addr_step_ar_cfg.embedding_mode == EmbeddingMode.NOPE
+    assert addr_step_ar_cfg.use_token_type is False
+    assert addr_step_ar_cfg.effective_d_position == 0
+    assert addr_step_ar_cfg.effective_d_scratch == 256
+    assert addr_step_ar_cfg.d_model == 512
     assert addr_step_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert addr_step_ar_cfg.use_query_tokens is False
     assert addr_step_ar_cfg.include_alphabet is True
@@ -101,25 +118,28 @@ def test_default_configs_and_derived_properties():
     addr_ar_cfg = AdditionAddressedArConfig()
     assert isinstance(addr_ar_cfg, AdditionArConfig)
     assert not isinstance(addr_ar_cfg, AdditionStepConfig)
+    assert not hasattr(addr_ar_cfg, "embedding_mode")
+    assert addr_ar_cfg.d_scratch == 256
+    assert addr_ar_cfg.d_model == 512
     assert addr_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert addr_ar_cfg.use_query_tokens is False
     assert addr_ar_cfg.include_alphabet is True
 
 
 def test_embedding_mode_and_fixed_d_model_combinations():
-    cfg_tt_nope = AdditionConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE)
+    cfg_tt_nope = AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE)
     assert cfg_tt_nope.use_token_type is True
     assert cfg_tt_nope.effective_d_position == 0
     assert cfg_tt_nope.effective_d_scratch == 208 + 32 == 240
     assert cfg_tt_nope.d_model == 512
 
-    cfg_nope = AdditionConfig(embedding_mode=EmbeddingMode.NOPE)
+    cfg_nope = AdditionStepConfig(embedding_mode=EmbeddingMode.NOPE)
     assert cfg_nope.use_token_type is False
     assert cfg_nope.effective_d_position == 0
     assert cfg_nope.effective_d_scratch == 208 + 16 + 32 == 256
     assert cfg_nope.d_model == 512
 
-    cfg_tt_nope_shrink = AdditionConfig(
+    cfg_tt_nope_shrink = AdditionStepConfig(
         embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
         fixed_d_model=False,
     )
@@ -127,7 +147,7 @@ def test_embedding_mode_and_fixed_d_model_combinations():
     assert cfg_tt_nope_shrink.effective_d_scratch == 208
     assert cfg_tt_nope_shrink.d_model == 480
 
-    cfg_nope_shrink = AdditionConfig(
+    cfg_nope_shrink = AdditionStepConfig(
         embedding_mode=EmbeddingMode.NOPE,
         fixed_d_model=False,
     )
@@ -322,9 +342,9 @@ def test_config_validation_rejections():
     with pytest.raises(ValueError, match="eval_p_chain must be in 0.0..1.0"):
         AdditionConfig(eval_p_chain=1.5)
     with pytest.raises(ValueError, match="non-negative even int"):
-        AdditionConfig(d_position=15)
+        AdditionStepConfig(d_position=15)
     with pytest.raises(ValueError, match="d_position must be > 0"):
-        AdditionConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
+        AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
     with pytest.raises(ValueError, match="d_scratch must be >= 0"):
         AdditionConfig(d_scratch=-1)
     with pytest.raises(ValueError, match="n_layers must be > 0"):

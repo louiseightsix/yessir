@@ -1,16 +1,12 @@
-"""Input sequence and full-trace label construction (`AddressedTraceMetadataState`, `build_addressed_ar_trace_tokens`, `build_addressed_ar_example`, `build_addressed_ar_labelled_example`) for the `addressed_ar` variant of `addition`."""
+"""Pure-LM (`input_ids`-only) input sequence and full-trace label construction (`build_addressed_ar_trace_tokens`, `build_addressed_ar_example`, `build_addressed_ar_labelled_example`) for the `addressed_ar` variant of `addition`."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from experiments.addition.inputs import (
     AdditionToken,
-    EmbeddingMode,
     StepOrder,
-    TokenType,
     build_addressed_prefix_tokens,
     encode_address,
-    make_example,
     pack_step_order,
     step_query_tokens,
 )
@@ -19,17 +15,6 @@ from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token, TokenSequence
-
-
-def _column_body_slot_metadata(
-    k: int,
-    body_idx: int,
-    *,
-    step_order: StepOrder,
-) -> tuple[TokenType, int]:
-    """Return `(token_type_id, position_id)` for unqueried body offset `body_idx` (`0` or `1`) within column `k`."""
-    is_sum = (body_idx == 0) if step_order == StepOrder.SUM_FIRST else (body_idx == 1)
-    return (TokenType.OUTPUT, k) if is_sum else (TokenType.CARRY, k + 1)
 
 
 def build_addressed_ar_trace_tokens(
@@ -59,105 +44,20 @@ def build_addressed_ar_trace_tokens(
     return tuple(trace)
 
 
-@dataclass
-class AddressedTraceMetadataState:
-    """Per-sequence state machine assigning `(token_type_id, position_id)` to `addressed_ar` trace tokens.
-
-    Shared by `build_addressed_ar_example` and KV-cached `evaluate_addressed_ar` so
-    teacher-forced training/oracle passes, single-problem `rollout_addressed_ar`,
-    and batched cached rollouts assign identical coordinates even on wrong-width or
-    malformed segments.
-    """
-
-    alphabet: tuple[Token, ...]
-    step_order: StepOrder
-    use_query_tokens: bool
-    k: int = 0
-    in_segment: bool = False
-    slot: int = 0
-    addr_len: int = 1
-    pending_query: int | None = None
-
-    def __post_init__(self) -> None:
-        self.step_order = StepOrder(self.step_order)
-        self.addr_len = len(encode_address(self.k, self.alphabet))
-
-    def step(self, raw_tok: Token) -> tuple[TokenType, int]:
-        """Advance state for emitted trace token `raw_tok` and return `(token_type_id, position_id)`."""
-        tok = int(raw_tok)
-        idx_tok = int(AdditionToken.IDX)
-        q_sum = int(AdditionToken.QUERY_SUM)
-        q_carry = int(AdditionToken.QUERY_CARRY)
-
-        if tok == idx_tok:
-            if self.in_segment:
-                self.k += 1
-                self.addr_len = len(encode_address(self.k, self.alphabet))
-            self.in_segment = True
-            self.slot = 1
-            self.pending_query = None
-            return TokenType.SPECIAL, self.k
-
-        if not self.in_segment:
-            self.in_segment = True
-            self.slot = 1
-        if self.use_query_tokens:
-            if tok in (q_sum, q_carry):
-                self.pending_query = tok
-                tt, pos = TokenType.SPECIAL, self.k
-            elif self.pending_query == q_sum:
-                self.pending_query = None
-                tt, pos = TokenType.OUTPUT, self.k
-            elif self.pending_query == q_carry:
-                self.pending_query = None
-                tt, pos = TokenType.CARRY, self.k + 1
-            else:
-                tt, pos = TokenType.ADDRESS, self.k
-        else:
-            if self.slot <= self.addr_len:
-                tt, pos = TokenType.ADDRESS, self.k
-            elif self.slot <= self.addr_len + 2:
-                tt, pos = _column_body_slot_metadata(
-                    self.k,
-                    self.slot - 1 - self.addr_len,
-                    step_order=self.step_order,
-                )
-            else:
-                # Hold column `k` on overlong malformed segments until `[IDX]` arrives.
-                tt, pos = TokenType.SPECIAL, self.k
-        self.slot += 1
-        return tt, pos
-
-
 def build_addressed_ar_example(
     alphabet: TokenSequence,
     a: TokenSequence,
     b: TokenSequence,
     trace: TokenSequence = (),
     *,
-    step_order: StepOrder = StepOrder.SUM_FIRST,
-    use_query_tokens: bool = False,
     include_alphabet: bool = True,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> Example:
-    """Build an `addressed_ar` `Example` appending partial or complete `trace` tokens to the addressed prefix."""
-    order = StepOrder(step_order)
-    input_ids, token_type_ids, position_ids = build_addressed_prefix_tokens(
+    """Build a pure-LM (`input_ids`-only) `addressed_ar` `Example` appending `trace` tokens to the addressed prefix."""
+    input_ids, _, _ = build_addressed_prefix_tokens(
         alphabet, a, b, include_alphabet=include_alphabet
     )
-    meta_state = AddressedTraceMetadataState(
-        alphabet=tuple(alphabet),
-        step_order=order,
-        use_query_tokens=use_query_tokens,
-    )
-
-    for raw_tok in trace:
-        tt, pos = meta_state.step(raw_tok)
-        input_ids.append(int(raw_tok))
-        token_type_ids.append(tt)
-        position_ids.append(pos)
-
-    return make_example(input_ids, token_type_ids, position_ids, embedding_mode)
+    input_ids.extend(int(raw_tok) for raw_tok in trace)
+    return Example(input_ids=tuple(input_ids))
 
 
 def build_addressed_ar_labelled_example(
@@ -169,12 +69,12 @@ def build_addressed_ar_labelled_example(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> LabelledExample:
     """Build the full-trace teacher-forced `LabelledExample` for `(alphabet, a, b)` (`spec/variants/addressed_ar.md` §3).
 
     Appends `trace` to the addressed problem prefix of length `P` and assigns
-    pre-shifted `labels = (IGNORE_INDEX,) * (P - 1) + (*trace, EOS)`.
+    pre-shifted `labels = (IGNORE_INDEX,) * (P - 1) + (*trace, EOS)` with no
+    side-channel `token_type_ids` or `position_ids`.
     """
     oracle_steps = tuple(steps) if steps is not None else reference_add(alphabet, a, b)
     order = StepOrder(step_order)
@@ -189,10 +89,7 @@ def build_addressed_ar_labelled_example(
         a,
         b,
         trace,
-        step_order=order,
-        use_query_tokens=use_query_tokens,
         include_alphabet=include_alphabet,
-        embedding_mode=embedding_mode,
     )
     prefix_len = len(example) - len(trace)
     labels = (IGNORE_INDEX,) * (prefix_len - 1) + (*trace, int(SpecialToken.EOS))

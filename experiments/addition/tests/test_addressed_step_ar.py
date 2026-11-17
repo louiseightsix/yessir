@@ -501,10 +501,23 @@ def test_addition_addressed_step_ar_dataset_and_cli(
     oracle = reference_add(first_prob.alphabet, first_prob.a, first_prob.b)
     items = list(itertools.islice(ds, len(oracle)))
     for st, item in zip(oracle, items, strict=True):
-        assert item.example.token_type_ids is not None
-        assert TokenType.ALPHABET not in item.example.token_type_ids
+        assert item.example.token_type_ids is None
+        assert item.example.position_ids is None
         non_ignored = [lbl for lbl in item.labels if lbl != IGNORE_INDEX]
         assert non_ignored == [st.carry_out, st.sum_digit, int(st.flag)]
+
+    ds_pe = AdditionAddressedStepArDataset(
+        bases=(3,),
+        min_length=1,
+        max_length=4,
+        all_steps=True,
+        include_alphabet=False,
+        embedding_mode=EmbeddingMode.TOKEN_TYPE_PE,
+        seed=11,
+    )
+    pe_item = next(iter(ds_pe))
+    assert pe_item.example.token_type_ids is not None
+    assert TokenType.ALPHABET not in pe_item.example.token_type_ids
 
     dump_path = tmp_path / "addressed_step_ar_dump.jsonl"
     addressed_step_ar_dataset_main(

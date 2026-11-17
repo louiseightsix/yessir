@@ -10,9 +10,7 @@ import torch
 from experiments.addition.inputs import (
     AdditionProblem,
     AdditionToken,
-    EmbeddingMode,
     StepOrder,
-    TokenType,
     iter_problems,
     pack_step_order,
 )
@@ -161,16 +159,6 @@ def test_ar_spec_example_1_all_modes_and_prefix_consistency():
     q_c = int(AdditionToken.QUERY_CARRY)
 
     prefix_ids = (bos, *alphabet, sep, *a, sep, *b, sep)
-    prefix_tt = (
-        TokenType.SPECIAL,
-        *([TokenType.ALPHABET] * 10),
-        TokenType.SPECIAL,
-        *([TokenType.OPERAND_A] * 3),
-        TokenType.SPECIAL,
-        *([TokenType.OPERAND_B] * 2),
-        TokenType.SPECIAL,
-    )
-    prefix_pos = (0, *range(10), 0, *range(3), 0, *range(2), 0)
     p_len = len(prefix_ids)
     assert p_len == 10 + 3 + 2 + 4 == 19
 
@@ -180,17 +168,8 @@ def test_ar_spec_example_1_all_modes_and_prefix_consistency():
     )
     expected_sf_trace = tuple(b"21110110")
     assert sf_noq.example.input_ids == (*prefix_ids, *expected_sf_trace)
-    assert sf_noq.example.token_type_ids == (
-        *prefix_tt,
-        *(
-            [
-                TokenType.OUTPUT,
-                TokenType.CARRY,
-            ]
-            * 4
-        ),
-    )
-    assert sf_noq.example.position_ids == (*prefix_pos, 0, 1, 1, 2, 2, 3, 3, 4)
+    assert sf_noq.example.token_type_ids is None
+    assert sf_noq.example.position_ids is None
     assert sf_noq.labels == (IGNORE_INDEX,) * (p_len - 1) + (*expected_sf_trace, eos)
 
     # 2. carry_first, use_query_tokens=False -> 1 2  1 1  1 0  0 1  [EOS]
@@ -199,17 +178,8 @@ def test_ar_spec_example_1_all_modes_and_prefix_consistency():
     )
     expected_cf_trace = tuple(b"12111001")
     assert cf_noq.example.input_ids == (*prefix_ids, *expected_cf_trace)
-    assert cf_noq.example.token_type_ids == (
-        *prefix_tt,
-        *(
-            [
-                TokenType.CARRY,
-                TokenType.OUTPUT,
-            ]
-            * 4
-        ),
-    )
-    assert cf_noq.example.position_ids == (*prefix_pos, 1, 0, 2, 1, 3, 2, 4, 3)
+    assert cf_noq.example.token_type_ids is None
+    assert cf_noq.example.position_ids is None
     assert cf_noq.labels == (IGNORE_INDEX,) * (p_len - 1) + (*expected_cf_trace, eos)
 
     # 3. sum_first, use_query_tokens=True
@@ -235,25 +205,8 @@ def test_ar_spec_example_1_all_modes_and_prefix_consistency():
         ord("0"),
     )
     assert sf_q.example.input_ids == (*prefix_ids, *expected_sf_q_trace)
-    assert sf_q.example.position_ids == (
-        *prefix_pos,
-        0,
-        0,
-        0,
-        1,
-        1,
-        1,
-        1,
-        2,
-        2,
-        2,
-        2,
-        3,
-        3,
-        3,
-        3,
-        4,
-    )
+    assert sf_q.example.token_type_ids is None
+    assert sf_q.example.position_ids is None
     assert sf_q.labels == (IGNORE_INDEX,) * (p_len - 1) + (*expected_sf_q_trace, eos)
 
     # 4. carry_first, use_query_tokens=True
@@ -279,25 +232,8 @@ def test_ar_spec_example_1_all_modes_and_prefix_consistency():
         ord("1"),
     )
     assert cf_q.example.input_ids == (*prefix_ids, *expected_cf_q_trace)
-    assert cf_q.example.position_ids == (
-        *prefix_pos,
-        0,
-        1,
-        0,
-        0,
-        1,
-        2,
-        1,
-        1,
-        2,
-        3,
-        2,
-        2,
-        3,
-        4,
-        3,
-        3,
-    )
+    assert cf_q.example.token_type_ids is None
+    assert cf_q.example.position_ids is None
     assert cf_q.labels == (IGNORE_INDEX,) * (p_len - 1) + (*expected_cf_q_trace, eos)
 
     # Verify rollout's incremental prefixes match slices of the full teacher-forced Example!
@@ -311,25 +247,14 @@ def test_ar_spec_example_1_all_modes_and_prefix_consistency():
                 steps, step_order=order, use_query_tokens=use_q
             )
             for t_len in range(len(trace) + 1):
-                partial = build_ar_example(
-                    alphabet,
-                    a,
-                    b,
-                    trace[:t_len],
-                    step_order=order,
-                    use_query_tokens=use_q,
-                )
+                partial = build_ar_example(alphabet, a, b, trace[:t_len])
                 end = p_len + t_len
                 assert partial.input_ids == full.example.input_ids[:end]
-                assert (
-                    partial.token_type_ids == full.example.token_type_ids[:end]  # ty: ignore[not-subscriptable]
-                )
-                assert (
-                    partial.position_ids == full.example.position_ids[:end]  # ty: ignore[not-subscriptable]
-                )
+                assert partial.token_type_ids is None
+                assert partial.position_ids is None
 
 
-def test_ar_spec_example_2_and_embedding_modes():
+def test_ar_spec_example_2_pure_input_ids():
     """Verify `spec/variants/ar.md` §2 Example 2 (`alphabet = b'q#7'`, `5 + 1 = 6`)."""
     alphabet = b"q#7"
     a = b"7#"
@@ -342,15 +267,9 @@ def test_ar_spec_example_2_and_embedding_modes():
     cf = build_ar_labelled_example(alphabet, a, b, step_order=StepOrder.CARRY_FIRST)
     assert cf.labels[-5:] == (ord("#"), ord("q"), ord("q"), ord("7"), eos)
 
-    ex_tt_nope = build_ar_example(
-        alphabet, a, b, b"q#", embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE
-    )
-    assert ex_tt_nope.token_type_ids is not None
-    assert ex_tt_nope.position_ids is None
-
-    ex_nope = build_ar_example(alphabet, a, b, b"q#", embedding_mode=EmbeddingMode.NOPE)
-    assert ex_nope.token_type_ids is None
-    assert ex_nope.position_ids is None
+    ex = build_ar_example(alphabet, a, b, b"q#")
+    assert ex.token_type_ids is None
+    assert ex.position_ids is None
 
 
 def test_addition_ar_dataset_and_cli(
@@ -622,25 +541,16 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
         assert m_ord.out_of_alphabet == expected_ooa
 
 
-@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
-def test_evaluate_and_rollout_ar_with_real_transformer_and_validation(
-    embedding_mode: EmbeddingMode,
-):
+def test_evaluate_and_rollout_ar_with_real_transformer_and_validation():
     seed_everything(0)
-    use_tt = embedding_mode in (
-        EmbeddingMode.TOKEN_TYPE_PE,
-        EmbeddingMode.TOKEN_TYPE_NOPE,
-    )
-    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
-    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        use_token_type=use_tt,
-        d_position=d_pos,
-        d_scratch=d_scratch,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=24,
     )
     problems = list(
         itertools.islice(
@@ -654,7 +564,6 @@ def test_evaluate_and_rollout_ar_with_real_transformer_and_validation(
         batch_size=1,
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
-        embedding_mode=embedding_mode,
     )
     m_b3 = evaluate_ar(
         model,
@@ -663,7 +572,6 @@ def test_evaluate_and_rollout_ar_with_real_transformer_and_validation(
         batch_size=3,
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
-        embedding_mode=embedding_mode,
     )
     assert m_b1 == m_b3
     assert 0.0 <= m_b3.exact_match <= 1.0
@@ -679,9 +587,6 @@ def test_evaluate_and_rollout_ar_with_real_transformer_and_validation(
         model,
         problems,
         max_tokens_all,
-        step_order=StepOrder.CARRY_FIRST,
-        use_query_tokens=True,
-        embedding_mode=embedding_mode,
         device=model.device,
     )
     for prob, cached in zip(problems, cached_rollouts, strict=True):
@@ -692,32 +597,31 @@ def test_evaluate_and_rollout_ar_with_real_transformer_and_validation(
             prob.b,
             step_order=StepOrder.CARRY_FIRST,
             use_query_tokens=True,
-            embedding_mode=embedding_mode,
         )
         assert cached == uncached
 
-    if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
-        with pytest.raises(ValueError, match="num_problems must be >= 1"):
-            evaluate_ar(model, problems, num_problems=0)
-        with pytest.raises(ValueError, match="batch_size must be >= 1"):
-            evaluate_ar(model, problems, num_problems=1, batch_size=0)
-        with pytest.raises(ValueError, match="exhausted early"):
-            evaluate_ar(model, [], num_problems=1)
+    with pytest.raises(ValueError, match="num_problems must be >= 1"):
+        evaluate_ar(model, problems, num_problems=0)
+    with pytest.raises(ValueError, match="batch_size must be >= 1"):
+        evaluate_ar(model, problems, num_problems=1, batch_size=0)
+    with pytest.raises(ValueError, match="exhausted early"):
+        evaluate_ar(model, [], num_problems=1)
 
-        cls_model = Transformer(
-            head_type=HeadType.PARALLEL_CLASSIFICATION,
-            num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
-            n_layers=1,
-            n_heads=4,
-            d_ff=32,
-            d_position=8,
-            d_scratch=0,
+    cls_model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=24,
+    )
+    with pytest.raises(ValueError, match="SubspaceLMHead"):
+        evaluate_ar(
+            cls_model,
+            iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
+            num_problems=1,
         )
-        with pytest.raises(ValueError, match="SubspaceLMHead"):
-            evaluate_ar(
-                cls_model,
-                iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
-                num_problems=1,
-            )
-        with pytest.raises(ValueError, match="SubspaceLMHead"):
-            rollout_ar(cls_model, b"01", b"0", b"1")
+    with pytest.raises(ValueError, match="SubspaceLMHead"):
+        rollout_ar(cls_model, b"01", b"0", b"1")

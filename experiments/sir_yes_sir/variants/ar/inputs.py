@@ -14,20 +14,18 @@ from yessir.vocab import TokenSequence
 def build_ar_labelled_example(
     alphabet: TokenSequence,
     x: TokenSequence,
-    *,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> LabelledExample:
-    """Build a teacher-forced next-token `LabelledExample` for `(alphabet, x)`.
+    """Build a pure-LM (`input_ids`-only) teacher-forced next-token `LabelledExample` for `(alphabet, x)`.
 
     For a prompt prefix `[BOS] alphabet [SEP] x [SEP]` of length `P` and ground-truth
     targets `targets = (o_0, ..., o_{L-1}, EOS)` of length `L + 1`
     (`experiments/sir_yes_sir/spec/variants/ar.md` §2):
-    - `example` is `build_example(alphabet, x, output=(o_0, ..., o_{L-1}))` (length `P + L`).
+    - `example` is `Example(input_ids=prefix + (o_0, ..., o_{L-1}))` (length `P + L`,
+      with `token_type_ids=None` and `position_ids=None`).
     - `labels` is `(IGNORE_INDEX,) * (P - 1) + targets` (length `P + L`), so
       `SubspaceLMHead` + `next_token_cross_entropy` supervise predictions from
-      index `P - 1` (the second `[SEP]` at `position_id = 0`, predicting `o_0`)
-      through `o_{L-1}` (at `position_id = L`, predicting `EOS`), while masking
-      earlier prompt positions with `IGNORE_INDEX = -100`.
+      index `P - 1` (the second `[SEP]`, predicting `o_0`) through `o_{L-1}`
+      (predicting `EOS`), while masking earlier prompt positions with `IGNORE_INDEX = -100`.
     """
     alphabet_tokens, x_tokens = validate_problem(alphabet, x)
     output = tuple(
@@ -38,7 +36,7 @@ def build_ar_labelled_example(
         alphabet_tokens,
         x_tokens,
         output=output,
-        embedding_mode=embedding_mode,
+        embedding_mode=EmbeddingMode.NOPE,
     )
     labels = (IGNORE_INDEX,) * (len(example) - len(targets)) + targets
     return LabelledExample(example=example, labels=labels)

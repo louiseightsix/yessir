@@ -559,7 +559,12 @@ def iter_problem_steps(
     return _stream()
 
 
-def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
+def add_common_dataset_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_embedding_mode: bool = True,
+    default_embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+) -> None:
     """Attach shared `addition` dataset inspection CLI flags to `parser`."""
     parser.add_argument(
         "--bases",
@@ -598,13 +603,14 @@ def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
         default=0.25,
         help="Probability of injecting a multi-column carry chain (default: 0.25)",
     )
-    parser.add_argument(
-        "--embedding-mode",
-        type=EmbeddingMode,
-        choices=tuple(EmbeddingMode),
-        default=EmbeddingMode.TOKEN_TYPE_PE,
-        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
-    )
+    if include_embedding_mode:
+        parser.add_argument(
+            "--embedding-mode",
+            type=EmbeddingMode,
+            choices=tuple(EmbeddingMode),
+            default=default_embedding_mode,
+            help=f"Embedding mode for token_type_ids and position_ids (default: {default_embedding_mode.value})",
+        )
     parser.add_argument(
         "--seed",
         type=int,

@@ -10,9 +10,7 @@ import torch
 from experiments.addition.inputs import (
     AdditionProblem,
     AdditionToken,
-    EmbeddingMode,
     StepOrder,
-    TokenType,
     encode_address,
     iter_problems,
     pack_step_order,
@@ -195,50 +193,6 @@ def test_addressed_ar_spec_example_1_all_modes_and_prefix_consistency():
         ord("2"),
         sep,
     )
-    prefix_tt = (
-        TokenType.SPECIAL,
-        *([TokenType.ALPHABET] * 10),
-        TokenType.SPECIAL,
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.OPERAND_A,
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.OPERAND_A,
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.OPERAND_A,
-        TokenType.SPECIAL,
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.OPERAND_B,
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.OPERAND_B,
-        TokenType.SPECIAL,
-    )
-    prefix_pos = (
-        0,
-        *range(10),
-        0,
-        0,
-        0,
-        0,
-        1,
-        1,
-        1,
-        2,
-        2,
-        2,
-        0,
-        0,
-        0,
-        0,
-        1,
-        1,
-        1,
-        0,
-    )
     p_len = len(prefix_ids)
 
     # 1. sum_first, use_query_tokens=False:
@@ -265,37 +219,8 @@ def test_addressed_ar_spec_example_1_all_modes_and_prefix_consistency():
         ord("0"),
     )
     assert sf_noq.example.input_ids == (*prefix_ids, *expected_sf_trace)
-    assert sf_noq.example.token_type_ids == (
-        *prefix_tt,
-        *(
-            [
-                TokenType.SPECIAL,
-                TokenType.ADDRESS,
-                TokenType.OUTPUT,
-                TokenType.CARRY,
-            ]
-            * 4
-        ),
-    )
-    assert sf_noq.example.position_ids == (
-        *prefix_pos,
-        0,
-        0,
-        0,
-        1,
-        1,
-        1,
-        1,
-        2,
-        2,
-        2,
-        2,
-        3,
-        3,
-        3,
-        3,
-        4,
-    )
+    assert sf_noq.example.token_type_ids is None
+    assert sf_noq.example.position_ids is None
     assert sf_noq.labels == (IGNORE_INDEX,) * (p_len - 1) + (*expected_sf_trace, eos)
 
     # 2. carry_first, use_query_tokens=False:
@@ -322,37 +247,8 @@ def test_addressed_ar_spec_example_1_all_modes_and_prefix_consistency():
         ord("1"),
     )
     assert cf_noq.example.input_ids == (*prefix_ids, *expected_cf_trace)
-    assert cf_noq.example.token_type_ids == (
-        *prefix_tt,
-        *(
-            [
-                TokenType.SPECIAL,
-                TokenType.ADDRESS,
-                TokenType.CARRY,
-                TokenType.OUTPUT,
-            ]
-            * 4
-        ),
-    )
-    assert cf_noq.example.position_ids == (
-        *prefix_pos,
-        0,
-        0,
-        1,
-        0,
-        1,
-        1,
-        2,
-        1,
-        2,
-        2,
-        3,
-        2,
-        3,
-        3,
-        4,
-        3,
-    )
+    assert cf_noq.example.token_type_ids is None
+    assert cf_noq.example.position_ids is None
     assert cf_noq.labels == (IGNORE_INDEX,) * (p_len - 1) + (*expected_cf_trace, eos)
 
     # 3. sum_first, use_query_tokens=True
@@ -432,22 +328,11 @@ def test_addressed_ar_spec_example_1_all_modes_and_prefix_consistency():
                 steps, alphabet, step_order=order, use_query_tokens=use_q
             )
             for t_len in range(len(trace) + 1):
-                partial = build_addressed_ar_example(
-                    alphabet,
-                    a,
-                    b,
-                    trace[:t_len],
-                    step_order=order,
-                    use_query_tokens=use_q,
-                )
+                partial = build_addressed_ar_example(alphabet, a, b, trace[:t_len])
                 end = p_len + t_len
                 assert partial.input_ids == full.example.input_ids[:end]
-                assert (
-                    partial.token_type_ids == full.example.token_type_ids[:end]  # ty: ignore[not-subscriptable]
-                )
-                assert (
-                    partial.position_ids == full.example.position_ids[:end]  # ty: ignore[not-subscriptable]
-                )
+                assert partial.token_type_ids is None
+                assert partial.position_ids is None
 
 
 def test_addressed_ar_spec_example_2_zero_preamble_and_multidigit_addresses():
@@ -507,8 +392,8 @@ def test_addressed_ar_spec_example_2_zero_preamble_and_multidigit_addresses():
         use_query_tokens=True,
         include_alphabet=False,
     )
-    assert full_bin.example.token_type_ids is not None
-    assert TokenType.ALPHABET not in full_bin.example.token_type_ids
+    assert full_bin.example.token_type_ids is None
+    assert full_bin.example.position_ids is None
 
     bin_trace = build_addressed_ar_trace_tokens(
         bin_steps,
@@ -523,26 +408,14 @@ def test_addressed_ar_spec_example_2_zero_preamble_and_multidigit_addresses():
             bin_a,
             bin_b,
             bin_trace[:t_len],
-            step_order=StepOrder.CARRY_FIRST,
-            use_query_tokens=True,
             include_alphabet=False,
         )
         end = bin_prefix_len + t_len
         assert partial.input_ids == full_bin.example.input_ids[:end]
-        assert partial.token_type_ids == full_bin.example.token_type_ids[:end]
-        assert (
-            partial.position_ids == full_bin.example.position_ids[:end]  # ty: ignore[not-subscriptable]
-        )
+        assert partial.token_type_ids is None
+        assert partial.position_ids is None
 
-    ex_tt_nope = build_addressed_ar_example(
-        alphabet, a, b, (idx, ord("q")), embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE
-    )
-    assert ex_tt_nope.token_type_ids is not None
-    assert ex_tt_nope.position_ids is None
-
-    ex_nope = build_addressed_ar_example(
-        alphabet, a, b, (idx, ord("q")), embedding_mode=EmbeddingMode.NOPE
-    )
+    ex_nope = build_addressed_ar_example(alphabet, a, b, (idx, ord("q")))
     assert ex_nope.token_type_ids is None
     assert ex_nope.position_ids is None
 
@@ -702,121 +575,6 @@ def test_rollout_and_parse_addressed_ar_trace():
     assert parse_addressed_ar_trace(capped)[1] is False
 
 
-def test_build_addressed_ar_example_resynchronises_on_idx_after_wrong_width_address():
-    """Verify `[IDX]` boundaries keep `token_type_ids` and `position_ids` aligned during rollout."""
-    idx = int(AdditionToken.IDX)
-    q_s = int(AdditionToken.QUERY_SUM)
-    q_c = int(AdditionToken.QUERY_CARRY)
-    alphabet = b"01"
-    a = b"111"
-    b = b"1"
-    prefix_len = len(build_addressed_ar_example(alphabet, a, b, ()))
-
-    # Column k = 2 emits a 1-bit address (`'1'`) instead of a 2-bit address (`'0', '1'`),
-    # followed by a well-formed column k = 3 (`[IDX] '1' '1' '0' '0'`).
-    short_addr_trace = (
-        idx,
-        ord("0"),
-        ord("0"),
-        ord("1"),  # k = 0 (addr_len = 1)
-        idx,
-        ord("1"),
-        ord("0"),
-        ord("1"),  # k = 1 (addr_len = 1)
-        idx,
-        ord("1"),
-        ord("0"),
-        ord("1"),  # k = 2 (short 1-bit addr + 2 body tokens)
-        idx,
-        ord("1"),
-        ord("1"),
-        ord("0"),
-        ord("0"),  # k = 3 (resynchronised!)
-    )
-    ex_short = build_addressed_ar_example(alphabet, a, b, short_addr_trace)
-    assert ex_short.token_type_ids is not None
-    assert ex_short.position_ids is not None
-    # Column 3 starts at trace offset 12 (`prefix_len + 12`).
-    assert ex_short.token_type_ids[prefix_len + 12 :] == (
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.ADDRESS,
-        TokenType.OUTPUT,
-        TokenType.CARRY,
-    )
-    assert ex_short.position_ids[prefix_len + 12 :] == (3, 3, 3, 3, 4)
-
-    # Incremental causal-prefix invariance holds even across malformed traces.
-    for t_len in range(len(short_addr_trace) + 1):
-        partial = build_addressed_ar_example(alphabet, a, b, short_addr_trace[:t_len])
-        end = prefix_len + t_len
-        assert partial.token_type_ids == ex_short.token_type_ids[:end]
-        assert partial.position_ids == ex_short.position_ids[:end]
-
-    # Overlong segment at k = 1 (2-bit address where 1-bit was expected) still keeps
-    # the next `[IDX]` at k = 2 rather than advancing early to k = 3.
-    overlong_trace = (
-        idx,
-        ord("0"),
-        ord("0"),
-        ord("1"),  # k = 0
-        idx,
-        ord("1"),
-        ord("0"),
-        ord("0"),
-        ord("1"),  # k = 1 (extra token)
-        idx,
-        ord("0"),
-        ord("1"),
-        ord("0"),
-        ord("1"),  # k = 2
-    )
-    ex_long = build_addressed_ar_example(alphabet, a, b, overlong_trace)
-    assert ex_long.token_type_ids is not None
-    assert ex_long.position_ids is not None
-    assert ex_long.token_type_ids[prefix_len + 9 :] == (
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.ADDRESS,
-        TokenType.OUTPUT,
-        TokenType.CARRY,
-    )
-    assert ex_long.position_ids[prefix_len + 9 :] == (2, 2, 2, 2, 3)
-
-    # With `use_query_tokens=True`, `[S]` and `[C]` align `(OUTPUT, k)` and `(CARRY, k + 1)`
-    # even within the wrong-width-address column itself.
-    wrong_width_q = (
-        idx,
-        ord("0"),
-        q_s,
-        ord("0"),
-        q_c,
-        ord("1"),  # k = 0
-        idx,
-        ord("1"),
-        ord("0"),
-        q_s,
-        ord("0"),
-        q_c,
-        ord("1"),  # k = 1 with 2-bit addr
-    )
-    ex_q = build_addressed_ar_example(
-        alphabet, a, b, wrong_width_q, use_query_tokens=True
-    )
-    assert ex_q.token_type_ids is not None
-    assert ex_q.position_ids is not None
-    assert ex_q.token_type_ids[prefix_len + 6 :] == (
-        TokenType.SPECIAL,
-        TokenType.ADDRESS,
-        TokenType.ADDRESS,
-        TokenType.SPECIAL,
-        TokenType.OUTPUT,
-        TokenType.SPECIAL,
-        TokenType.CARRY,
-    )
-    assert ex_q.position_ids[prefix_len + 6 :] == (1, 1, 1, 1, 1, 1, 2)
-
-
 @pytest.mark.parametrize("step_order", list(StepOrder))
 @pytest.mark.parametrize("use_query_tokens", [False, True])
 @pytest.mark.parametrize("include_alphabet", [True, False])
@@ -858,7 +616,6 @@ def test_evaluate_addressed_ar_all_modes_and_batch_size_invariance(
         ),
         eos,
     ]
-    # Corrupt sum_digit at column 0 of problem 1 (`[IDX], addr(0), ...` -> body starts at index 2).
     wrong_digit = (
         problems[1].alphabet[0]
         if s1[0].sum_digit != problems[1].alphabet[0]
@@ -904,7 +661,7 @@ def test_evaluate_addressed_ar_all_modes_and_batch_size_invariance(
 def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     prob = AdditionProblem(alphabet=tuple(b"q#7"), a=tuple(b"7"), b=tuple(b"#"))
     steps = reference_add(prob.alphabet, prob.a, prob.b)
-    assert len(steps) == 2  # k = 0, 1
+    assert len(steps) == 2
     idx = int(AdditionToken.IDX)
     eos = int(SpecialToken.EOS)
 
@@ -914,12 +671,9 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
         ),
         eos,
     ]
-    # gold_noq = [IDX, 'q', o_0, c_1, IDX, '#', o_1, c_2, EOS]
 
-    # 1. Wrong `addr(0)` token -> syntax_malformation=1.0, exact_match=0.0,
-    # and `syntax_ok` gates column 0 in `step_accuracy` & `address_accuracy` (`E-1`).
     bad_addr = list(gold_noq)
-    bad_addr[1] = ord("#")  # expected 'q' (addr(0))
+    bad_addr[1] = ord("#")
     m_addr = evaluate_addressed_ar(
         _ScriptedEvalAddressedArModel([prob], [bad_addr]),  # ty: ignore[invalid-argument-type]
         [prob],
@@ -932,8 +686,6 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_addr.halt_accuracy == 1.0
     assert m_addr.syntax_malformation == 1.0
 
-    # 2. Wrong initial `[IDX]` at index 0 (non-EOS) -> syntax_malformation=1.0,
-    # column 0 fails `address_accuracy` & `step_accuracy`, column 1 succeeds, halt_accuracy=1.0.
     bad_init_idx = list(gold_noq)
     bad_init_idx[0] = ord("q")
     m_init = evaluate_addressed_ar(
@@ -947,10 +699,8 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_init.halt_accuracy == 1.0
     assert m_init.syntax_malformation == 1.0
 
-    # 3. Wrong continuation `[IDX]` after column 0 (index 4) -> merges into 1 malformed segment,
-    # failing `address_accuracy`, `step_accuracy`, and `halt_accuracy` with `syntax_malformation=1.0`.
     bad_cont_idx = list(gold_noq)
-    bad_cont_idx[4] = ord("q")  # expected IDX after column 0
+    bad_cont_idx[4] = ord("q")
     m_cont = evaluate_addressed_ar(
         _ScriptedEvalAddressedArModel([prob], [bad_cont_idx]),  # ty: ignore[invalid-argument-type]
         [prob],
@@ -962,10 +712,8 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_cont.halt_accuracy == 0.0
     assert m_cont.syntax_malformation == 1.0
 
-    # 4. Premature `[EOS]` inside column 0 after valid `[IDX] addr(0)` -> `address_accuracy = 0.5`,
-    # `step_accuracy = 0.0`, `halt_accuracy = 0.0`, `out_of_alphabet = 1.0`.
     premature = list(gold_noq)
-    premature[2] = eos  # o_0 replaced by EOS
+    premature[2] = eos
     m_prem = evaluate_addressed_ar(
         _ScriptedEvalAddressedArModel([prob], [premature]),  # ty: ignore[invalid-argument-type]
         [prob],
@@ -976,8 +724,6 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_prem.halt_accuracy == 0.0
     assert m_prem.out_of_alphabet == 1.0
 
-    # 5. Missing final `[EOS]` after column K -> syntax_malformation=1.0, halt_accuracy=0.0,
-    # while columns 0..1 retain `address_accuracy = 1.0` and `step_accuracy = 1.0`.
     missing_eos = list(gold_noq)
     missing_eos[-1] = idx
     m_miss = evaluate_addressed_ar(
@@ -991,8 +737,6 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_miss.halt_accuracy == 0.0
     assert m_miss.syntax_malformation == 1.0
 
-    # 6. `step_order` determines first-error classification when both o_0 (in-alphabet wrong)
-    # and c_1 (out-of-alphabet 255) fail in column 0:
     wrong_in_alpha = ord("7")
     out_of_alpha = 255
     for order, expected_proc, expected_ooa in (
@@ -1017,11 +761,8 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
         assert m_ord.procedural_error == expected_proc
         assert m_ord.out_of_alphabet == expected_ooa
 
-    # 7. Wrong-width address on multi-digit column (`k = 2` in base 2 expects `addr(2) = ('0', '1')`;
-    # emitting 1-digit `('0',)` fails both `address_accuracy` and `step_accuracy`).
     bin_prob = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"101"), b=tuple(b"010"))
     bin_steps = reference_add(bin_prob.alphabet, bin_prob.a, bin_prob.b)
-    assert len(bin_steps) == 3
     wrong_width_rollout = [
         idx,
         ord("0"),
@@ -1032,7 +773,7 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
         bin_steps[1].sum_digit,
         bin_steps[1].carry_out,
         idx,
-        ord("0"),  # 1-bit address instead of ('0', '1')
+        ord("0"),
         bin_steps[2].sum_digit,
         bin_steps[2].carry_out,
         eos,
@@ -1048,25 +789,16 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_width.syntax_malformation == 1.0
 
 
-@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
-def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
-    embedding_mode: EmbeddingMode,
-):
+def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation():
     seed_everything(0)
-    use_tt = embedding_mode in (
-        EmbeddingMode.TOKEN_TYPE_PE,
-        EmbeddingMode.TOKEN_TYPE_NOPE,
-    )
-    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
-    d_scratch = (0 if use_tt else 16) + (8 - d_pos)
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
         n_layers=1,
         n_heads=4,
         d_ff=32,
-        use_token_type=use_tt,
-        d_position=d_pos,
-        d_scratch=d_scratch,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=24,
     )
     problems = list(
         itertools.islice(
@@ -1088,7 +820,6 @@ def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
         include_alphabet=False,
-        embedding_mode=embedding_mode,
     )
     m_b3 = evaluate_addressed_ar(
         model,
@@ -1098,7 +829,6 @@ def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
         step_order=StepOrder.CARRY_FIRST,
         use_query_tokens=True,
         include_alphabet=False,
-        embedding_mode=embedding_mode,
     )
     assert m_b1 == m_b3
     assert 0.0 <= m_b3.exact_match <= 1.0
@@ -1125,10 +855,7 @@ def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
         model,
         problems,
         max_tokens_all,
-        step_order=StepOrder.CARRY_FIRST,
-        use_query_tokens=True,
         include_alphabet=False,
-        embedding_mode=embedding_mode,
         device=model.device,
     )
     for prob, cached in zip(problems, cached_rollouts, strict=True):
@@ -1140,32 +867,31 @@ def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
             step_order=StepOrder.CARRY_FIRST,
             use_query_tokens=True,
             include_alphabet=False,
-            embedding_mode=embedding_mode,
         )
         assert cached == uncached
 
-    if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
-        with pytest.raises(ValueError, match="num_problems must be >= 1"):
-            evaluate_addressed_ar(model, problems, num_problems=0)
-        with pytest.raises(ValueError, match="batch_size must be >= 1"):
-            evaluate_addressed_ar(model, problems, num_problems=1, batch_size=0)
-        with pytest.raises(ValueError, match="exhausted early"):
-            evaluate_addressed_ar(model, [], num_problems=1)
+    with pytest.raises(ValueError, match="num_problems must be >= 1"):
+        evaluate_addressed_ar(model, problems, num_problems=0)
+    with pytest.raises(ValueError, match="batch_size must be >= 1"):
+        evaluate_addressed_ar(model, problems, num_problems=1, batch_size=0)
+    with pytest.raises(ValueError, match="exhausted early"):
+        evaluate_addressed_ar(model, [], num_problems=1)
 
-        cls_model = Transformer(
-            head_type=HeadType.PARALLEL_CLASSIFICATION,
-            num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
-            n_layers=1,
-            n_heads=4,
-            d_ff=32,
-            d_position=8,
-            d_scratch=0,
+    cls_model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=24,
+    )
+    with pytest.raises(ValueError, match="SubspaceLMHead"):
+        evaluate_addressed_ar(
+            cls_model,
+            iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
+            num_problems=1,
         )
-        with pytest.raises(ValueError, match="SubspaceLMHead"):
-            evaluate_addressed_ar(
-                cls_model,
-                iter_problems(bases=(2,), min_length=1, max_length=1, seed=1),
-                num_problems=1,
-            )
-        with pytest.raises(ValueError, match="SubspaceLMHead"):
-            rollout_addressed_ar(cls_model, b"01", b"0", b"1")
+    with pytest.raises(ValueError, match="SubspaceLMHead"):
+        rollout_addressed_ar(cls_model, b"01", b"0", b"1")

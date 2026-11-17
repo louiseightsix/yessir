@@ -1,4 +1,4 @@
-"""Configuration schemas and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`, `SirYesSirClsConfig`)."""
+"""Configuration schemas and cross-parameter validation for `sir_yes_sir` (`SirYesSirConfig`, `SirYesSirArConfig`, `SirYesSirClsConfig`)."""
 
 import math
 from dataclasses import dataclass, field
@@ -45,26 +45,20 @@ class ClsSupervision(StrEnum):
 
 @dataclass(frozen=True, kw_only=True)
 class SirYesSirConfig(ExperimentConfig):
-    """Flat, validated inventory of settings for a `sir_yes_sir` run.
+    """Shared base and pure-LM (`ar`) configuration schema for `sir_yes_sir`.
+
+    Autoregressive runs (`ar`) operate purely on `input_ids` (`use_token_type=False`,
+    `effective_d_position=0`, `d_scratch=256` -> `d_model=512`), passing no side-channel
+    `token_type_ids` or `position_ids` during generation. Step-harnessed runs
+    (`SirYesSirClsConfig`) add `embedding_mode`, `d_position`, `fixed_d_model`, and
+    `supervision`.
 
     Cross-parameter rules enforced in `__post_init__`:
     1. **Symbol pool & alphabet size (`B`)**: `symbol_pool_size` (if given) slices the
        first `symbol_pool_size` bytes of `symbol_set` (useful for small-pool smoke
        tests on CPU), and `alphabet_size` must satisfy `2 <= alphabet_size <= len(symbol_pool)`.
-    2. **Embedding mode & residual width (`d_model`)**:
-       - `d_position` must be a non-negative even integer, and must be `> 0` when
-         `embedding_mode == EmbeddingMode.TOKEN_TYPE_PE`.
-       - `EmbeddingMode.NOPE` and `EmbeddingMode.TOKEN_TYPE_NOPE` omit `position_ids`
-         (`effective_d_position == 0`), and `EmbeddingMode.NOPE` also omits the 16-d
-         `token_type_ids` slice (`use_token_type == False`).
-       - When `fixed_d_model=True` (the default, `experiments/sir_yes_sir/spec/task.md` §2),
-         any slice omitted by `embedding_mode` (`16` for `token_type_ids` in `NOPE`;
-         `d_position` in `TOKEN_TYPE_NOPE` and `NOPE`) is added into `effective_d_scratch`
-         so `d_model = 256 + 16 + d_position + d_scratch` stays constant across modes.
-         When `fixed_d_model=False`, `effective_d_scratch == d_scratch` and `d_model`
-         shrinks by the omitted slice widths.
-    3. **Attention head divisibility**: `d_model` must be divisible by `n_heads`.
-    4. **Disjoint train/eval streams**: `eval_seed` must differ from `seed` so evaluation
+    2. **Attention head divisibility**: `d_model` must be divisible by `n_heads`.
+    3. **Disjoint train/eval streams**: `eval_seed` must differ from `seed` so evaluation
        does not replay the training problem stream.
     """
 
@@ -78,18 +72,12 @@ class SirYesSirConfig(ExperimentConfig):
         default=None, metadata={"domain": "int in 2..len(symbol_set) or None"}
     )
     resample_alphabet: bool = True
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
 
     # Model architecture
     n_layers: int = field(default=6, metadata={"domain": "int >= 1"})
     n_heads: int = field(default=8, metadata={"domain": "int >= 1 (divides d_model)"})
     d_ff: int = field(default=1376, metadata={"domain": "int >= 1", "step": 32})
-    d_position: int = field(
-        default=32,
-        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
-    )
-    d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
-    fixed_d_model: bool = True
+    d_scratch: int = field(default=256, metadata={"domain": "int >= 0", "step": 16})
 
     # Training & evaluation
     max_steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
@@ -113,9 +101,7 @@ class SirYesSirConfig(ExperimentConfig):
     eval_seed: int = field(default=999, metadata={"domain": "int (!= seed)"})
 
     def __post_init__(self) -> None:
-        # Coerce string enum values when constructed from deserialised JSON/dicts.
         object.__setattr__(self, "symbol_set", SymbolSetName(self.symbol_set))
-        object.__setattr__(self, "embedding_mode", EmbeddingMode(self.embedding_mode))
 
         full_pool = self.symbol_set.resolve()
         if self.symbol_pool_size is not None and not (
@@ -134,15 +120,6 @@ class SirYesSirConfig(ExperimentConfig):
             )
         if self.x_length < 1:
             raise ValueError(f"x_length must be >= 1, got {self.x_length}")
-
-        if self.d_position < 0 or self.d_position % 2 != 0:
-            raise ValueError(
-                f"d_position must be a non-negative even int, got {self.d_position}"
-            )
-        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
-            raise ValueError(
-                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
-            )
 
         if self.d_scratch < 0:
             raise ValueError(f"d_scratch must be >= 0, got {self.d_scratch}")
@@ -195,31 +172,22 @@ class SirYesSirConfig(ExperimentConfig):
     @property
     def use_token_type(self) -> bool:
         """Whether `SubspaceEmbedding` includes the 16-d `token_type_ids` slice."""
-        return self.embedding_mode != EmbeddingMode.NOPE
+        return False
 
     @property
     def effective_d_position(self) -> int:
-        """Position-slice width passed to `SubspaceEmbedding` (`0` when `position_ids` are omitted)."""
-        return (
-            self.d_position if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
-        )
+        """Position-slice width passed to `SubspaceEmbedding` (`0` for pure-LM `ar`)."""
+        return 0
 
     @property
     def effective_d_scratch(self) -> int:
-        """Scratch-slice width passed to `SubspaceEmbedding`.
+        """Scratch-slice width passed to `SubspaceEmbedding`."""
+        return self.d_scratch
 
-        When `fixed_d_model=True` (the default), any slice omitted by `embedding_mode`
-        (`16` for `token_type_ids` in `NOPE`; `d_position` in `TOKEN_TYPE_NOPE` and
-        `NOPE`) is added into `d_scratch` so `d_model` stays constant across modes
-        (`experiments/sir_yes_sir/spec/task.md` §2).
-        """
-        if not self.fixed_d_model:
-            return self.d_scratch
-        dropped_token_type = 0 if self.use_token_type else MAX_TOKEN_TYPES
-        dropped_position = (
-            0 if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else self.d_position
-        )
-        return self.d_scratch + dropped_token_type + dropped_position
+    @property
+    def embedding_mode_label(self) -> str:
+        """Human-readable embedding mode name for run startup logs."""
+        return EmbeddingMode.NOPE.value
 
     @property
     def d_model(self) -> int:
@@ -253,11 +221,61 @@ class SirYesSirConfig(ExperimentConfig):
 
 
 @dataclass(frozen=True, kw_only=True)
-class SirYesSirClsConfig(SirYesSirConfig):
-    """Configuration schema for the `cls` variant of `sir_yes_sir` (adds `supervision`)."""
+class SirYesSirArConfig(SirYesSirConfig):
+    """Configuration schema for the pure-LM `ar` variant of `sir_yes_sir` (`input_ids` only)."""
 
+
+@dataclass(frozen=True, kw_only=True)
+class SirYesSirClsConfig(SirYesSirConfig):
+    """Configuration schema for the harnessed `cls` variant of `sir_yes_sir`.
+
+    Adds harness-supplied `embedding_mode`, `d_position`, `fixed_d_model` (keeping
+    `d_model = 256 + 16 + d_position + d_scratch = 512` across modes by default),
+    and `supervision`.
+    """
+
+    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
+    d_position: int = field(
+        default=32,
+        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
+    )
+    d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
+    fixed_d_model: bool = True
     supervision: ClsSupervision = ClsSupervision.SINGLE_PASS
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        object.__setattr__(self, "embedding_mode", EmbeddingMode(self.embedding_mode))
         object.__setattr__(self, "supervision", ClsSupervision(self.supervision))
+        if self.d_position < 0 or self.d_position % 2 != 0:
+            raise ValueError(
+                f"d_position must be a non-negative even int, got {self.d_position}"
+            )
+        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
+            raise ValueError(
+                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
+            )
+        super().__post_init__()
+
+    @property
+    def use_token_type(self) -> bool:
+        return self.embedding_mode != EmbeddingMode.NOPE
+
+    @property
+    def effective_d_position(self) -> int:
+        return (
+            self.d_position if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+        )
+
+    @property
+    def effective_d_scratch(self) -> int:
+        if not self.fixed_d_model:
+            return self.d_scratch
+        dropped_token_type = 0 if self.use_token_type else MAX_TOKEN_TYPES
+        dropped_position = (
+            0 if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else self.d_position
+        )
+        return self.d_scratch + dropped_token_type + dropped_position
+
+    @property
+    def embedding_mode_label(self) -> str:
+        return self.embedding_mode.value

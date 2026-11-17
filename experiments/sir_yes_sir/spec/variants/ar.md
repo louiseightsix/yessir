@@ -1,6 +1,6 @@
 # Sir, Yes Sir! — Autoregressive Variant (`ar`)
 
-The `ar` variant (`experiments/sir_yes_sir/variants/ar/`) frames [the `sir_yes_sir` task](../task.md) as autoregressive next-token prediction through `SubspaceLMHead`.
+The `ar` variant (`experiments/sir_yes_sir/variants/ar/`) frames [the `sir_yes_sir` task](../task.md) as pure language-model autoregressive next-token prediction through `SubspaceLMHead` (`input_ids` only, with `token_type_ids=None` and `position_ids=None` so the decoding loop passes zero side-channel metadata and only checks `next_tok == [EOS]`).
 
 For an input `x` of length `L`, the complete ground-truth output sequence has length `L + 1`: the `L` successor symbols `o_0, ..., o_{L-1}` followed by `[EOS]`.
 
@@ -25,9 +25,9 @@ out:  7 q # q [EOS]
 Using the shared `[BOS] alphabet [SEP] x [SEP] output` sequence layout ([`task.md` §2](../task.md#2-shared-sequence-layout--embedding-modes-experimentssir_yes_sirinputspy)), let `P = B + L + 3` be the length of the prompt prefix `[BOS] alphabet [SEP] x [SEP]` and `targets = (o_0, ..., o_{L-1}, EOS)` be the ground-truth target sequence of length `L + 1`:
 
 - **Teacher-forced per-position labels (`build_ar_labelled_example`)**:
-  - `example` is `build_example(alphabet, x, output=(o_0, ..., o_{L-1}))`, so `example.input_ids` is `prefix + (o_0, ..., o_{L-1})` (length `P + L`).
-  - `labels` is pre-shifted (`(IGNORE_INDEX,) * (P - 1) + targets`, length `P + L`), so `SubspaceLMHead` + `next_token_cross_entropy` supervise predictions in a single forward pass from index `P - 1` (the second `[SEP]` at `position_id = 0`, predicting `o_0`) through index `P + L - 1` (`o_{L-1}` at `position_id = L`, predicting `EOS`), while masking earlier prompt positions and right-padding with `IGNORE_INDEX = -100`.
-- **Greedy generation (`greedy_generate_ar`)**: Free-running greedy generation starts with `output = ()` after the second `[SEP]`, appends `argmax` tokens from `SubspaceLMHead` one by one (up to `L + 1` tokens), and stops as soon as `EOS` is emitted.
+  - `example` is `Example(input_ids=prefix + (o_0, ..., o_{L-1}))` (length `P + L`, with `token_type_ids=None` and `position_ids=None`).
+  - `labels` is pre-shifted (`(IGNORE_INDEX,) * (P - 1) + targets`, length `P + L`), so `SubspaceLMHead` + `next_token_cross_entropy` supervise predictions in a single forward pass from index `P - 1` (the second `[SEP]`, predicting `o_0`) through index `P + L - 1` (`o_{L-1}`, predicting `EOS`), while masking earlier prompt positions and right-padding with `IGNORE_INDEX = -100`.
+- **Greedy generation (`greedy_generate_ar`)**: Free-running greedy generation starts with `output = ()` after the second `[SEP]`, appends `argmax` tokens from `SubspaceLMHead` directly to `input_ids` one by one (up to `L + 1` tokens), and stops as soon as `EOS` is emitted.
 
 ## 3. Evaluation Metrics (`evaluate_ar`)
 

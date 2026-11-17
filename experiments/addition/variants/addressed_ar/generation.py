@@ -7,7 +7,6 @@ import torch
 
 from experiments.addition.inputs import (
     AdditionToken,
-    EmbeddingMode,
     StepOrder,
     encode_address,
     step_query_tokens,
@@ -104,11 +103,11 @@ def rollout_addressed_ar(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> list[Token]:
     """Run free-running greedy `addressed_ar` generation on `(alphabet, a, b)` until `[EOS]` or length cap.
 
-    Starts with an empty trace after the third `[SEP]`, appends greedy `argmax`
+    Starts with an empty trace after the third `[SEP]` (`input_ids` only, with no
+    side-channel `token_type_ids` or `position_ids`), appends greedy `argmax`
     tokens from `SubspaceLMHead` up to the maximum well-formed target length for
     `max(len(a), len(b)) + 1` addressed columns plus `[EOS]`
     (`spec/variants/addressed_ar.md` §3), and stops as soon as `SpecialToken.EOS`
@@ -117,7 +116,7 @@ def rollout_addressed_ar(
     alphabet_tokens, a_tokens, b_tokens = validate_problem(
         alphabet, a, b, include_alphabet=include_alphabet
     )
-    order = StepOrder(step_order)
+    _ = StepOrder(step_order)
     body_len = 4 if use_query_tokens else 2
     max_columns = max(len(a_tokens), len(b_tokens)) + 1
     max_tokens = (
@@ -139,18 +138,10 @@ def rollout_addressed_ar(
             a_tokens,
             b_tokens,
             trace,
-            step_order=order,
-            use_query_tokens=use_query_tokens,
             include_alphabet=include_alphabet,
-            embedding_mode=embedding_mode,
         )
         batch = collate([example]).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
             raise ValueError(
                 "rollout_addressed_ar requires a Transformer with SubspaceLMHead"

@@ -2,7 +2,7 @@
   "title": "Embedding modes with fixed vs. shrinking residual width",
   "status": "draft",
   "kind": "comparison",
-  "question": "When nope and token_type_nope drop the token-type and position slices, does it matter whether d_scratch grows to keep d_model fixed (the default) or d_model shrinks by the dropped width, for convergence speed and final accuracy?",
+  "question": "In the harnessed `cls` variant, when `nope` and `token_type_nope` drop the token-type and position slices, does it matter whether `d_scratch` grows to keep `d_model` fixed (`fixed_d_model=True`, default) or `d_model` shrinks by the dropped width (`fixed_d_model=False`), for convergence speed and final accuracy?",
   "runs": [],
   "conclusion": null
 }

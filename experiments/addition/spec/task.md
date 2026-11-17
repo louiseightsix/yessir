@@ -2,13 +2,13 @@
 
 This experiment tests whether a transformer trained from scratch can learn multi-step column addition conditioned on an **in-context numeral system** (an ordered alphabet of digit symbols supplied in the prompt) rather than memorising fixed symbol values or a fixed base in its weights, and whether the learned procedure transfers zero-shot to unseen bases, alphabets, and operand lengths.
 
-It is implemented in six variants that share the task definition, embedding modes, and evaluation metrics below:
+It is implemented in six variants that share the task definition and evaluation metrics below:
 - [`variants/cls.md`](variants/cls.md): parallel per-step classification (`ParallelClassificationHead`) with per-step harness state updates.
 - [`variants/step_fork.md`](variants/step_fork.md): three parallel single-token query branches (`[S]`, `[C]`, `[F]`) per step (`SubspaceLMHead`) with per-step harness state updates.
 - [`variants/step_ar.md`](variants/step_ar.md): sequential per-step next-token prediction (`SubspaceLMHead`) with per-step harness state updates.
-- [`variants/ar.md`](variants/ar.md): full-trace autoregressive next-token prediction (`SubspaceLMHead`) with no external state rewriting.
-- [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md): sequential per-step next-token prediction (`SubspaceLMHead`) with explicit base-`B` column addresses and per-step harness state updates (including optional zero-preamble mode `include_alphabet=False`).
-- [`variants/addressed_ar.md`](variants/addressed_ar.md): full-trace autoregressive next-token prediction (`SubspaceLMHead`) with explicit base-`B` column addresses in the sequence (including optional zero-preamble mode `include_alphabet=False`).
+- [`variants/ar.md`](variants/ar.md): pure language-model full-trace autoregressive next-token prediction (`SubspaceLMHead`, `input_ids` only—no external state rewriting or side-channel metadata).
+- [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md): sequential per-step next-token prediction (`SubspaceLMHead`) with explicit base-`B` column addresses and per-step harness state updates (defaulting to `embedding_mode=nope`, with optional zero-preamble mode `include_alphabet=False`).
+- [`variants/addressed_ar.md`](variants/addressed_ar.md): pure language-model full-trace autoregressive next-token prediction (`SubspaceLMHead`, `input_ids` only) with explicit base-`B` column addresses in the sequence (including optional zero-preamble mode `include_alphabet=False`).
 
 ## 1. Task: In-Context Column Addition (`experiments/addition/reference.py`)
 
@@ -127,11 +127,15 @@ Across all six variants, `experiments/addition/inputs.py` defines seven section 
 
 How the step state or trace after the third `[SEP]` is laid out in each variant is specified in [`variants/cls.md`](variants/cls.md), [`variants/step_fork.md`](variants/step_fork.md), [`variants/step_ar.md`](variants/step_ar.md), [`variants/ar.md`](variants/ar.md), [`variants/addressed_step_ar.md`](variants/addressed_step_ar.md), and [`variants/addressed_ar.md`](variants/addressed_ar.md).
 
-### Embedding modes (`EmbeddingMode`)
+### Embedding modes (`EmbeddingMode`, harnessed step variants)
 
 In `SubspaceEmbedding`, token identities (`256`-d one-hot), `token_type_ids` (`16`-d one-hot), `position_ids` (parameter-free unit-norm sinusoidal positional encodings, `d_position`-d), and a zero-initialised scratchpad (`d_scratch`-d) occupy orthogonal slices of the residual stream.
 
-**Residual width (default: held constant)**: `d_model` is the same in every mode. `TOKEN_TYPE_PE` uses `d_model = 256 + 16 + d_position + d_scratch`; when a mode drops the token-type slice (`16`) or the position slice (`d_position`), `d_scratch` grows by the same width, so the modes differ only in what the embedding encodes, not in model capacity.
+Because the full-trace autoregressive variants ([`ar`](variants/ar.md) and [`addressed_ar`](variants/addressed_ar.md)) model a pure language-model decoding loop that only appends predicted tokens and checks `next_tok == [EOS]`, they operate strictly on `input_ids` (`use_token_type=False, d_position=0, d_scratch=256 -> d_model=512`) with zero side-channel metadata.
+
+In the four step-harnessed variants ([`cls`](variants/cls.md), [`step_fork`](variants/step_fork.md), [`step_ar`](variants/step_ar.md), and [`addressed_step_ar`](variants/addressed_step_ar.md)), an external harness explicitly constructs each column's input sequence and exposes `EmbeddingMode` (defaulting to `TOKEN_TYPE_PE` on unaddressed `cls` / `step_fork` / `step_ar`, and `NOPE` on `addressed_step_ar` where `[IDX] addr(j)` supplies column alignment in `input_ids`).
+
+**Residual width (default: held constant)**: `d_model` is `512` by default across all six variants. `TOKEN_TYPE_PE` uses `d_model = 256 + 16 + d_position + d_scratch`; when a harnessed mode drops the token-type slice (`16`) or the position slice (`d_position`), `d_scratch` grows by the same width (`fixed_d_model=True`), so modes differ only in what the embedding encodes, not in model capacity.
 
 All three modes keep the exact same `input_ids` (including `[BOS]` and all three `[SEP]` delimiters) so sequence length, attention distances, and the prompt-ending `[SEP]` that triggers column `0` are held constant across ablations:
 

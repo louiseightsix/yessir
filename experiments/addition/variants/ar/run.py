@@ -28,14 +28,12 @@ def run_addition_ar(
         p_chain=config.p_chain,
         step_order=config.step_order,
         use_query_tokens=config.use_query_tokens,
-        embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
     evaluate_fn = partial(
         evaluate_ar,
         step_order=config.step_order,
         use_query_tokens=config.use_query_tokens,
-        embedding_mode=config.embedding_mode,
     )
     return train_and_evaluate(
         variant_name="ar",

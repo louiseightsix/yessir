@@ -82,7 +82,7 @@ def test_sir_yes_sir_cls_cpu_convergence():
 
 
 def test_sir_yes_sir_ar_cpu_convergence():
-    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under the `ar` variant and verify >99% exact match."""
+    """Train a tiny pure-LM (`input_ids`-only) `SubspaceLMHead` `Transformer` on CPU under `ar` and verify >99% exact match."""
     seed_everything(42)
 
     symbols = SymbolSet.DECIMAL[:3]
@@ -91,11 +91,12 @@ def test_sir_yes_sir_ar_cpu_convergence():
 
     model = Transformer(
         head_type=HeadType.SUBSPACE_LM,
-        n_layers=2,
+        n_layers=3,
         n_heads=8,
         d_ff=64,
-        d_position=8,
-        d_scratch=16,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=40,
     )
 
     train_dataset = SirYesSirArDataset(

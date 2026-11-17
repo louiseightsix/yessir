@@ -17,6 +17,8 @@ Why `addressed_step_ar`:
 3. **`include_alphabet: bool`** (`True` default):
    - `True`: includes the explicit `s_0 ... s_{B-1} [SEP]` alphabet section after `[BOS]`.
    - `False` *(zero-preamble mode)*: omits `s_0 ... s_{B-1} [SEP]` from the prompt and requires operand lengths `L_a, L_b >= B` so every symbol `s_0, ..., s_{B-1}` appears in ascending order as the single-digit column addresses `addr(0) .. addr(B - 1)` of the operands. The model must infer both `B` and the alphabet order from the operand addresses alone.
+4. **`embedding_mode: EmbeddingMode`** (`EmbeddingMode.NOPE` default):
+   - Defaults to `NOPE` (`input_ids` only) so explicit `[IDX] addr(j)` base-`B` addresses are tested without side-channel `token_type_ids` or sinusoidal `position_ids` out of the box (matching [`addressed_ar`](addressed_ar.md)), while still allowing `token_type_nope` and `token_type_pe` in step-harness ablations.
 
 ## 1. Sequence Layout
 

@@ -1,10 +1,10 @@
 # Addition — Addressed Full-Trace Autoregressive Variant (`addressed_ar`)
 
-The `addressed_ar` variant (`experiments/addition/variants/addressed_ar/`) frames [the `addition` task](../task.md) as full-trace autoregressive next-token prediction through `SubspaceLMHead`, where every operand digit and every trace step is paired with its **explicit column index written as a base-`B` numeral in the prompt's own alphabet**.
+The `addressed_ar` variant (`experiments/addition/variants/addressed_ar/`) frames [the `addition` task](../task.md) as pure language-model full-trace autoregressive next-token prediction through `SubspaceLMHead` (`input_ids` only, with `token_type_ids=None` and `position_ids=None`), where every operand digit and every trace step is paired with its **explicit column index written as a base-`B` numeral in the prompt's own alphabet**.
 
 Why explicit in-sequence column addresses:
-- In [`ar`](ar.md), aligning column `k` relies either on sinusoidal `position_ids` (`TOKEN_TYPE_PE`, which encounters unseen sinusoidal phases when operand lengths exceed the training range `L > L_train`) or on counting `k` tokens from `[SEP]` under causal masking (`TOKEN_TYPE_NOPE` / `NOPE`, where attention softmax weights dilute over long sequences).
-- Writing each digit's column index `j` directly in the token stream in base `B` allows the model to increment the column counter `addr(k)` in its trace and retrieve `a_k` and `b_k` by content-based address matching (`addr(j) == addr(k)`), without sinusoidal coordinate drift or long-range token counting.
+- In [`ar`](ar.md), pure language-model generation (`input_ids` only) has no side-channel `position_ids`, so aligning column `k` relies on counting tokens from `[SEP]` under causal masking (where attention softmax weights dilute over long sequences).
+- Writing each digit's column index `j` directly in `input_ids` in base `B` allows the model to increment its own column counter `[IDX] addr(k)` in the trace and retrieve `a_k` and `b_k` by content-based address matching (`addr(j) == addr(k)`), without any external harness or side-channel metadata.
 
 ### Base-`B` column addresses (`addr(j, alphabet)`)
 
@@ -32,7 +32,7 @@ After column `K`, the trace terminates with `[EOS]`.
 
 ## 1. Sequence Layout
 
-Major sections (`alphabet`, `a`, `b`, and the output `trace`) are separated by `[SEP]`, matching [`ar`](ar.md). Within `a`, `b`, and `trace`, each column entry begins with `[IDX]` (`AdditionToken.IDX = 0xFB`, in `vocab.EXPERIMENT_SPECIAL_RANGE` alongside the query tokens) followed by its base-`B` address `addr(j)` and value token(s), so multi-digit addresses (`j >= B`) are unambiguously delimited in all embedding modes:
+Major sections (`alphabet`, `a`, `b`, and the output `trace`) are separated by `[SEP]`, matching [`ar`](ar.md). Within `a`, `b`, and `trace`, each column entry begins with `[IDX]` (`AdditionToken.IDX = 0xFB`, in `vocab.EXPERIMENT_SPECIAL_RANGE` alongside the query tokens) followed by its base-`B` address `addr(j)` and value token(s), so multi-digit addresses (`j >= B`) are unambiguously delimited in `input_ids` (`token_type_ids=None`, `position_ids=None`):
 
 ```
 Prefix:
@@ -47,23 +47,6 @@ Trace (sum_first):
 Trace (carry_first):
   [IDX] addr(0) c_1 o_0  [IDX] addr(1) c_2 o_1 ... [IDX] addr(K) c_{K+1} o_K
 ```
-
-| Section | `input_ids` | `token_type_ids` | `position_ids` |
-| :--- | :--- | :--- | :--- |
-| Start marker | `[BOS]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Alphabet *(if `include_alphabet=True`)* | `s_0, ..., s_{B-1}` | `TokenType.ALPHABET` (`1`) | `0, 1, ..., B - 1` |
-| Delimiter *(if `include_alphabet=True`)* | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Operand `a` entry `j` (`0 <= j < L_a`) | `[IDX]`, `addr(j)`, `a_j` | `SPECIAL` (`0`), `ADDRESS` (`6`), `OPERAND_A` (`2`) | `j` (for all tokens in entry `j`) |
-| Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Operand `b` entry `j` (`0 <= j < L_b`) | `[IDX]`, `addr(j)`, `b_j` | `SPECIAL` (`0`), `ADDRESS` (`6`), `OPERAND_B` (`3`) | `j` (for all tokens in entry `j`) |
-| Delimiter | `[SEP]` | `TokenType.SPECIAL` (`0`) | `0` |
-| Trace column `k` marker (`0 <= k <= K`) | `[IDX]` | `TokenType.SPECIAL` (`0`) | `k` |
-| Trace column `k` address | `addr(k)` | `TokenType.ADDRESS` (`6`) | `k` |
-| Trace column `k` query tokens *(if `use_query_tokens=True`)* | `[S]`, `[C]` | `TokenType.SPECIAL` (`0`) | `k` |
-| Trace column `k` sum digit | `o_k` | `TokenType.OUTPUT` (`5`) | `k` |
-| Trace column `k` outgoing carry | `c_{k+1}` | `TokenType.CARRY` (`4`) | `k + 1` |
-
-*(Under `carry_first`, column `k` emits `c_{k+1}` before `o_k`—and `[C] c_{k+1}` before `[S] o_k` when `use_query_tokens=True`—keeping the exact same `token_type_ids` and `position_ids`.)*
 
 ## 2. Examples
 

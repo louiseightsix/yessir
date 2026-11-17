@@ -5,7 +5,7 @@ from typing import Any
 
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
-    SirYesSirConfig,
+    SirYesSirArConfig,
 )
 from experiments.sir_yes_sir.train_and_evaluate import train_and_evaluate
 from experiments.sir_yes_sir.variants.ar.dataset import SirYesSirArDataset
@@ -15,18 +15,17 @@ from yessir.heads import HeadType
 
 
 def run_sir_yes_sir_ar(
-    config: SirYesSirConfig,
+    config: SirYesSirArConfig,
     out_dir: Path | None = None,
     *,
     device: str | None = None,
 ) -> dict[str, Any]:
-    """Train and evaluate the `ar` variant of `sir_yes_sir` according to `config`."""
+    """Train and evaluate the pure-LM `ar` variant of `sir_yes_sir` according to `config`."""
     train_dataset = SirYesSirArDataset(
         alphabet_size=config.alphabet_size,
         x_length=config.x_length,
         symbols=config.symbol_pool,
         resample_alphabet=config.resample_alphabet,
-        embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
     eval_dataset = SirYesSirArDataset(
@@ -34,7 +33,6 @@ def run_sir_yes_sir_ar(
         x_length=config.x_length,
         symbols=config.symbol_pool,
         resample_alphabet=config.resample_alphabet,
-        embedding_mode=config.embedding_mode,
         seed=config.eval_seed,
     )
     return train_and_evaluate(
@@ -52,6 +50,6 @@ def run_sir_yes_sir_ar(
 AR_VARIANT = ExperimentVariant(
     name="ar",
     description=AR_DESCRIPTION,
-    config_cls=SirYesSirConfig,
+    config_cls=SirYesSirArConfig,
     run=run_sir_yes_sir_ar,
 )

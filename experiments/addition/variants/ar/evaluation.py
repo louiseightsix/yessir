@@ -12,14 +12,12 @@ from experiments.addition.evaluation import (
 )
 from experiments.addition.inputs import (
     AdditionProblem,
-    EmbeddingMode,
     StepOrder,
     step_query_tokens,
     unpack_step_order,
 )
 from experiments.addition.reference import ColumnStep, reference_add
 from experiments.addition.variants.ar.inputs import (
-    _trace_slot_metadata,
     build_ar_example,
     build_ar_trace_tokens,
 )
@@ -35,12 +33,9 @@ def _rollout_ar_chunk(
     problems_chunk: Sequence[AdditionProblem],
     max_tokens_chunk: Sequence[int],
     *,
-    step_order: StepOrder,
-    use_query_tokens: bool,
-    embedding_mode: EmbeddingMode,
     device: torch.device,
 ) -> list[list[int]]:
-    """Run batched greedy rollout on `problems_chunk` using `KVCache` for `Transformer`."""
+    """Run batched pure-LM (`input_ids`-only) greedy rollout on `problems_chunk` using `KVCache`."""
     eos = int(SpecialToken.EOS)
     pad = int(SpecialToken.PAD)
     chunk_size = len(problems_chunk)
@@ -49,15 +44,7 @@ def _rollout_ar_chunk(
 
     if isinstance(model, Transformer):
         prefix_examples = [
-            build_ar_example(
-                prob.alphabet,
-                prob.a,
-                prob.b,
-                (),
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
-                embedding_mode=embedding_mode,
-            )
+            build_ar_example(prob.alphabet, prob.a, prob.b, ())
             for prob in problems_chunk
         ]
         prefill = collate_left_padded(prefix_examples).to(device)
@@ -66,8 +53,6 @@ def _rollout_ar_chunk(
         )
         logits = model(
             prefill.input_ids,
-            token_type_ids=prefill.token_type_ids,
-            position_ids=prefill.position_ids,
             key_padding_mask=prefill.key_padding_mask,
             kv_cache=kv_cache,
         )
@@ -80,16 +65,7 @@ def _rollout_ar_chunk(
             if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
                 done[b_idx] = True
 
-        mode = EmbeddingMode(embedding_mode)
-        use_tt = mode in (EmbeddingMode.TOKEN_TYPE_PE, EmbeddingMode.TOKEN_TYPE_NOPE)
-        use_pe = mode == EmbeddingMode.TOKEN_TYPE_PE
-        slot_idx = 0
         while not all(done):
-            tt, pos = _trace_slot_metadata(
-                slot_idx,
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
-            )
             step_ids = torch.tensor(
                 [
                     [pad if done[b_idx] else emitted[b_idx][-1]]
@@ -98,22 +74,7 @@ def _rollout_ar_chunk(
                 dtype=torch.long,
                 device=device,
             )
-            step_tt = (
-                torch.full((chunk_size, 1), int(tt), dtype=torch.long, device=device)
-                if use_tt
-                else None
-            )
-            step_pos = (
-                torch.full((chunk_size, 1), pos, dtype=torch.long, device=device)
-                if use_pe
-                else None
-            )
-            logits = model(
-                step_ids,
-                token_type_ids=step_tt,
-                position_ids=step_pos,
-                kv_cache=kv_cache,
-            )
+            logits = model(step_ids, kv_cache=kv_cache)
             assert isinstance(logits, torch.Tensor)
             next_tokens = logits[:, -1, :].argmax(dim=-1).tolist()
             for b_idx, tok in enumerate(next_tokens):
@@ -121,7 +82,6 @@ def _rollout_ar_chunk(
                     emitted[b_idx].append(tok)
                     if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
                         done[b_idx] = True
-            slot_idx += 1
         return emitted
 
     while not all(done):
@@ -132,19 +92,11 @@ def _rollout_ar_chunk(
                 problems_chunk[b_idx].a,
                 problems_chunk[b_idx].b,
                 emitted[b_idx],
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
-                embedding_mode=embedding_mode,
             )
             for b_idx in active
         ]
         batch = collate(step_examples).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
             raise ValueError("evaluate_ar requires a Transformer with SubspaceLMHead")
         row_indices = torch.arange(len(active), device=device)
@@ -237,7 +189,6 @@ def _compute_ar_oracle_counts(
     batch_size: int,
     step_order: StepOrder,
     use_query_tokens: bool,
-    embedding_mode: EmbeddingMode,
     device: torch.device,
 ) -> list[int]:
     """Return per-problem teacher-forced column match counts across all `K + 1` columns."""
@@ -251,17 +202,7 @@ def _compute_ar_oracle_counts(
         trace = build_ar_trace_tokens(
             steps, step_order=step_order, use_query_tokens=use_query_tokens
         )
-        examples.append(
-            build_ar_example(
-                prob.alphabet,
-                prob.a,
-                prob.b,
-                trace,
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
-                embedding_mode=embedding_mode,
-            )
-        )
+        examples.append(build_ar_example(prob.alphabet, prob.a, prob.b, trace))
         num_targets_list.append(len(trace) + 1)
 
     oracle_ok_per_problem: list[int] = []
@@ -270,12 +211,7 @@ def _compute_ar_oracle_counts(
         steps_chunk = oracle_steps[start : start + batch_size]
         targets_chunk = num_targets_list[start : start + batch_size]
         batch = collate(chunk).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         assert isinstance(logits, torch.Tensor)
         argmax_ids = logits.argmax(dim=-1)
         for b_idx, (steps, num_targets) in enumerate(
@@ -313,16 +249,16 @@ def evaluate_ar(
     batch_size: int = 64,
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
     per_base_metrics: dict[int, EvalMetrics] | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via KV-cached free-running rollout across `num_problems` full-trace `ar` problems.
 
-    Decodes each problem autoregressively from its `[BOS] ... [SEP]` prompt until
-    `SpecialToken.EOS` or `(4 if use_query_tokens else 2) * (max(L_a, L_b) + 1) + 1`
-    tokens (`spec/variants/ar.md` §3–§4), unpacks emitted columns into
-    `StepPrediction`s, and records single-pass teacher-forced `oracle_step_accuracy`
-    alongside rollout metrics via `score_predictions`.
+    Decodes each problem autoregressively (`input_ids` only) from its `[BOS] ... [SEP]`
+    prompt until `SpecialToken.EOS` or
+    `(4 if use_query_tokens else 2) * (max(L_a, L_b) + 1) + 1` tokens
+    (`spec/variants/ar.md` §3–§4), unpacks emitted columns into `StepPrediction`s,
+    and records single-pass teacher-forced `oracle_step_accuracy` alongside rollout
+    metrics via `score_predictions`.
     """
     if num_problems < 1:
         raise ValueError(f"num_problems must be >= 1, got {num_problems}")
@@ -355,9 +291,6 @@ def evaluate_ar(
                 model,
                 problem_list[start : start + batch_size],
                 max_tokens_all[start : start + batch_size],
-                step_order=order,
-                use_query_tokens=use_query_tokens,
-                embedding_mode=embedding_mode,
                 device=device,
             )
         )
@@ -369,7 +302,6 @@ def evaluate_ar(
         batch_size=batch_size,
         step_order=order,
         use_query_tokens=use_query_tokens,
-        embedding_mode=embedding_mode,
         device=device,
     )
 

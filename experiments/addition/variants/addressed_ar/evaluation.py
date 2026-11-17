@@ -13,7 +13,6 @@ from experiments.addition.evaluation import (
 from experiments.addition.inputs import (
     AdditionProblem,
     AdditionToken,
-    EmbeddingMode,
     StepOrder,
     encode_address,
     step_query_tokens,
@@ -21,7 +20,6 @@ from experiments.addition.inputs import (
 )
 from experiments.addition.reference import ColumnStep, reference_add
 from experiments.addition.variants.addressed_ar.inputs import (
-    AddressedTraceMetadataState,
     build_addressed_ar_example,
     build_addressed_ar_trace_tokens,
 )
@@ -37,13 +35,10 @@ def _rollout_addressed_ar_chunk(
     problems_chunk: Sequence[AdditionProblem],
     max_tokens_chunk: Sequence[int],
     *,
-    step_order: StepOrder,
-    use_query_tokens: bool,
     include_alphabet: bool,
-    embedding_mode: EmbeddingMode,
     device: torch.device,
 ) -> list[list[int]]:
-    """Run batched greedy rollout on `problems_chunk` using `KVCache` for `Transformer`."""
+    """Run batched pure-LM (`input_ids`-only) greedy rollout on `problems_chunk` using `KVCache`."""
     eos = int(SpecialToken.EOS)
     pad = int(SpecialToken.PAD)
     chunk_size = len(problems_chunk)
@@ -57,10 +52,7 @@ def _rollout_addressed_ar_chunk(
                 prob.a,
                 prob.b,
                 (),
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
                 include_alphabet=include_alphabet,
-                embedding_mode=embedding_mode,
             )
             for prob in problems_chunk
         ]
@@ -70,8 +62,6 @@ def _rollout_addressed_ar_chunk(
         )
         logits = model(
             prefill.input_ids,
-            token_type_ids=prefill.token_type_ids,
-            position_ids=prefill.position_ids,
             key_padding_mask=prefill.key_padding_mask,
             kv_cache=kv_cache,
         )
@@ -86,51 +76,16 @@ def _rollout_addressed_ar_chunk(
             if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
                 done[b_idx] = True
 
-        meta_states = [
-            AddressedTraceMetadataState(
-                alphabet=prob.alphabet,
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
-            )
-            for prob in problems_chunk
-        ]
-        mode = EmbeddingMode(embedding_mode)
-        use_tt = mode in (EmbeddingMode.TOKEN_TYPE_PE, EmbeddingMode.TOKEN_TYPE_NOPE)
-        use_pe = mode == EmbeddingMode.TOKEN_TYPE_PE
-
         while not all(done):
-            ids_col: list[list[int]] = []
-            tt_col: list[list[int]] = []
-            pos_col: list[list[int]] = []
-            for b_idx in range(chunk_size):
-                if done[b_idx]:
-                    ids_col.append([pad])
-                    tt_col.append([0])
-                    pos_col.append([0])
-                else:
-                    last_tok = emitted[b_idx][-1]
-                    tt, pos = meta_states[b_idx].step(last_tok)
-                    ids_col.append([last_tok])
-                    tt_col.append([int(tt)])
-                    pos_col.append([pos])
-
-            step_ids = torch.tensor(ids_col, dtype=torch.long, device=device)
-            step_tt = (
-                torch.tensor(tt_col, dtype=torch.long, device=device)
-                if use_tt
-                else None
+            step_ids = torch.tensor(
+                [
+                    [pad if done[b_idx] else emitted[b_idx][-1]]
+                    for b_idx in range(chunk_size)
+                ],
+                dtype=torch.long,
+                device=device,
             )
-            step_pos = (
-                torch.tensor(pos_col, dtype=torch.long, device=device)
-                if use_pe
-                else None
-            )
-            logits = model(
-                step_ids,
-                token_type_ids=step_tt,
-                position_ids=step_pos,
-                kv_cache=kv_cache,
-            )
+            logits = model(step_ids, kv_cache=kv_cache)
             assert isinstance(logits, torch.Tensor)
             next_tokens = logits[:, -1, :].argmax(dim=-1).tolist()
             for b_idx, tok in enumerate(next_tokens):
@@ -148,20 +103,12 @@ def _rollout_addressed_ar_chunk(
                 problems_chunk[b_idx].a,
                 problems_chunk[b_idx].b,
                 emitted[b_idx],
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
                 include_alphabet=include_alphabet,
-                embedding_mode=embedding_mode,
             )
             for b_idx in active
         ]
         batch = collate(step_examples).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
             raise ValueError(
                 "evaluate_addressed_ar requires a Transformer with SubspaceLMHead"
@@ -299,7 +246,6 @@ def _compute_addressed_ar_oracle_counts(
     step_order: StepOrder,
     use_query_tokens: bool,
     include_alphabet: bool,
-    embedding_mode: EmbeddingMode,
     device: torch.device,
 ) -> list[int]:
     """Return per-problem teacher-forced column match counts across all `K + 1` columns."""
@@ -322,10 +268,7 @@ def _compute_addressed_ar_oracle_counts(
                 prob.a,
                 prob.b,
                 trace,
-                step_order=step_order,
-                use_query_tokens=use_query_tokens,
                 include_alphabet=include_alphabet,
-                embedding_mode=embedding_mode,
             )
         )
         num_targets_list.append(len(trace) + 1)
@@ -337,12 +280,7 @@ def _compute_addressed_ar_oracle_counts(
         steps_chunk = oracle_steps[start : start + batch_size]
         targets_chunk = num_targets_list[start : start + batch_size]
         batch = collate(chunk).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         assert isinstance(logits, torch.Tensor)
         argmax_ids = logits.argmax(dim=-1)
         for b_idx, (prob, steps, num_targets) in enumerate(
@@ -393,13 +331,12 @@ def evaluate_addressed_ar(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
     per_base_metrics: dict[int, EvalMetrics] | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via KV-cached free-running rollout across `num_problems` `addressed_ar` problems.
 
-    Decodes each problem autoregressively from its addressed prompt until
-    `SpecialToken.EOS` or the maximum well-formed trace length for
+    Decodes each problem autoregressively (`input_ids` only) from its addressed
+    prompt until `SpecialToken.EOS` or the maximum well-formed trace length for
     `max(L_a, L_b) + 1` columns (`spec/variants/addressed_ar.md` §3–§4), segments
     `[IDX] addr(k) ...` entries into `StepPrediction`s (recording per-step
     `address_accuracy` alongside `syntax_ok`-gated `step_accuracy`), and records
@@ -440,10 +377,7 @@ def evaluate_addressed_ar(
                 model,
                 problem_list[start : start + batch_size],
                 max_tokens_all[start : start + batch_size],
-                step_order=order,
-                use_query_tokens=use_query_tokens,
                 include_alphabet=include_alphabet,
-                embedding_mode=embedding_mode,
                 device=device,
             )
         )
@@ -456,7 +390,6 @@ def evaluate_addressed_ar(
         step_order=order,
         use_query_tokens=use_query_tokens,
         include_alphabet=include_alphabet,
-        embedding_mode=embedding_mode,
         device=device,
     )
 
