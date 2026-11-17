@@ -45,3 +45,21 @@ def test_metrics_logger_writes_valid_jsonl(tmp_path: Path):
     assert isinstance(rec1["elapsed_sec"], float)
     assert rec2["step"] == 2
     assert rec2["exact_match"] == 1.0
+
+
+def test_metrics_logger_clears_existing_file_on_reuse(tmp_path: Path):
+    metrics_path = tmp_path / "run" / "train.jsonl"
+    first = MetricsLogger(metrics_path)
+    first.log(10, {"loss": 2.0})
+    first.log(20, {"loss": 1.0})
+    assert len(metrics_path.read_text().splitlines()) == 2
+
+    second = MetricsLogger(metrics_path)
+    assert not metrics_path.exists()
+    second.log(1, {"loss": 0.75})
+
+    lines = metrics_path.read_text().splitlines()
+    assert len(lines) == 1
+    rec = json.loads(lines[0])
+    assert rec["step"] == 1
+    assert rec["loss"] == 0.75
