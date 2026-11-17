@@ -54,7 +54,7 @@ I found no bug that would make `exact_match` wrong. Three things would make a fu
 ### What I ran
 
 - `./yessir.sh test`: 360 passed.
-- A scratch check (not in the repo) that trains a tiny model on bases 2 and 3, lengths 1 to 3, and at 8 checkpoints compares, problem by problem, teacher-forced exact match against `rollout_ar` on 150 problems. All four `(step_order, use_query_tokens)` settings, exact match between 5% and 60% at the checkpoints: **0 disagreements in 4,800 comparisons**.
+- A scratch check (not in the repo) that trains a tiny model on bases 2 and 3, lengths 1 to 3, and at 8 checkpoints compares, problem by problem, teacher-forced exact match against `rollout_ar` on 150 problems. All four `(step_order, use_query_tokens)` settings, exact match between 1% and 60% at the checkpoints: **0 disagreements in 4,800 comparisons**.
 
 ### What I did not get to
 

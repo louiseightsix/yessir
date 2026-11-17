@@ -32,7 +32,7 @@ No bug found that would make `exact_match` wrong. The code matches its spec. As 
 - At `batch_size = 64`, `L = 3`: `single_pass` and `random_step` see 64 independent problems per step, `all_steps` sees about 21, each three times. `single_pass` also supervises `L` positions per example where the other two supervise one.
 - Consequence: comparing the three modes at equal `max_steps` and `batch_size` changes three things at once (problems seen, targets per step, within-batch correlation). The study needs to say which of these it holds fixed.
 
-**4. The runner has no split that could show memorisation, wrap-around failure or length generalisation. Medium; a gap before those studies can run.** Same as my `ar` review, finding 3. `evaluate_cls` reports one pooled `step_accuracy` (`variants/cls/evaluation.py:112-129`), and evaluation always uses the training configuration.
+**4. The runner has no split that could show memorisation, wrap-around failure or length generalisation. Medium; a gap before those studies can run.** Same as my `ar` review, finding 3. `evaluate_cls` reports one pooled `step_accuracy` (`variants/cls/evaluation.py:98-135`), and evaluation always uses the training configuration.
 
 **5. `step_accuracy` is conditional on the reference outputs, and ignores a premature halt. Low.** The digit head and the flag head are read independently at every step, so a model that predicts `FINISHED` at step 0 still has all `L` digits scored. In `ar` the same mistake costs one step. `step_accuracy` is therefore not like for like between the two variants on unconverged models. `exact_match` is unaffected.
 
@@ -42,7 +42,7 @@ No bug found that would make `exact_match` wrong. The code matches its spec. As 
 - **Single-pass labels** (`variants/cls/inputs.py:33-48`): the example holds outputs `o_0..o_{L-2}`, and the `L` label pairs sit on the last `L` positions, so step `k` is read from the second `[SEP]` (`k = 0`) or from `o_{k-1}`. No step's target is in its own input.
 - **Single-step labels** (`inputs.py:66-75`): input ends at the query token for step `k`; label is `(o_k, flag_k)`.
 - **Same hidden state in both modes**: per-position reading with `lengths=None` and last-position reading with `lengths` use the same norm and linear layers (`yessir/heads.py:98-112`), and under the causal mask the state at a query position does not depend on later tokens.
-- **Evaluation** (`variants/cls/evaluation.py:112-129`): predictions are taken at the supervised positions; exact match needs every digit and every flag; evaluation always uses single-pass examples whatever the training supervision was (`run.py:35-43`).
+- **Evaluation** (`variants/cls/evaluation.py:98-135`): predictions are taken at the supervised positions; exact match needs every digit and every flag; evaluation always uses single-pass examples whatever the training supervision was (`run.py:35-43`).
 - **Step RNG** (`dataset.py:59`): seeded with `seed + 1`, separate from the problem stream, so `random_step` does not change which problems are drawn.
 - **Config**: all 21 fields reach a consumer.
 - **Eval mode and state**: `model.eval()` is called; no dropout, no state between batches.

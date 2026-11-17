@@ -30,7 +30,7 @@ No bug found that would make `exact_match` wrong. The code matches its spec. Wha
 **3. The runner cannot answer three of the questions the draft studies ask. Medium; not a defect in a number, a gap before those studies can run.**
 
 - Memorisation: a model trained with `resample_alphabet=False` is evaluated on the same fixed alphabet (`run.py:32-39`). A model that ignores the prompt scores 100%. Telling memorisation from lookup needs an evaluation on shuffled alphabets.
-- Wrap-around: `evaluate_ar` reports one pooled `step_accuracy` (`variants/ar/evaluation.py:102-120`). At `B = 240` a wrap-around step occurs once in 240, so a model that never handles it still scores about 99.6%.
+- Wrap-around: `evaluate_ar` reports one pooled `step_accuracy` (`variants/ar/evaluation.py:89-126`). At `B = 240` a wrap-around step occurs once in 240, so a model that never handles it still scores about 99.6%.
 - Length generalisation: there is no split at another length and no saved model.
 - Also, at `B = 2` the successor of each symbol is the other one whichever way round the alphabet is written, so `B = 2` does not test reading the alphabet order at all.
 
@@ -42,7 +42,7 @@ No bug found that would make `exact_match` wrong. The code matches its spec. Wha
 - **Sampling** (`inputs.py:150-174`): alphabet drawn without replacement from the pool, or the fixed prefix when `resample_alphabet=False`; inputs drawn uniformly from the alphabet.
 - **Layout** (`inputs.py:65-99`): output positions start at 1, so the token that predicts `o_k` sits at position `k`, the same as `x_k`.
 - **Labels** (`variants/ar/inputs.py`): pre-shifted; only the `L` outputs and `[EOS]` are supervised.
-- **Evaluation** (`variants/ar/evaluation.py:102-120`): predictions are taken at exactly the supervised positions; exact match requires all `L + 1`, including `[EOS]`; a premature `[EOS]` fails both exact match and halting.
+- **Evaluation** (`variants/ar/evaluation.py:89-126`): predictions are taken at exactly the supervised positions; exact match requires all `L + 1`, including `[EOS]`; a premature `[EOS]` fails both exact match and halting.
 - **Same problems at every checkpoint**: the evaluation dataset object is re-iterated from its seed each time.
 - **Config**: all 20 fields reach a consumer. `seed` and `eval_seed` must differ.
 - **Eval mode and state**: `model.eval()` is called; no dropout, no state between batches.
@@ -74,7 +74,7 @@ I read it in full.
 - Finding 2 (train and evaluation overlap in small universes): correct in substance; same as my finding 2. The `B = 2` observation is right and useful.
 - Finding 3 (teacher-forced `step_accuracy` and `halt_accuracy`): correct. It reports matching exact match in all three modes on a partially trained model, which agrees with my check.
 - Finding 4 (one evaluation point at the default `max_steps`; `resample_alphabet` changes the active symbol set unless `symbol_pool_size` is set; inspection CLI lacks pool flags): correct from the code. At `max_steps = 1000` the default interval is 2,500, so only the final evaluation runs.
-- Finding 5 (test asymmetry with `cls`): consistent with the test names I listed; I did not open each test.
+- Finding 5 (test asymmetry with `cls`): not checked by me.
 
 **Errors**
 

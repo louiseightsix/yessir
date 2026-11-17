@@ -35,7 +35,7 @@ No bug found that would make `exact_match` wrong. The main risk is the default c
 
 **4. `extrap_len` contains address digits and widths never seen in training. Medium; a confound in a headline split.**
 
-- Leading address digits for columns up to 20, and those that appear only for columns 21 to 40: base 2 sees addresses up to 5 digits and meets 6-digit ones; base 4 is fully covered; base 8 meets 3, 4, 5 for the first time; base 10 meets 3 and 4. The digit 2 in bases 8 and 10 appears in training only at column 20, on an overflow step.
+- Leading address digits for columns up to 20, and those that appear only for columns 21 to 40: base 2 sees addresses up to 5 digits and meets 6-digit ones; base 4 is fully covered; base 8 meets 3, 4, 5 for the first time; base 10 meets 3 and 4. In base 10 the leading digit 2 appears in training only at column 20, on an overflow step (in base 8 it appears on operand columns 16 to 19).
 - The pooled `extrap_len` number therefore mixes covered and uncovered bases with no per-base breakdown.
 
 **5. `p_terminal` is ignored when `all_steps=True`. Low.** `inputs.py:537-539`. Both values are still written to `config.json`.
@@ -54,7 +54,7 @@ No bug found that would make `exact_match` wrong. The main risk is the default c
 ### What I ran
 
 - `./yessir.sh test`: 360 passed.
-- Scratch check of teacher-forced exact match against `rollout_addressed_step_ar`, problem by problem, on a partially trained tiny model (bases 2 and 3, lengths 1 to 3, 150 problems, 8 checkpoints, all four `(step_order, use_query_tokens)` settings, exact match between 5% and 49%): **0 disagreements in 4,800 comparisons**.
+- Scratch check of teacher-forced exact match against `rollout_addressed_step_ar`, problem by problem, on a partially trained tiny model (bases 2 and 3, lengths 1 to 3, 150 problems, 8 checkpoints, all four `(step_order, use_query_tokens)` settings, exact match between 2% and 49%): **0 disagreements in 4,800 comparisons**.
 
 ### What I did not get to
 

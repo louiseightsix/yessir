@@ -38,7 +38,7 @@ No bug found that would make `exact_match` wrong. This is the variant where the 
 | 8 | 1, 2 | 3, 4, 5 |
 | 10 | 1, 2 | 3, 4 |
 
-- The digit 2 in bases 8 and 10 is seen only at column 20, which exists only in the trace on an overflow, never on an operand digit.
+- In base 10 the leading digit 2 is seen only at column 20, which exists only in the trace on an overflow, never on an operand digit. In base 8 it does appear on operand columns 16 to 19.
 - Consequence: an `extrap_len` exact match pooled over bases 2, 4, 8, 10 mixes one base where the address format is fully covered (4) with three where it is not. `.agents/addition.md` already names this confounder; the code has no per-base breakdown to separate it.
 
 **4. Zero-preamble mode changes the length distribution per base. Low.**
@@ -60,7 +60,7 @@ No bug found that would make `exact_match` wrong. This is the variant where the 
 ### What I ran
 
 - `./yessir.sh test`: 360 passed.
-- Scratch check of teacher-forced exact match against `rollout_addressed_ar`, problem by problem, on a partially trained tiny model (bases 2 and 3, lengths 1 to 3, 150 problems, 8 checkpoints, all four `(step_order, use_query_tokens)` settings, exact match between 5% and 57%): **0 disagreements in 4,800 comparisons**.
+- Scratch check of teacher-forced exact match against `rollout_addressed_ar`, problem by problem, on a partially trained tiny model (bases 2 and 3, lengths 1 to 3, 150 problems, 8 checkpoints, all four `(step_order, use_query_tokens)` settings, exact match between 0% and 57%): **0 disagreements in 4,800 comparisons**.
 
 ### What I did not get to
 

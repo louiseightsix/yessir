@@ -49,7 +49,7 @@ No bug found that would make `exact_match` wrong. The label and offset arithmeti
 ### What I ran
 
 - `./yessir.sh test`: 360 passed.
-- Scratch check of teacher-forced exact match against `rollout_step_ar`, problem by problem, on a partially trained tiny model (bases 2 and 3, lengths 1 to 3, 150 problems, 8 checkpoints, all four settings, exact match between 12% and 47%): **0 disagreements in 4,800 comparisons**.
+- Scratch check of teacher-forced exact match against `rollout_step_ar`, problem by problem, on a partially trained tiny model (bases 2 and 3, lengths 1 to 3, 150 problems, 8 checkpoints, all four settings, exact match between 3% and 47%): **0 disagreements in 4,800 comparisons**.
 
 ### What I did not get to
 
