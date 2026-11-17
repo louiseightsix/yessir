@@ -2,7 +2,7 @@
   "title": "Impact of input sequence length L",
   "status": "draft",
   "kind": "sweep",
-  "question": "How does positional indexing (aligning output step k with input symbol x_k and halting at k == L - 1) scale as the input length L increases, and how far does a model trained at a fixed L generalise to unseen lengths?",
+  "question": "How does in-distribution positional indexing (aligning output step k with input symbol x_k across fixed-length runs) scale in convergence speed and accuracy as the fixed input length L increases? (Zero-shot length extrapolation to unseen lengths is evaluated in `addition` via `extrap_len`, since `sir_yes_sir` trains and evaluates at a single fixed `x_length = L` per run.)",
   "runs": [],
   "conclusion": null
 }

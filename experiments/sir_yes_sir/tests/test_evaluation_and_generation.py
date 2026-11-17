@@ -308,6 +308,22 @@ def test_teacher_forced_and_free_running_exact_match_agree_and_batch_size_invari
     )
     assert metrics_b1 == metrics_b7
     assert 0.0 < metrics_b1.exact_match < 1.0
+    assert metrics_b1.wrap_around_accuracy == 0.0
+
+    # When no input symbol equals `alphabet[-1]`, `wrap_around_accuracy` is `None`.
+    no_wrap_ex = build_example(b"0123", b"012", b"12")
+    no_wrap_labels = ((IGNORE_INDEX, IGNORE_INDEX),) * (len(no_wrap_ex) - 3) + (
+        (ord("1"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("2"), int(SpecialToken.FLAG_CONTINUE)),
+        (ord("3"), int(SpecialToken.FLAG_FINISHED)),
+    )
+    m_no_wrap = evaluate_cls(
+        model,  # ty: ignore[invalid-argument-type]
+        [LabelledExample(example=no_wrap_ex, labels=no_wrap_labels)],
+        num_problems=1,
+    )
+    assert m_no_wrap.exact_match == 1.0
+    assert m_no_wrap.wrap_around_accuracy is None
 
     # Run free-running `greedy_generate_cls` on the exact same `num_problems` problems
     all_items = list(itertools.islice(dataset, num_problems))
@@ -639,6 +655,38 @@ def test_evaluate_ar_metrics_and_validation(embedding_mode: EmbeddingMode):
     assert custom_b2.exact_match == pytest.approx(1 / 3)
     assert custom_b2.step_accuracy == pytest.approx(3 / 6)
     assert custom_b2.halt_accuracy == pytest.approx(1 / 3)
+
+    # Verify `wrap_around_accuracy` in `evaluate_ar`: two wrap-around steps (`'3' -> '0'`),
+    # one solved and one missed after premature EOS on problem 1.
+    wrap_p0_ex = build_example(b"0123", b"31", b"02")
+    wrap_p0 = LabelledExample(
+        example=wrap_p0_ex,
+        labels=(IGNORE_INDEX,) * (len(wrap_p0_ex) - 3)
+        + (ord("0"), ord("2"), int(SpecialToken.EOS)),
+    )
+    wrap_p1_ex = build_example(b"0123", b"13", b"20")
+    wrap_p1 = LabelledExample(
+        example=wrap_p1_ex,
+        labels=(IGNORE_INDEX,) * (len(wrap_p1_ex) - 3)
+        + (ord("2"), ord("0"), int(SpecialToken.EOS)),
+    )
+    ar_table[(tuple(b"0123"), tuple(b"31"))] = [
+        ord("0"),
+        ord("2"),
+        int(SpecialToken.EOS),
+    ]
+    ar_table[(tuple(b"0123"), tuple(b"13"))] = [
+        int(SpecialToken.EOS),
+        ord("0"),
+        int(SpecialToken.EOS),
+    ]
+    m_ar_wrap = evaluate_ar(
+        _BatchArModel(),  # ty: ignore[invalid-argument-type]
+        [wrap_p0, wrap_p1],
+        num_problems=2,
+        batch_size=2,
+    )
+    assert m_ar_wrap.wrap_around_accuracy == pytest.approx(0.5)
 
     with pytest.raises(ValueError, match="num_problems must be >= 1"):
         evaluate_ar(model, dataset, num_problems=0)

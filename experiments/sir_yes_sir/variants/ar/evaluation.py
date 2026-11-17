@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 
 import torch
 
-from experiments.sir_yes_sir.evaluation import EvalMetrics
+from experiments.sir_yes_sir.evaluation import EvalMetrics, parse_prompt_prefix
 from experiments.sir_yes_sir.inputs import TokenType
 from yessir.batch import collate, collate_left_padded
 from yessir.dataset import IGNORE_INDEX, LabelledExample
@@ -208,13 +208,16 @@ def evaluate_ar(
     eos = int(SpecialToken.EOS)
     targets_per_problem: list[list[int]] = []
     prefixes: list[Example] = []
+    problems_ax: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
     max_tokens_all: list[int] = []
     for item in items:
         targets = _validate_ar_item(item)
         n_steps = len(targets) - 1
         prefix_len = len(item.example) - n_steps
+        prefix = _slice_prefix_example(item.example, prefix_len)
         targets_per_problem.append(targets)
-        prefixes.append(_slice_prefix_example(item.example, prefix_len))
+        prefixes.append(prefix)
+        problems_ax.append(parse_prompt_prefix(prefix.input_ids))
         max_tokens_all.append(len(targets))
 
     model.eval()
@@ -223,6 +226,8 @@ def evaluate_ar(
     total_steps = 0
     step_ok_count = 0
     halt_ok_count = 0
+    wrap_steps = 0
+    wrap_ok_count = 0
 
     for start in range(0, num_problems, batch_size):
         emitted_chunk = _rollout_ar_chunk(
@@ -232,16 +237,25 @@ def evaluate_ar(
             device=device,
         )
         targets_chunk = targets_per_problem[start : start + batch_size]
+        ax_chunk = problems_ax[start : start + batch_size]
 
-        for emitted, targets in zip(emitted_chunk, targets_chunk, strict=True):
+        for emitted, targets, (alphabet, x) in zip(
+            emitted_chunk, targets_chunk, ax_chunk, strict=True
+        ):
             n_steps = len(targets) - 1
             total_steps += n_steps
+            last_sym = alphabet[-1]
             symbol_preds = (
                 emitted[:-1] if (emitted and emitted[-1] == eos) else emitted[:n_steps]
             )
-            for k in range(min(n_steps, len(symbol_preds))):
-                if symbol_preds[k] == targets[k]:
+            for k in range(n_steps):
+                is_wrap = x[k] == last_sym
+                if is_wrap:
+                    wrap_steps += 1
+                if k < len(symbol_preds) and symbol_preds[k] == targets[k]:
                     step_ok_count += 1
+                    if is_wrap:
+                        wrap_ok_count += 1
 
             halt_ok = (len(emitted) == n_steps + 1) and (emitted[-1] == eos)
             if halt_ok:
@@ -253,4 +267,5 @@ def evaluate_ar(
         exact_match=em_count / num_problems,
         step_accuracy=step_ok_count / total_steps,
         halt_accuracy=halt_ok_count / num_problems,
+        wrap_around_accuracy=(wrap_ok_count / wrap_steps if wrap_steps > 0 else None),
     )

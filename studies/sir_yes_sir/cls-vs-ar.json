@@ -2,7 +2,7 @@
   "title": "Parallel classification (cls) vs. autoregressive generation (ar)",
   "status": "draft",
   "kind": "comparison",
-  "question": "Holding the prompt and prefix format fixed, how does step-by-step prediction via a learned ParallelClassificationHead (predicting o_k and flag_k in parallel) compare in sample efficiency and accuracy against next-token prediction via the parameter-free SubspaceLMHead? Note on unconverged step_accuracy trajectories: both evaluators stop on a premature halt so post-halt steps receive zero credit, but at a premature halt on step k itself cls still emits (pred_o[k], FLAG_FINISHED) on separate heads whereas emitting [EOS] at step k in ar occupies the symbol slot.",
+  "question": "Holding the prompt and prefix format fixed at a single input length L, how does step-by-step prediction via a learned ParallelClassificationHead (predicting o_k and flag_k in parallel) compare in sample efficiency and symbol accuracy against next-token prediction via the parameter-free SubspaceLMHead? Caveats: (1) because `x_length = L` is fixed per run, halting is a constant function of output step count in both `ar` and `cls` (variable-length halting is tested in `addition`); (2) both evaluators stop on a premature halt so post-halt steps receive zero credit, whereas at a premature halt on step k itself `cls` still emits `(pred_o[k], FLAG_FINISHED)` on separate heads while emitting `[EOS]` at step k in `ar` occupies the symbol slot.",
   "runs": [],
   "conclusion": null
 }

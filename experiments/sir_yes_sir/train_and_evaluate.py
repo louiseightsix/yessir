@@ -110,10 +110,14 @@ def train_and_evaluate(
             "step_accuracy": metrics.step_accuracy,
             "halt_accuracy": metrics.halt_accuracy,
         }
+        split_metrics: dict[str, float | None] = {
+            **eval_results,
+            "wrap_around_accuracy": metrics.wrap_around_accuracy,
+        }
         if eval_logger is not None:
             eval_logger.log(
                 completed_steps,
-                {**eval_results, "splits": {"id": dict(eval_results)}},
+                {**eval_results, "splits": {"id": split_metrics}},
             )
         print(
             f"{tag} eval ({config.num_eval_problems} problems): "

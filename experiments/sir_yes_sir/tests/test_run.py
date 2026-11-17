@@ -199,6 +199,10 @@ def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_trai
         assert row["splits"]["id"]["exact_match"] == row["exact_match"]
         assert row["splits"]["id"]["step_accuracy"] == row["step_accuracy"]
         assert row["splits"]["id"]["halt_accuracy"] == row["halt_accuracy"]
+        assert "wrap_around_accuracy" in row["splits"]["id"]
+        wrap_val = row["splits"]["id"]["wrap_around_accuracy"]
+        assert wrap_val is None or (0.0 <= wrap_val <= 1.0)
+        assert "wrap_around_accuracy" not in row
     assert {
         k: eval_rows[-1][k] for k in ("exact_match", "step_accuracy", "halt_accuracy")
     } == res_periodic
