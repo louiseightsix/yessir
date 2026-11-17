@@ -76,7 +76,7 @@ def test_build_optimizer_hyperparameters_and_validation():
             build_optimizer(model, lr=bad_lr)
 
 
-def test_parallel_classification_cross_entropy_matches_manual_sum():
+def test_parallel_classification_cross_entropy_matches_manual_mean():
     torch.manual_seed(0)
     logits_0 = torch.randn(3, 10, requires_grad=True)
     logits_1 = torch.randn(3, 10, requires_grad=True)
@@ -88,7 +88,7 @@ def test_parallel_classification_cross_entropy_matches_manual_sum():
         F.cross_entropy(logits_0, labels[:, 0])
         + F.cross_entropy(logits_1, labels[:, 1])
         + F.cross_entropy(logits_2, labels[:, 2])
-    )
+    ) / 3
     assert torch.allclose(loss, expected)
 
     loss.backward()
@@ -109,13 +109,16 @@ def test_parallel_classification_cross_entropy_matches_manual_sum():
     seq_loss = parallel_classification_cross_entropy(
         (seq_logits_0, seq_logits_1), seq_labels
     )
-    expected_seq = F.cross_entropy(
-        torch.stack([seq_logits_0[0, 1], seq_logits_0[1, 1], seq_logits_0[1, 2]]),
-        torch.tensor([2, 5, 7]),
-    ) + F.cross_entropy(
-        torch.stack([seq_logits_1[0, 1], seq_logits_1[1, 1], seq_logits_1[1, 2]]),
-        torch.tensor([1, 0, 3]),
-    )
+    expected_seq = (
+        F.cross_entropy(
+            torch.stack([seq_logits_0[0, 1], seq_logits_0[1, 1], seq_logits_0[1, 2]]),
+            torch.tensor([2, 5, 7]),
+        )
+        + F.cross_entropy(
+            torch.stack([seq_logits_1[0, 1], seq_logits_1[1, 1], seq_logits_1[1, 2]]),
+            torch.tensor([1, 0, 3]),
+        )
+    ) / 2
     assert torch.allclose(seq_loss, expected_seq)
 
 
@@ -260,6 +263,17 @@ def test_train_validation_and_early_exhaustion():
             lr=1e-3,
             optimizer=build_optimizer(model),
         )
+    with pytest.raises(
+        ValueError, match="cannot specify both on_step and on_step_tokens"
+    ):
+        train(
+            model,
+            dataset,
+            max_steps=1,
+            batch_size=4,
+            on_step=lambda _s, _l: None,
+            on_step_tokens=lambda _s, _l, _t: None,
+        )
 
     ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
     finite_dataset = [LabelledExample(example=ex, labels=(1, 2, 3))]
@@ -291,16 +305,25 @@ def test_train_reduces_loss_and_supports_resuming_stream_and_optimizer():
         optimizer=opt,
         on_step=lambda s, loss: recorded_steps.append((s, loss)),
     )
-    losses_part2 = train(model, stream, max_steps=5, batch_size=8, optimizer=opt)
+    recorded_tokens: list[int] = []
+    losses_part2 = train(
+        model,
+        stream,
+        max_steps=5,
+        batch_size=8,
+        optimizer=opt,
+        on_step_tokens=lambda _s, _loss, n_tok: recorded_tokens.append(n_tok),
+    )
     losses = losses_part1 + losses_part2
 
     assert [s for s, _ in recorded_steps] == [1, 2, 3, 4, 5]
     assert [loss for _, loss in recorded_steps] == losses_part1
+    assert recorded_tokens == [8 * 3] * 5
 
     assert len(losses) == 10
-    # Initial random-guess cross-entropy over 3 heads of size 256 is ~ 3 * ln(256) ≈ 16.6;
+    # Initial random-guess cross-entropy per target over vocab 256 is ~ ln(256) ≈ 5.55;
     # after 10 steps loss should drop substantially.
-    assert losses[-1] < losses[0] - 4.0
+    assert losses[-1] < losses[0] - 1.3
 
     first_param = next(model.parameters())
     assert int(opt.state[first_param]["step"].item()) == 10

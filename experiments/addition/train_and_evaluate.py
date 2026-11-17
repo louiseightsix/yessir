@@ -121,8 +121,12 @@ def train_and_evaluate(
     train_stream = iter(train_dataset)
     splits = config.eval_splits()
 
-    def _make_on_step(step_offset: int) -> Callable[[int, float], None]:
-        def _on_step(local_step: int, step_loss: float) -> None:
+    tokens_seen = 0
+
+    def _make_on_step(step_offset: int) -> Callable[[int, float, int], None]:
+        def _on_step(local_step: int, step_loss: float, step_tokens: int) -> None:
+            nonlocal tokens_seen
+            tokens_seen += step_tokens
             global_step = step_offset + local_step
             if (
                 global_step == 1
@@ -130,9 +134,13 @@ def train_and_evaluate(
                 or global_step == config.max_steps
             ):
                 if train_logger is not None:
-                    train_logger.log(global_step, {"loss": step_loss})
+                    train_logger.log(
+                        global_step,
+                        {"loss": step_loss, "tokens_seen": tokens_seen},
+                    )
                 print(
-                    f"{tag} step={global_step}/{config.max_steps} loss={step_loss:.4f}",
+                    f"{tag} step={global_step}/{config.max_steps} "
+                    f"loss={step_loss:.4f} tokens={tokens_seen}",
                     flush=True,
                 )
 
@@ -155,7 +163,7 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=effective_batch_size,
             optimizer=optimizer,
-            on_step=_make_on_step(completed_steps),
+            on_step_tokens=_make_on_step(completed_steps),
         )
         completed_steps += chunk_steps
 

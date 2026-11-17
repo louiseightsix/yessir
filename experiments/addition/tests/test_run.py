@@ -127,9 +127,11 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     assert loaded_cfg.log_every == 2
     assert loaded_cfg.eval_permuted_canonical is True
 
-    # With max_steps=5 and log_every=2, steps 1, 2, 4, and 5 are logged.
+    # With max_steps=5 and log_every=2, steps 1, 2, 4, and 5 are logged;
+    # each `cls` step at `batch_size=4` supervises `4 * 3 = 12` targets.
     train_lines = [json.loads(line) for line in train_file.read_text().splitlines()]
     assert [row["step"] for row in train_lines] == [1, 2, 4, 5]
+    assert [row["tokens_seen"] for row in train_lines] == [12, 24, 48, 60]
     for row in train_lines:
         assert isinstance(row["loss"], float)
 
@@ -541,22 +543,23 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
     )
     assert res_periodic == res_final
 
-    # Training steps and losses must be identical regardless of mid-training evaluations.
+    # Training steps, losses, and cumulative `tokens_seen` must be identical regardless of mid-training evaluations.
     periodic_train = [
-        (row["step"], row["loss"])
+        (row["step"], row["loss"], row["tokens_seen"])
         for row in (
             json.loads(line)
             for line in (periodic_dir / "train.jsonl").read_text().splitlines()
         )
     ]
     final_train = [
-        (row["step"], row["loss"])
+        (row["step"], row["loss"], row["tokens_seen"])
         for row in (
             json.loads(line)
             for line in (final_only_dir / "train.jsonl").read_text().splitlines()
         )
     ]
-    assert [step for step, _ in periodic_train] == [1, 2, 4, 5]
+    assert [step for step, _, _ in periodic_train] == [1, 2, 4, 5]
+    assert [toks for _, _, toks in periodic_train] == [6, 12, 24, 30]
     assert periodic_train == final_train
     assert json.loads((periodic_dir / "eval_splits.json").read_text()) == json.loads(
         (final_only_dir / "eval_splits.json").read_text()

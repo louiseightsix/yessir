@@ -96,7 +96,7 @@ def test_addition_cls_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=600, batch_size=24, lr=1e-3)
+    train(model, train_dataset, max_steps=750, batch_size=24, lr=8e-4)
 
     metrics = evaluate_cls(model, eval_problems, num_problems=100)
     assert metrics.exact_match > 0.98

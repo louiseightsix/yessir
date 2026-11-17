@@ -81,8 +81,11 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert len(train_lines) == 2
     assert train_lines[0]["step"] == 1
     assert isinstance(train_lines[0]["loss"], float)
+    # `cls` `single_pass` at `L=3`, `batch_size=4` supervises `2 * 3 * 4 = 24` targets per step.
+    assert train_lines[0]["tokens_seen"] == 24
     assert train_lines[1]["step"] == 2
     assert isinstance(train_lines[1]["loss"], float)
+    assert train_lines[1]["tokens_seen"] == 48
 
     loaded_eval = json.loads(eval_file.read_text())
     assert loaded_eval == eval_results
@@ -180,14 +183,21 @@ def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_trai
     assert res_periodic == res_final
 
     periodic_train = [
-        json.loads(line)["loss"]
-        for line in (periodic_dir / "train.jsonl").read_text().splitlines()
+        (row["loss"], row["tokens_seen"])
+        for row in (
+            json.loads(line)
+            for line in (periodic_dir / "train.jsonl").read_text().splitlines()
+        )
     ]
     final_train = [
-        json.loads(line)["loss"]
-        for line in (final_only_dir / "train.jsonl").read_text().splitlines()
+        (row["loss"], row["tokens_seen"])
+        for row in (
+            json.loads(line)
+            for line in (final_only_dir / "train.jsonl").read_text().splitlines()
+        )
     ]
     assert periodic_train == final_train
+    assert [toks for _, toks in periodic_train] == [24, 48, 72, 96, 120]
 
     eval_rows = [
         json.loads(line)
