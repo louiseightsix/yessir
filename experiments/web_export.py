@@ -9,6 +9,25 @@ nothing beyond the standard library, so it works without the project's venv
 import json
 from typing import Any
 
+from experiments.addition.config import (
+    ADDITION_DESCRIPTION,
+    ADDRESSED_AR_DESCRIPTION,
+    ADDRESSED_STEP_AR_DESCRIPTION,
+    STEP_AR_DESCRIPTION,
+    STEP_FORK_DESCRIPTION,
+    AdditionAddressedArConfig,
+    AdditionAddressedStepArConfig,
+    AdditionArConfig,
+    AdditionClsConfig,
+    AdditionStepArConfig,
+    AdditionStepForkConfig,
+)
+from experiments.addition.config import (
+    AR_DESCRIPTION as ADDITION_AR_DESCRIPTION,
+)
+from experiments.addition.config import (
+    CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
+)
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
@@ -27,8 +46,27 @@ VARIANTS: dict[str, tuple[tuple[str, str, type[ExperimentConfig]], ...]] = {
         ("cls", CLS_DESCRIPTION, SirYesSirClsConfig),
         ("ar", AR_DESCRIPTION, SirYesSirConfig),
     ),
+    "addition": (
+        ("cls", ADDITION_CLS_DESCRIPTION, AdditionClsConfig),
+        ("step_fork", STEP_FORK_DESCRIPTION, AdditionStepForkConfig),
+        ("step_ar", STEP_AR_DESCRIPTION, AdditionStepArConfig),
+        ("ar", ADDITION_AR_DESCRIPTION, AdditionArConfig),
+        (
+            "addressed_step_ar",
+            ADDRESSED_STEP_AR_DESCRIPTION,
+            AdditionAddressedStepArConfig,
+        ),
+        (
+            "addressed_ar",
+            ADDRESSED_AR_DESCRIPTION,
+            AdditionAddressedArConfig,
+        ),
+    ),
 }
-DESCRIPTIONS: dict[str, str] = {"sir_yes_sir": SIR_YES_SIR_DESCRIPTION}
+DESCRIPTIONS: dict[str, str] = {
+    "sir_yes_sir": SIR_YES_SIR_DESCRIPTION,
+    "addition": ADDITION_DESCRIPTION,
+}
 
 
 def export_schemas() -> dict[str, dict[str, Any]]:

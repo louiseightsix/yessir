@@ -42,6 +42,7 @@ class FieldSpec:
     domain: str
     step: int | float
     choices: tuple[Any, ...] | None = None
+    min_val: int | float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise this field descriptor to JSON-compatible primitives."""
@@ -87,6 +88,7 @@ def build_field_specs(config_cls: type[ExperimentConfig]) -> tuple[FieldSpec, ..
         domain = str(meta.get("domain", default_domain))
         default_step: int | float = 1e-4 if inner_type is float else 1
         step = meta.get("step", default_step)
+        min_val = meta.get("min")
         default_val = (
             field.default.value if isinstance(field.default, Enum) else field.default
         )
@@ -100,6 +102,7 @@ def build_field_specs(config_cls: type[ExperimentConfig]) -> tuple[FieldSpec, ..
                 domain=domain,
                 step=step,
                 choices=choices,
+                min_val=min_val,
             )
         )
     return tuple(specs)
@@ -117,13 +120,18 @@ def _step_value(spec: FieldSpec, current: Any, delta: int) -> Any:
 
     if spec.inner_type is int:
         step = int(spec.step)
+        floor = (
+            int(spec.min_val)
+            if spec.min_val is not None
+            else (2 if spec.is_optional else 0)
+        )
         if current is None:
-            base = int(spec.default) if spec.default is not None else 2
+            base = int(spec.default) if spec.default is not None else floor
             return base if delta > 0 else None
         next_val = int(current) + delta * step
-        if spec.is_optional and next_val < 2:
+        if spec.is_optional and next_val < floor:
             return None
-        return max(0, next_val)
+        return max(floor, next_val)
 
     if spec.inner_type is float:
         step_f = float(spec.step)

@@ -1,4 +1,4 @@
-"""Shared training, evaluation, and artefact-recording loop (`train_and_evaluate`) for `sir_yes_sir` variants."""
+"""Shared training, periodic/final evaluation, and artefact-recording loop (`train_and_evaluate`) for `sir_yes_sir` variants."""
 
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
@@ -13,7 +13,7 @@ from yessir.dataset import LabelledExample
 from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
-from yessir.training import resolve_device, seed_everything, train
+from yessir.training import build_optimizer, resolve_device, seed_everything, train
 
 
 def train_and_evaluate(
@@ -28,19 +28,23 @@ def train_and_evaluate(
     evaluate_fn: Callable[..., EvalMetrics],
     device: str | torch.device | None = None,
 ) -> dict[str, Any]:
-    """Run training, evaluation, and artefact logging for one `sir_yes_sir` variant."""
+    """Run training, periodic/final evaluation, and artefact logging for one `sir_yes_sir` variant."""
     resolved_device = resolve_device(device)
     tag = f"[sir_yes_sir:{variant_name}]"
     dest = str(out_dir) if out_dir is not None else "no-save"
+    interval = config.effective_eval_every
+    eval_every_str = str(interval) if interval is not None else "final"
     print(
         f"{tag} Starting run: B={config.alphabet_size}, L={config.x_length}, "
         f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
-        f"d_model={config.d_model}, max_steps={config.max_steps}, batch_size={config.batch_size}, "
-        f"lr={config.lr}, seed={config.seed}, device={resolved_device} -> {dest}",
+        f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
+        f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
+        f"device={resolved_device} -> {dest}",
         flush=True,
     )
 
-    logger: MetricsLogger | None = None
+    train_logger: MetricsLogger | None = None
+    eval_logger: MetricsLogger | None = None
     if out_dir is not None:
         write_config_json(
             out_dir,
@@ -49,7 +53,8 @@ def train_and_evaluate(
             config=config,
             device=str(resolved_device),
         )
-        logger = MetricsLogger(out_dir / "train.jsonl")
+        train_logger = MetricsLogger(out_dir / "train.jsonl")
+        eval_logger = MetricsLogger(out_dir / "eval.jsonl")
 
     seed_everything(config.seed)
 
@@ -64,45 +69,62 @@ def train_and_evaluate(
         d_scratch=config.effective_d_scratch,
     ).to(resolved_device)
 
-    def _on_step(step_idx: int, step_loss: float) -> None:
-        if logger is not None:
-            logger.log(step_idx, {"loss": step_loss})
+    optimizer = build_optimizer(model, lr=config.lr)
+    train_stream = iter(train_dataset)
+
+    def _make_on_step(step_offset: int) -> Callable[[int, float], None]:
+        def _on_step(local_step: int, step_loss: float) -> None:
+            global_step = step_offset + local_step
+            if train_logger is not None:
+                train_logger.log(global_step, {"loss": step_loss})
+            print(
+                f"{tag} step={global_step}/{config.max_steps} loss={step_loss:.4f}",
+                flush=True,
+            )
+
+        return _on_step
+
+    completed_steps = 0
+    eval_results: dict[str, Any] = {}
+    while completed_steps < config.max_steps:
+        remaining = config.max_steps - completed_steps
+        chunk_steps = remaining if interval is None else min(interval, remaining)
+        train(
+            model,
+            train_stream,
+            max_steps=chunk_steps,
+            batch_size=config.batch_size,
+            optimizer=optimizer,
+            on_step=_make_on_step(completed_steps),
+        )
+        completed_steps += chunk_steps
+
+        metrics = evaluate_fn(
+            model,
+            eval_dataset,
+            num_problems=config.num_eval_problems,
+            batch_size=config.eval_batch_size,
+        )
+        eval_results = {
+            "exact_match": metrics.exact_match,
+            "step_accuracy": metrics.step_accuracy,
+            "halt_accuracy": metrics.halt_accuracy,
+        }
+        if eval_logger is not None:
+            eval_logger.log(
+                completed_steps,
+                {**eval_results, "splits": {"id": dict(eval_results)}},
+            )
         print(
-            f"{tag} step={step_idx}/{config.max_steps} loss={step_loss:.4f}",
+            f"{tag} eval ({config.num_eval_problems} problems): "
+            f"step={completed_steps}/{config.max_steps} "
+            f"exact_match={metrics.exact_match:.2%} "
+            f"step_acc={metrics.step_accuracy:.2%} "
+            f"halt_acc={metrics.halt_accuracy:.2%}",
             flush=True,
         )
 
-    train(
-        model,
-        train_dataset,
-        max_steps=config.max_steps,
-        batch_size=config.batch_size,
-        lr=config.lr,
-        on_step=_on_step,
-    )
-
-    metrics = evaluate_fn(
-        model,
-        eval_dataset,
-        num_problems=config.num_eval_problems,
-        batch_size=config.eval_batch_size,
-    )
-
-    eval_results: dict[str, Any] = {
-        "exact_match": metrics.exact_match,
-        "step_accuracy": metrics.step_accuracy,
-        "halt_accuracy": metrics.halt_accuracy,
-    }
     if out_dir is not None:
         write_eval_json(out_dir, eval_results)
-
-    print(
-        f"{tag} eval ({config.num_eval_problems} problems): "
-        f"exact_match={metrics.exact_match:.2%} "
-        f"step_acc={metrics.step_accuracy:.2%} "
-        f"halt_acc={metrics.halt_accuracy:.2%}",
-        flush=True,
-    )
-    if out_dir is not None:
         print(f"{tag} artefacts written to {out_dir}", flush=True)
     return eval_results

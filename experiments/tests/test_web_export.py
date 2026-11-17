@@ -5,6 +5,24 @@ import subprocess
 import sys
 
 from experiments.__main__ import EXPERIMENTS
+from experiments.addition.config import (
+    ADDRESSED_AR_DESCRIPTION,
+    ADDRESSED_STEP_AR_DESCRIPTION,
+    STEP_AR_DESCRIPTION,
+    STEP_FORK_DESCRIPTION,
+    AdditionAddressedArConfig,
+    AdditionAddressedStepArConfig,
+    AdditionArConfig,
+    AdditionClsConfig,
+    AdditionStepArConfig,
+    AdditionStepForkConfig,
+)
+from experiments.addition.config import (
+    AR_DESCRIPTION as ADDITION_AR_DESCRIPTION,
+)
+from experiments.addition.config import (
+    CLS_DESCRIPTION as ADDITION_CLS_DESCRIPTION,
+)
 from experiments.sir_yes_sir.config import (
     AR_DESCRIPTION,
     CLS_DESCRIPTION,
@@ -49,7 +67,64 @@ def test_web_export_prints_schemas_with_stdlib_only():
                     ],
                 },
             ],
-        }
+        },
+        "addition": {
+            "description": DESCRIPTIONS["addition"],
+            "variants": [
+                {
+                    "name": "cls",
+                    "description": ADDITION_CLS_DESCRIPTION,
+                    "default_config": AdditionClsConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict() for spec in build_field_specs(AdditionClsConfig)
+                    ],
+                },
+                {
+                    "name": "step_fork",
+                    "description": STEP_FORK_DESCRIPTION,
+                    "default_config": AdditionStepForkConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict()
+                        for spec in build_field_specs(AdditionStepForkConfig)
+                    ],
+                },
+                {
+                    "name": "step_ar",
+                    "description": STEP_AR_DESCRIPTION,
+                    "default_config": AdditionStepArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict()
+                        for spec in build_field_specs(AdditionStepArConfig)
+                    ],
+                },
+                {
+                    "name": "ar",
+                    "description": ADDITION_AR_DESCRIPTION,
+                    "default_config": AdditionArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict() for spec in build_field_specs(AdditionArConfig)
+                    ],
+                },
+                {
+                    "name": "addressed_step_ar",
+                    "description": ADDRESSED_STEP_AR_DESCRIPTION,
+                    "default_config": AdditionAddressedStepArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict()
+                        for spec in build_field_specs(AdditionAddressedStepArConfig)
+                    ],
+                },
+                {
+                    "name": "addressed_ar",
+                    "description": ADDRESSED_AR_DESCRIPTION,
+                    "default_config": AdditionAddressedArConfig().to_dict(),
+                    "fields": [
+                        spec.to_dict()
+                        for spec in build_field_specs(AdditionAddressedArConfig)
+                    ],
+                },
+            ],
+        },
     }
 
 

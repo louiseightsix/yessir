@@ -30,7 +30,17 @@ def test_default_config_is_valid():
     assert cfg.effective_d_position == 32
     assert cfg.effective_d_scratch == 208
     assert cfg.d_model == 256 + 16 + 32 + 208 == 512
-    assert cfg.derived_summary() == "d_model=512, symbol_pool_size=240"
+    assert cfg.eval_every is None
+    assert cfg.effective_eval_every == 2_500
+    assert cfg.derived_summary() == "d_model=512, symbol_pool_size=240, eval_every=2500"
+    assert SirYesSirConfig(max_steps=100_000).effective_eval_every == 5_000
+    assert SirYesSirConfig(max_steps=500_000).effective_eval_every == 25_000
+    assert SirYesSirConfig(eval_every=200).effective_eval_every == 200
+    assert SirYesSirConfig(eval_every=0).effective_eval_every is None
+    assert (
+        SirYesSirConfig(eval_every=0).derived_summary()
+        == "d_model=512, symbol_pool_size=240, eval_every=final"
+    )
 
 
 def test_embedding_mode_and_d_position_combinations():
@@ -121,6 +131,10 @@ def test_model_and_training_bounds():
         SirYesSirConfig(batch_size=0)
     with pytest.raises(ValueError, match="lr must be > 0"):
         SirYesSirConfig(lr=0.0)
+    with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
+        SirYesSirConfig(eval_every=-1)
+    with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
+        SirYesSirConfig(eval_every=True)
     with pytest.raises(ValueError, match="num_eval_problems must be >= 1"):
         SirYesSirConfig(num_eval_problems=0)
     with pytest.raises(ValueError, match="eval_batch_size must be >= 1"):

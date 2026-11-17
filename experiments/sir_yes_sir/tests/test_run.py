@@ -58,12 +58,14 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert 0.0 <= eval_results["step_accuracy"] <= 1.0
     assert 0.0 <= eval_results["halt_accuracy"] <= 1.0
 
-    # Verify config.json, train.jsonl, and eval.json were written.
+    # Verify config.json, train.jsonl, eval.jsonl, and eval.json were written.
     config_file = run_dir / "config.json"
     train_file = run_dir / "train.jsonl"
+    eval_jsonl_file = run_dir / "eval.jsonl"
     eval_file = run_dir / "eval.json"
     assert config_file.is_file()
     assert train_file.is_file()
+    assert eval_jsonl_file.is_file()
     assert eval_file.is_file()
 
     config_payload = json.loads(config_file.read_text())
@@ -138,3 +140,65 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     assert loaded_cfg.max_steps == 2
     out = capsys.readouterr().out
     assert "[sir_yes_sir:ar] Starting run:" in out
+
+
+def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_training(
+    tmp_path: Path,
+):
+    periodic_dir = tmp_path / "periodic"
+    final_only_dir = tmp_path / "final_only"
+    common_args = [
+        "sir_yes_sir",
+        "cls",
+        "--max-steps",
+        "5",
+        "--batch-size",
+        "4",
+        "--num-eval-problems",
+        "4",
+        "--n-layers",
+        "1",
+        "--n-heads",
+        "4",
+        "--d-ff",
+        "32",
+        "--d-position",
+        "8",
+        "--d-scratch",
+        "0",
+        "--seed",
+        "123",
+    ]
+    res_periodic = run_experiments_cli(
+        EXPERIMENTS,
+        [*common_args, "--out-dir", str(periodic_dir), "--eval-every", "2"],
+    )
+    res_final = run_experiments_cli(
+        EXPERIMENTS,
+        [*common_args, "--out-dir", str(final_only_dir), "--eval-every", "0"],
+    )
+    assert res_periodic == res_final
+
+    periodic_train = [
+        json.loads(line)["loss"]
+        for line in (periodic_dir / "train.jsonl").read_text().splitlines()
+    ]
+    final_train = [
+        json.loads(line)["loss"]
+        for line in (final_only_dir / "train.jsonl").read_text().splitlines()
+    ]
+    assert periodic_train == final_train
+
+    eval_rows = [
+        json.loads(line)
+        for line in (periodic_dir / "eval.jsonl").read_text().splitlines()
+    ]
+    assert [row["step"] for row in eval_rows] == [2, 4, 5]
+    for row in eval_rows:
+        assert isinstance(row["elapsed_sec"], float)
+        assert row["splits"]["id"]["exact_match"] == row["exact_match"]
+        assert row["splits"]["id"]["step_accuracy"] == row["step_accuracy"]
+        assert row["splits"]["id"]["halt_accuracy"] == row["halt_accuracy"]
+    assert {
+        k: eval_rows[-1][k] for k in ("exact_match", "step_accuracy", "halt_accuracy")
+    } == res_periodic

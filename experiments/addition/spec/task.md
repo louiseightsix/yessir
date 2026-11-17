@@ -72,7 +72,7 @@ Writing columns left-to-right from least-significant (`k = 0`) to most-significa
 
 As in [`sir_yes_sir`](../../sir_yes_sir/spec/task.md#alphabets-yessiralphabet), alphabets are resampled per problem with `create_alphabet(symbols, *, sample_size=B, rng=rng)` so digit values must be read in context:
 - **Random symbols**: `create_alphabet(SymbolSet.ALL, sample_size=B, rng=rng)` — `B` distinct bytes sampled in random order from the 240-byte symbol pool (`0x00`–`0xEF`).
-- **Permuted canonical symbols**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` (or `HEX[:B]`) — conventional numerals shuffled into a random order per problem, testing whether a model exposed to canonical numerals overrides a familiar symbol-order prior in favour of the prompt's alphabet.
+- **Permuted canonical symbols**: `create_alphabet(SymbolSet.DECIMAL[:B], rng=rng)` (or `HEX[:B]`) — conventional numerals shuffled into a random order per problem (redrawn if the shuffle returns the ascending order, so a permuted alphabet always differs from the canonical one; in base `B = 2` it is always `['1', '0']`), testing whether a model exposed to canonical numerals overrides a familiar symbol-order prior in favour of the prompt's alphabet.
 
 Problem and step sampling expose three distribution controls:
 - **Prior mixture (`p_prior` in `0.0..1.0`, default `0.0`)**: each training problem uses the conventional canonical alphabet (`DECIMAL[:B]` / `HEX[:B]` in ascending order) with probability `p_prior`, and a random alphabet from `SymbolSet.ALL` with probability `1 - p_prior`. Because `SymbolSet.ALL` already includes the ASCII numeral bytes, `p_prior = 0.0` exposes the model to those byte embeddings without inducing a canonical ordering preference, while increasing `p_prior` strengthens the canonical symbol-order prior.
@@ -140,7 +140,7 @@ All three modes keep the exact same `input_ids` (including `[BOS]` and all three
 
 ## 3. Evaluation Metrics (`experiments/addition/evaluation.py`)
 
-Evaluation over a set of problems (computed under teacher forcing across all `K + 1` columns of every evaluated problem) reports five metrics in `0.0..1.0` (`EvalMetrics`) with identical denominators across variants, together with a 4-way first-error breakdown over failed problems:
+Evaluation over a set of problems (computed under teacher forcing across all `K + 1` columns of every evaluated problem) reports five metrics in `0.0..1.0` (`EvalMetrics`) with identical denominators across variants, together with four first-error rates (one per `FirstErrorType`), each the fraction of all evaluated problems whose first error falls in that category:
 
 - **`exact_match`** *(per problem)*: fraction of problems where every sum digit `o_k`, outgoing carry `c_{k+1}`, and halting prediction across all `K + 1` columns matches the ground truth. Because all variants use a causal attention mask and deterministic `argmax` decoding, teacher-forced inputs and free-running greedy rollout feed the exact same prefix into the model up to the first error on a problem, so teacher-forced `exact_match` equals free-running greedy `exact_match` in exact arithmetic (under `bfloat16` autocast, differences in padding and batch shape can flip near-tied `argmax` decisions).
 - **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where both the predicted sum digit and outgoing carry match `(o_k, c_{k+1})`.
@@ -156,3 +156,15 @@ For every evaluated problem that fails `exact_match`, the earliest column `k` (`
 2. **`prior_intrusion`**: when evaluated on a permuted canonical alphabet (`SymbolSet.DECIMAL[:B]` or `SymbolSet.HEX[:B]`), the predicted sum digit or outgoing carry at column `k` belongs to `alphabet` and is wrong under the prompt's alphabet, but equals the symbol that conventional canonical numeral order (`'0'..'9'`, `'A'..'F'`) would assign to that digit value (`total % B` or `total // B`).
 3. **`procedural_error`**: the predicted sum digit or outgoing carry belongs to `alphabet`, but has the wrong arithmetic value (and is not a `prior_intrusion`).
 4. **`syntax_malformation`**: a non-value prediction at column `k` failed—either a supervised trace header/query/address token (`[IDX]`, `addr(k)`, `[S]`, `[C]`) was ill-formed, or `(o_k, c_{k+1})` were valid and the model emitted a premature or missing halting/step control token (`FLAG_FINISHED` / `FLAG_CONTINUE` / `[EOS]` / `[IDX]`).
+
+Each first-error rate divides by the number of evaluated problems, not the number of failed problems, so the rates stay defined when `exact_match == 1.0` and partition the evaluated problems: `exact_match + out_of_alphabet + prior_intrusion + procedural_error + syntax_malformation == 1.0`.
+
+**Chance baseline for `prior_intrusion`**: a wrong in-alphabet prediction is one of `B - 1` symbols, and at most one of them is the canonical symbol for that digit value, so errors with no canonical-order preference still land on it up to `1 / (B - 1)` of the time. In base `B = 2` the only wrong in-alphabet symbol is the canonical one, so every in-alphabet value error on a permuted canonical alphabet is counted as `prior_intrusion` and none as `procedural_error`; there the rate carries no evidence of a prior. Read `prior_intrusion` as evidence of a canonical-order prior only for `B >= 3`, and only where it clearly exceeds that chance share of the in-alphabet value errors (`prior_intrusion + procedural_error`).
+
+### Evaluation schedule & artefacts (`experiments/addition/train_and_evaluate.py`)
+
+By default (`eval_every=None`), `train_and_evaluate` evaluates all enabled splits every `max(2500, max_steps // 20)` steps (targeting 20 checkpoints across a run, floored at `2500` steps; setting `eval_every=0` runs only the final evaluation at `max_steps`), reusing each split's deterministic `seed` at every checkpoint while preserving a single continuous training stream and optimiser state:
+
+- **`eval.jsonl`**: one JSON Lines record per evaluated checkpoint (including `max_steps`) containing `step`, `elapsed_sec`, the top-level headline pairs (`{prefix}exact_match`, `{prefix}step_accuracy`), and a nested `"splits"` mapping holding all nine `EvalMetrics` fields per split.
+- **`eval.json`**: final-step headline pairs (`{prefix}exact_match`, `{prefix}step_accuracy`) across enabled splits (`exact_match` first).
+- **`eval_splits.json`**: final-step full nine-field `EvalMetrics` dictionaries keyed by split name (`id`, `ood_base3`, `ood_base12`, `extrap_len`, `permuted`).
