@@ -13,6 +13,9 @@ const site = getSiteData();
 function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** The number of experiments, zero-padded like a notebook index: "02". */
+const experimentCount = String(site.experiments.length).padStart(2, "0");
 ---
 
 <html lang="en">
@@ -23,195 +26,257 @@ function count(n: number, one: string, many: string): string {
   </head>
   <body>
     <main class="landing">
-      <!-- What yessir is and where it belongs, for a visitor arriving cold. The
-           wordmark is the page's h1: its SVG carries the accessible name "Yessir!". -->
       <header class="intro">
-        <h1 class="wordmark">
-          <span class="wordmark-name"><Wordmark /></span>
-        </h1>
-        <p class="lede">
-          <strong>Yessir!</strong> is a playground for exploring rule-following behaviour in transformer-based models.
-        </p>
-        <p class="intro-links">
-          <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix</a>
-          <span aria-hidden="true">·</span>
-          <a href="https://github.com/louiseightsix/yessir">GitHub</a>
-        </p>
-      </header>
+        <!-- Logo on the left, links elsewhere on the right. -->
+        <div class="masthead">
+          <!-- The wordmark is the page's h1: its SVG carries the accessible name "Yessir!". -->
+          <h1 class="wordmark">
+            <span class="wordmark-name"><Wordmark /></span>
+          </h1>
+          <nav class="elsewhere" aria-label="Elsewhere">
+            <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix <span aria-hidden="true">↗</span></a>
+            <a href="https://github.com/louiseightsix/yessir">GitHub <span aria-hidden="true">↗</span></a>
+          </nav>
+        </div>
 
-      <!-- Two columns on desktop (about on the left, experiments on the right),
-           stacked in that order on narrow screens. -->
-      <div class="columns">
-        <section class="about">
-          <p class="muted">
+        <!-- What yessir is (big) and where it belongs (small), side by side. -->
+        <div class="pitch">
+          <p class="lede">
+            <strong>Yessir!</strong> is a playground for exploring rule-following behaviour in transformer-based models.
+          </p>
+          <p class="about">
             It's the experimental side of <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix</a>, an
             unscripted adventure to the frontiers of AI. The series makes deliberately bold claims about what models
             can and can't do with rules; yessir is where I build small, controlled experiments to put them to the test.
           </p>
-        </section>
+        </div>
+      </header>
 
-        <section class="experiments">
-          <h2 class="eyebrow">Experiments</h2>
+      <section class="experiments" aria-labelledby="experiments-heading">
+        <div class="experiments-head">
+          <h2 class="eyebrow" id="experiments-heading">Experiments</h2>
+          <!-- Decoration: the list itself tells screen readers how many there are. -->
+          <span class="experiments-count" aria-hidden="true">{experimentCount}</span>
+        </div>
 
-          {
-            site.experiments.length === 0 ? (
-              <p class="muted">
-                No experiments found under <code>results/</code>, <code>studies/</code> or the schema export.
-              </p>
-            ) : (
-              <ul class="experiment-list">
-                {site.experiments.map((exp) => {
-                  const running = exp.runs.filter((r) => r.status === "in_progress").length;
-                  return (
-                    <li>
-                      <a class="panel experiment-card" href={`/${exp.name}/`}>
-                        <span class="experiment-name mono">{exp.name}</span>
-                        {exp.schema?.description && <span class="muted">{exp.schema.description}</span>}
-                        <span class="experiment-counts muted">
-                          {count(exp.studies.length, "study", "studies")} · {count(exp.runs.length, "run", "runs")}
-                          {running > 0 && ` · ${running} running`}
-                        </span>
-                      </a>
-                    </li>
-                  );
-                })}
-              </ul>
-            )
-          }
-        </section>
-      </div>
+        {
+          site.experiments.length === 0 ? (
+            <p class="muted">
+              No experiments found under <code>results/</code>, <code>studies/</code> or the schema export.
+            </p>
+          ) : (
+            <ul class="experiment-list">
+              {site.experiments.map((exp) => {
+                const running = exp.runs.filter((r) => r.status === "in_progress").length;
+                return (
+                  <li>
+                    <a class="experiment-row" href={`/${exp.name}/`}>
+                      <span class="experiment-name">{exp.name}</span>
+                      {exp.schema?.description && <span class="experiment-desc">{exp.schema.description}</span>}
+                      <span class="experiment-counts">
+                        {count(exp.studies.length, "study", "studies")} · {count(exp.runs.length, "run", "runs")}
+                        {running > 0 && (
+                          <>
+                            {" · "}
+                            <span class="running-label">
+                              <span class="running-dot" aria-hidden="true" />
+                              {running} running
+                            </span>
+                          </>
+                        )}
+                      </span>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        }
+      </section>
 
-      <p class="muted credit">
+      <footer class="credit">
         Logo emoji by <a href="https://openmoji.org/">OpenMoji</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>
-      </p>
+      </footer>
     </main>
   </body>
 </html>
 
 <style>
-  /* Centred on the screen rather than hugging the left edge. Wide enough for
-     two columns on desktop; on a narrow screen everything stacks. More room
-     above and between sections than the sidebar pages, since this page has
-     little on it. */
+  /* "Lab notebook" layout: a masthead, a big one-line pitch under a ruled
+     line, then the experiments as rows of a ruled list rather than boxes.
+     Every colour and font comes from the tokens in tokens.css. */
   .landing {
-    max-width: 960px;
+    max-width: 1040px;
     margin: 0 auto;
     box-sizing: border-box;
-    padding: 80px 40px 64px;
+    padding: 64px 48px 56px;
     display: flex;
     flex-direction: column;
-    gap: 56px;
+    gap: 72px;
   }
 
-  /* Logo, one-line description and links, centred over both columns. Plain
-     text, not a panel: the only boxes on the page are the experiment cards, so
-     they read as the things to click. */
+  /* ---- Intro ---- */
   .intro {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    text-align: center;
-  }
-  .wordmark {
-    justify-content: center;
-    margin-bottom: 10px;
-  }
-  /* The one-line answer to "what is this?", a step up from body text. */
-  .lede {
-    margin: 0;
-    max-width: 560px;
-    font-size: 17px;
-    line-height: 1.6;
-    color: var(--c-ink);
-  }
-  .intro-links {
-    margin: 0;
-    display: flex;
-    gap: 10px;
-    font-size: var(--fs-small);
-    font-weight: 500;
-    color: var(--c-muted);
-  }
-
-  /* Narrow screens: one column, about first, then experiments. */
-  .columns {
     display: flex;
     flex-direction: column;
     gap: 40px;
   }
-
-  .about p {
-    margin: 0;
-    line-height: 1.6;
+  /* Wordmark left, links right; the links drop below on a narrow screen. */
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  /* The global rule sizes the logo with --logo-h (48px); it's a bit bigger here.
+     :global() because the <svg> comes from the Wordmark component, so this
+     page's scoped styles wouldn't otherwise reach it. */
+  .wordmark :global(svg) {
+    --logo-h: 56px;
+  }
+  .elsewhere {
+    display: flex;
+    gap: 20px;
+    font: 500 13px var(--font-mono);
   }
 
-  /* A small label rather than a second big heading: the logo is the page title. */
+  /* A strong rule above the pitch, like the head of a notebook page. The two
+     paragraphs share a line on desktop, bottom-aligned, and wrap to a stack
+     when there isn't room for both (around 840px). */
+  .pitch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 24px 64px;
+    padding-top: 32px;
+    border-top: 1px solid var(--c-ink);
+  }
+  .lede {
+    margin: 0;
+    flex: 3 1 480px;
+    max-width: 680px;
+    font-size: 32px;
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .lede strong {
+    color: var(--c-accent-strong);
+  }
+  .about {
+    margin: 0;
+    flex: 2 1 280px;
+    font-size: var(--fs-body);
+    line-height: 1.65;
+    color: var(--c-ink-3);
+  }
+
+  /* ---- Experiments ---- */
   .experiments {
-    display: grid;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  /* "EXPERIMENTS" on the left, the count on the right. */
+  .experiments-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 12px;
   }
-
-  /* Desktop: about on the left, experiments (the wider column) on the right.
-     The grid has two rows, the "Experiments" label and then the cards. The
-     experiments section shares those rows with the parent (subgrid), and the
-     about text sits in the second row, so its first line lines up with the top
-     of the first card rather than with the label. */
-  @media (min-width: 860px) {
-    .columns {
-      display: grid;
-      grid-template-columns: 5fr 7fr;
-      grid-template-rows: auto 1fr;
-      column-gap: 56px;
-      row-gap: 12px;
-    }
-    .about {
-      grid-column: 1;
-      grid-row: 2;
-    }
-    .experiments {
-      grid-column: 2;
-      grid-row: 1 / span 2;
-      grid-template-rows: subgrid;
-    }
+  .experiments-count {
+    font: 400 var(--fs-small) var(--font-mono);
+    color: var(--c-muted);
   }
-
+  /* Ruled list: stronger lines top and bottom, lighter ones between rows. */
   .experiment-list {
     list-style: none;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
+    border-top: 1px solid var(--c-border-strong);
+    border-bottom: 1px solid var(--c-border-strong);
+  }
+  .experiment-list li + li {
+    border-top: 1px solid var(--c-border);
   }
 
-  /* The whole card is the link, so it reads as one block rather than underlined text. */
-  .experiment-card {
-    display: flex;
-    flex-direction: column;
+  /* The whole row is the link. On a phone, name, description and counts
+     stack. From 760px they sit on one line: a fixed column for the name, the
+     description takes the rest, and the counts hug the right edge.
+     minmax(0, 1fr) lets a long description wrap instead of widening the row. */
+  .experiment-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
-    padding: 20px 24px;
+    padding: 20px 16px;
     color: var(--c-ink);
   }
-  .experiment-card:hover {
+  @media (width >= 760px) {
+    .experiment-row {
+      grid-template-columns: 200px minmax(0, 1fr) auto;
+      align-items: baseline;
+      column-gap: 32px;
+      padding: 24px 16px;
+    }
+    .experiment-counts {
+      justify-self: end;
+    }
+  }
+  .experiment-row:hover {
+    background: var(--c-panel);
     color: var(--c-ink);
     text-decoration: none;
-    border-color: var(--c-border-strong);
+  }
+  .experiment-row:hover .experiment-name {
+    text-decoration: underline;
+  }
+  /* Keyboard focus: an outline drawn inside the row, so the rules stay put. */
+  .experiment-row:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: -2px;
   }
 
   .experiment-name {
-    font-size: 16px;
-    font-weight: 600;
+    font: 600 18px var(--font-mono);
     color: var(--c-accent-strong);
+    overflow-wrap: anywhere;
   }
-
-  .credit {
-    margin: 0;
-    text-align: center;
-    font-size: var(--fs-tiny);
+  .experiment-desc {
+    color: var(--c-ink-3);
   }
-
   .experiment-counts {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 6px;
     font: 400 var(--fs-small) var(--font-mono);
+    color: var(--c-muted);
+    white-space: nowrap;
+  }
+  /* .running-label and .running-dot come from tables.css (the runs table);
+     here they're mono, to match the counts, and the dot gets a pale halo. */
+  .experiment-counts .running-label {
+    font: 500 var(--fs-small) var(--font-mono);
+  }
+  .experiment-counts .running-dot {
+    box-shadow: 0 0 0 3px var(--c-progress-bg);
+  }
+
+  /* ---- Footer ---- */
+  .credit {
+    font-size: var(--fs-tiny);
+    color: var(--c-muted);
+  }
+
+  /* Phones: less padding and a smaller lede. */
+  @media (width < 600px) {
+    .landing {
+      padding: 40px 20px;
+      gap: 48px;
+    }
+    .lede {
+      font-size: 24px;
+    }
   }
 </style>
