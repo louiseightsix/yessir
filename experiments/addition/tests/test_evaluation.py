@@ -29,9 +29,11 @@ def test_perfect_predictions_score_100_percent_and_zero_errors():
     assert metrics == EvalMetrics(
         exact_match=1.0,
         step_accuracy=1.0,
+        oracle_step_accuracy=1.0,
         digit_accuracy=1.0,
         carry_accuracy=1.0,
         halt_accuracy=1.0,
+        address_accuracy=None,
         out_of_alphabet=0.0,
         prior_intrusion=0.0,
         procedural_error=0.0,
@@ -43,9 +45,11 @@ def test_perfect_predictions_score_100_percent_and_zero_errors():
     assert as_dict == {
         "exact_match": 1.0,
         "step_accuracy": 1.0,
+        "oracle_step_accuracy": 1.0,
         "digit_accuracy": 1.0,
         "carry_accuracy": 1.0,
         "halt_accuracy": 1.0,
+        "address_accuracy": None,
         "out_of_alphabet": 0.0,
         "prior_intrusion": 0.0,
         "procedural_error": 0.0,
@@ -297,15 +301,64 @@ def test_partition_of_unity_across_mixed_outcomes():
     assert metrics.syntax_malformation == pytest.approx(0.2)
 
 
-def test_score_predictions_rejects_empty_or_mismatched_inputs():
+def test_score_predictions_variable_length_rollout_and_oracle_diagnostic():
+    alphabet = SymbolSet.DECIMAL
+    # 987 ('789') + 25 ('52') = 1012 ('2101'): 4 carry-active reference columns (k = 0..3).
+    steps = reference_add(alphabet, b"789", b"52")
+
+    # 1. Premature halt after k = 0: missed columns k = 1..3 count as 0 against the K + 1 = 4 denominator.
+    truncated = (
+        StepPrediction(
+            sum_digit=steps[0].sum_digit,
+            carry_out=steps[0].carry_out,
+            halt_ok=False,
+            address_ok=True,
+        ),
+    )
+    m_trunc = score_predictions(
+        [(alphabet, steps, truncated)],
+        oracle_step_accuracy=0.75,
+        track_addresses=True,
+    )
+    assert m_trunc.exact_match == 0.0
+    assert m_trunc.step_accuracy == pytest.approx(0.25)
+    assert m_trunc.oracle_step_accuracy == pytest.approx(0.75)
+    assert m_trunc.digit_accuracy == pytest.approx(0.25)
+    assert m_trunc.carry_accuracy == pytest.approx(0.25)
+    assert m_trunc.address_accuracy == pytest.approx(0.25)
+    assert m_trunc.halt_accuracy == 0.0
+    assert m_trunc.syntax_malformation == 1.0
+
+    # 2. Overrun past K (`len(preds) == 5 > 4`): fails exact_match and halt_accuracy with SYNTAX_MALFORMATION.
+    overrun = (
+        *_perfect_preds(steps[:-1]),
+        StepPrediction(
+            sum_digit=steps[-1].sum_digit,
+            carry_out=steps[-1].carry_out,
+            halt_ok=False,
+        ),
+        StepPrediction(sum_digit=ord("0"), carry_out=ord("0"), halt_ok=True),
+    )
+    m_over = score_predictions([(alphabet, steps, overrun)])
+    assert m_over.exact_match == 0.0
+    assert m_over.step_accuracy == 1.0
+    assert m_over.halt_accuracy == 0.0
+    assert m_over.syntax_malformation == 1.0
+
+    # 3. Empty predictions (`()` when premature EOS occurs before column 0) -> SYNTAX_MALFORMATION.
+    m_empty = score_predictions([(alphabet, steps, ())], track_addresses=True)
+    assert m_empty.exact_match == 0.0
+    assert m_empty.step_accuracy == 0.0
+    assert m_empty.address_accuracy == 0.0
+    assert m_empty.halt_accuracy == 0.0
+    assert m_empty.syntax_malformation == 1.0
+
+
+def test_score_predictions_rejects_empty_inputs():
     alphabet = b"01"
     steps = reference_add(alphabet, b"0", b"0")
     with pytest.raises(ValueError, match="at least 1 problem"):
         score_predictions([])
-    with pytest.raises(ValueError, match="must match steps length"):
-        score_predictions([(alphabet, steps, ())])
-    with pytest.raises(ValueError, match="must match steps length"):
-        classify_first_error(alphabet, steps, ())
     with pytest.raises(ValueError, match="at least 1 ColumnStep"):
         score_predictions([(alphabet, (), ())])
     with pytest.raises(ValueError, match="at least 1 ColumnStep"):

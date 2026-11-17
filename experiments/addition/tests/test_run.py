@@ -142,9 +142,11 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     expected_split_metric_keys = {
         "exact_match",
         "step_accuracy",
+        "oracle_step_accuracy",
         "digit_accuracy",
         "carry_accuracy",
         "halt_accuracy",
+        "address_accuracy",
         "syntax_malformation",
         "out_of_alphabet",
         "prior_intrusion",
@@ -572,7 +574,7 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
         assert list(row["splits"].keys()) == ["id", "ood_base3", "extrap_len"]
         assert row["splits"]["id"]["exact_match"] == row["exact_match"]
         assert row["splits"]["ood_base3"]["exact_match"] == row["ood_base3_exact_match"]
-        assert len(row["splits"]["id"]) == 9
+        assert len(row["splits"]["id"]) == 11
 
     assert {k: eval_rows[-1][k] for k in headline_keys} == res_periodic
     assert eval_rows[-1]["splits"] == json.loads(

@@ -19,7 +19,7 @@ from yessir.training import build_optimizer, resolve_device, seed_everything, tr
 
 
 class EvaluateProblemsFn(Protocol):
-    """Callable contract for a variant's teacher-forced evaluator over an `AdditionProblem` stream."""
+    """Callable contract for a variant's rollout evaluator over an `AdditionProblem` stream."""
 
     def __call__(
         self,
@@ -35,7 +35,7 @@ def write_eval_splits_json(
     out_dir: Path,
     eval_splits: dict[str, dict[str, float | None]],
 ) -> Path:
-    """Write the full 9-metric + 4-way error diagnostic breakdown per split to `out_dir / 'eval_splits.json'`."""
+    """Write the full `EvalMetrics` diagnostic breakdown per split to `out_dir / 'eval_splits.json'`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "eval_splits.json"
     path.write_text(

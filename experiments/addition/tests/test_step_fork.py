@@ -1,7 +1,7 @@
 """Tests for the `step_fork` variant (`inputs`, `dataset`, `evaluation`, `generation`)."""
 
 import itertools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -298,50 +298,111 @@ def test_rollout_step_fork_batches_three_branches_per_step():
     assert len(capped) == 3
 
 
-def test_evaluate_step_fork_padding_and_batch_size_invariance():
-    # Mix problems of different operand lengths (min_length=1, max_length=4) in the same batch
-    # so `_ScriptedStepForkModel` injects bogus logits at padded tail positions.
-    problems = list(
-        itertools.islice(
-            iter_problems(
-                bases=(2, 10), min_length=1, max_length=4, p_prior=1.0, seed=5
-            ),
-            2,
-        )
-    )
-    s0 = reference_add(problems[0].alphabet, problems[0].a, problems[0].b)
-    s1 = reference_add(problems[1].alphabet, problems[1].a, problems[1].b)
+class _LookupLMModel:
+    """Stateless `SubspaceLMHead` fake mapping unpadded prefixes to next-token argmax."""
 
-    p0_tokens = [tok for st in s0 for tok in (st.sum_digit, st.carry_out, int(st.flag))]
-    wrong_digit = (
-        problems[1].alphabet[0]
-        if s1[0].sum_digit != problems[1].alphabet[0]
-        else problems[1].alphabet[1]
+    def __init__(
+        self,
+        table: Mapping[tuple[int, ...], Token],
+        *,
+        default: Token = int(SpecialToken.FLAG_FINISHED),
+    ) -> None:
+        self._table = dict(table)
+        self._default = default
+        self.training = True
+        self.device = torch.device("cpu")
+
+    def eval(self) -> "_LookupLMModel":
+        self.training = False
+        return self
+
+    def __call__(
+        self,
+        input_ids: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+        token_type_ids: torch.Tensor | None = None,
+        position_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        assert lengths is not None
+        batch_size, seq_len = input_ids.shape
+        logits = torch.zeros(batch_size, seq_len, VOCAB_SIZE)
+        for b in range(batch_size):
+            n = int(lengths[b].item())
+            if n < seq_len:
+                logits[b, seq_len - 1, int(SpecialToken.PAD)] = 100.0
+            key = tuple(input_ids[b, :n].tolist())
+            logits[b, n - 1, self._table.get(key, self._default)] = 10.0
+        return logits
+
+
+def test_evaluate_step_fork_rollout_cascade_padding_and_batch_invariance():
+    from experiments.addition.inputs import AdditionProblem
+
+    # Mix problems of different operand lengths so padded tail positions get poisoned with PAD.
+    prob0 = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"101"), b=tuple(b"010"))
+    prob1 = AdditionProblem(
+        alphabet=tuple(b"0123456789"), a=tuple(b"99"), b=tuple(b"1")
     )
-    p1_tokens = [
-        wrong_digit,
-        s1[0].carry_out,
-        int(s1[0].flag),
-        *[tok for st in s1[1:] for tok in (st.sum_digit, st.carry_out, int(st.flag))],
-    ]
+    s0 = reference_add(prob0.alphabet, prob0.a, prob0.b)
+    s1 = reference_add(prob1.alphabet, prob1.a, prob1.b)
+
+    table: dict[tuple[int, ...], int] = {}
+    out0 = tuple(st.sum_digit for st in s0)
+    for k, st in enumerate(s0):
+        for ex, target in zip(
+            build_step_fork_examples(
+                prob0.alphabet, prob0.a, prob0.b, st.carry_in, out0[:k]
+            ),
+            (st.sum_digit, st.carry_out, int(st.flag)),
+            strict=True,
+        ):
+            table[ex.input_ids] = target
+
+    out1 = tuple(st.sum_digit for st in s1)
+    for k, st in enumerate(s1):
+        for ex, target in zip(
+            build_step_fork_examples(
+                prob1.alphabet, prob1.a, prob1.b, st.carry_in, out1[:k]
+            ),
+            (st.sum_digit, st.carry_out, int(st.flag)),
+            strict=True,
+        ):
+            table[ex.input_ids] = target
+
+    # Drop carry at k=0 of prob1 ('0' instead of '1'), causing rollout cascade & early halt at k=1.
+    ex_s0, ex_c0, ex_f0 = build_step_fork_examples(
+        prob1.alphabet, prob1.a, prob1.b, ord("0"), ()
+    )
+    table[ex_s0.input_ids] = ord("0")
+    table[ex_c0.input_ids] = ord("0")
+    table[ex_f0.input_ids] = int(SpecialToken.FLAG_CONTINUE)
+    for ex, target in zip(
+        build_step_fork_examples(
+            prob1.alphabet, prob1.a, prob1.b, ord("0"), (ord("0"),)
+        ),
+        (ord("9"), ord("0"), int(SpecialToken.FLAG_FINISHED)),
+        strict=True,
+    ):
+        table[ex.input_ids] = target
 
     m_b1 = evaluate_step_fork(
-        _ScriptedStepForkModel(p0_tokens + p1_tokens),  # ty: ignore[invalid-argument-type]
-        problems,
+        _LookupLMModel(table),  # ty: ignore[invalid-argument-type]
+        [prob0, prob1],
         num_problems=2,
         batch_size=1,
     )
     m_b5 = evaluate_step_fork(
-        _ScriptedStepForkModel(p0_tokens + p1_tokens),  # ty: ignore[invalid-argument-type]
-        problems,
+        _LookupLMModel(table),  # ty: ignore[invalid-argument-type]
+        [prob0, prob1],
         num_problems=2,
         batch_size=5,
     )
     assert m_b1 == m_b5
     assert m_b1.exact_match == pytest.approx(0.5)
-    assert m_b1.halt_accuracy == pytest.approx(1.0)
+    assert m_b1.halt_accuracy == pytest.approx(0.5)
     total_steps = len(s0) + len(s1)
-    assert m_b1.step_accuracy == pytest.approx((total_steps - 1) / total_steps)
+    assert m_b1.step_accuracy == pytest.approx(len(s0) / total_steps)
+    assert m_b1.oracle_step_accuracy == pytest.approx((total_steps - 1) / total_steps)
 
 
 def test_evaluate_and_rollout_step_fork_with_real_transformer_and_validation():
