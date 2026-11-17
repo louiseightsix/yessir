@@ -463,7 +463,7 @@ def iter_problems(
     permuted_canonical: bool = False,
     p_chain: float = 0.25,
     include_alphabet: bool = True,
-    seed: int = 42,
+    seed: int | str = 42,
 ) -> Iterator[AdditionProblem]:
     """Validate parameters eagerly and return an infinite deterministic stream of `AdditionProblem`s."""
     bases_tuple, symbol_pool = validate_sampling_params(
@@ -507,7 +507,7 @@ def iter_problem_steps(
     include_alphabet: bool = True,
     p_terminal: float = 0.2,
     all_steps: bool = False,
-    seed: int = 42,
+    seed: int | str = 42,
 ) -> Iterator[tuple[AdditionProblem, tuple[ColumnStep, ...], int]]:
     """Yield `(problem, steps, k)` items for step-by-step harnessed variants.
 

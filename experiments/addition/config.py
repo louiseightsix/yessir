@@ -51,7 +51,7 @@ class EvalSplit:
     p_prior: float
     permuted_canonical: bool
     p_chain: float
-    seed: int
+    seed: int | str
 
 
 def parse_bases_csv(raw: str, *, field_name: str) -> tuple[int, ...]:
@@ -350,10 +350,9 @@ class AdditionConfig(ExperimentConfig):
             + self.effective_d_scratch
         )
 
-    def _split_seed(self, offset: int) -> int:
-        """Derive a deterministic split seed from `eval_seed` that never collides with `seed`."""
-        candidate = self.eval_seed + offset
-        return candidate + 1 if candidate == self.seed else candidate
+    def _split_seed(self, split_name: str) -> str:
+        """Derive a domain-separated split seed invariant across integer training `seed` sweeps."""
+        return f"{self.eval_seed}:eval:{split_name}"
 
     def eval_splits(self) -> tuple[EvalSplit, ...]:
         """Build the ordered sequence of evaluation splits (`id` first, followed by enabled OOD splits)."""
@@ -368,21 +367,22 @@ class AdditionConfig(ExperimentConfig):
                 p_prior=self.p_prior,
                 permuted_canonical=False,
                 p_chain=self.eval_p_chain,
-                seed=self._split_seed(0),
+                seed=self._split_seed("id"),
             )
         ]
         for b in self.parsed_eval_ood_bases:
+            split_name = f"ood_base{b}"
             splits.append(
                 EvalSplit(
-                    name=f"ood_base{b}",
-                    prefix=f"ood_base{b}_",
+                    name=split_name,
+                    prefix=f"{split_name}_",
                     bases=(b,),
                     min_length=self.min_length,
                     max_length=self.max_length,
                     p_prior=0.0,
                     permuted_canonical=False,
                     p_chain=self.eval_p_chain,
-                    seed=self._split_seed(1000 + b),
+                    seed=self._split_seed(split_name),
                 )
             )
         if self.eval_extrap_max_length is not None:
@@ -396,7 +396,7 @@ class AdditionConfig(ExperimentConfig):
                     p_prior=self.p_prior,
                     permuted_canonical=False,
                     p_chain=self.eval_p_chain,
-                    seed=self._split_seed(2000),
+                    seed=self._split_seed("extrap_len"),
                 )
             )
         if self.eval_permuted_canonical:
@@ -410,7 +410,7 @@ class AdditionConfig(ExperimentConfig):
                     p_prior=0.0,
                     permuted_canonical=True,
                     p_chain=self.eval_p_chain,
-                    seed=self._split_seed(3000),
+                    seed=self._split_seed("permuted"),
                 )
             )
         return tuple(splits)

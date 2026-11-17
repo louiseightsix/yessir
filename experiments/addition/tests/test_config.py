@@ -136,7 +136,7 @@ def test_embedding_mode_and_fixed_d_model_combinations():
     assert cfg_nope_shrink.d_model == 464
 
 
-def test_eval_splits_construction_and_seed_non_collision():
+def test_eval_splits_construction_and_seed_sweep_invariance():
     # OOD bases already present in `bases` are automatically skipped; blank string disables OOD bases.
     cfg = AdditionConfig(
         bases="2, 3, 10",
@@ -150,20 +150,16 @@ def test_eval_splits_construction_and_seed_non_collision():
         seed=1999,
         eval_seed=999,
     )
-    # Note: seed=1999 collides with eval_seed + 1000? For b=12, 999 + 1012 = 2011;
-    # let's also explicitly check collision avoidance when seed == eval_seed + 2000.
-    cfg_collide = AdditionConfig(
+    cfg_blank_ood = AdditionConfig(
         bases="2,10",
         eval_ood_bases="",
         eval_extrap_max_length=30,
         seed=2999,
         eval_seed=999,
     )
-    assert cfg_collide.eval_ood_bases is None
-    assert cfg_collide.parsed_eval_ood_bases == ()
-    collide_splits = cfg_collide.eval_splits()
-    assert [s.name for s in collide_splits] == ["id", "extrap_len"]
-    assert collide_splits[1].seed == 3000 != cfg_collide.seed
+    assert cfg_blank_ood.eval_ood_bases is None
+    assert cfg_blank_ood.parsed_eval_ood_bases == ()
+    assert [s.name for s in cfg_blank_ood.eval_splits()] == ["id", "extrap_len"]
 
     # The stored value keeps only the OOD bases that get a split.
     assert cfg.eval_ood_bases == "12"
@@ -183,7 +179,7 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.5,
             permuted_canonical=False,
             p_chain=0.3,
-            seed=999,
+            seed="999:eval:id",
         ),
         EvalSplit(
             name="ood_base12",
@@ -194,7 +190,7 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.0,
             permuted_canonical=False,
             p_chain=0.3,
-            seed=999 + 1012,
+            seed="999:eval:ood_base12",
         ),
         EvalSplit(
             name="extrap_len",
@@ -205,7 +201,7 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.5,
             permuted_canonical=False,
             p_chain=0.3,
-            seed=999 + 2000,
+            seed="999:eval:extrap_len",
         ),
         EvalSplit(
             name="permuted",
@@ -216,9 +212,72 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.0,
             permuted_canonical=True,
             p_chain=0.3,
-            seed=999 + 3000,
+            seed="999:eval:permuted",
         ),
     )
+
+    # Multi-seed training sweeps (including seeds like 2002, 2011, 2999, 3999 that
+    # previously triggered integer +1 collision bumps at `eval_seed=999`) evaluate on
+    # strictly identical problem sets, and adjacent `ood_base3`/`ood_base4` splits
+    # receive distinct domain-separated seeds.
+    from itertools import islice
+
+    from experiments.addition.inputs import iter_problems
+
+    baseline_cfg = AdditionConfig(
+        bases="2,8,10",
+        eval_ood_bases="3,4,12",
+        eval_permuted_canonical=True,
+        seed=42,
+        eval_seed=999,
+    )
+    baseline_splits = baseline_cfg.eval_splits()
+    assert len({s.seed for s in baseline_splits}) == len(baseline_splits)
+    baseline_problems = {
+        s.name: list(
+            islice(
+                iter_problems(
+                    bases=s.bases,
+                    min_length=s.min_length,
+                    max_length=s.max_length,
+                    p_prior=s.p_prior,
+                    permuted_canonical=s.permuted_canonical,
+                    p_chain=s.p_chain,
+                    seed=s.seed,
+                ),
+                10,
+            )
+        )
+        for s in baseline_splits
+    }
+    for sweep_seed in (1999, 2002, 2003, 2011, 2999, 3999):
+        sweep_cfg = AdditionConfig(
+            bases="2,8,10",
+            eval_ood_bases="3,4,12",
+            eval_permuted_canonical=True,
+            seed=sweep_seed,
+            eval_seed=999,
+        )
+        assert sweep_cfg.eval_splits() == baseline_splits
+        for s in sweep_cfg.eval_splits():
+            probs = list(
+                islice(
+                    iter_problems(
+                        bases=s.bases,
+                        min_length=s.min_length,
+                        max_length=s.max_length,
+                        p_prior=s.p_prior,
+                        permuted_canonical=s.permuted_canonical,
+                        p_chain=s.p_chain,
+                        seed=s.seed,
+                    ),
+                    10,
+                )
+            )
+            assert probs == baseline_problems[s.name]
+        # Domain-separated `"999:eval:id"` never replays integer `sweep_seed` stream.
+        train_probs = list(islice(iter_problems(bases=(2, 8, 10), seed=sweep_seed), 10))
+        assert train_probs != baseline_problems["id"]
 
 
 def test_config_validation_rejections():
