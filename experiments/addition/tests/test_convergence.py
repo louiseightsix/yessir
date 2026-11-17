@@ -278,7 +278,7 @@ def test_addition_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=900, batch_size=20, lr=8e-4)
+    train(model, train_dataset, max_steps=1150, batch_size=20, lr=6e-4)
 
     metrics = evaluate_ar(model, eval_problems, num_problems=100, step_order=step_order)
     assert metrics.exact_match >= 0.98
@@ -300,14 +300,14 @@ def test_addition_ar_cpu_convergence():
 
 
 def test_addition_addressed_step_ar_cpu_convergence():
-    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under `addressed_step_ar` (default `nope`, `use_query_tokens=True`) and verify >=98% exact match."""
+    """Train a tiny `SubspaceLMHead` `Transformer` on CPU under `addressed_step_ar` (default `nope`, `carry_first`, `use_query_tokens=True`) and verify >=98% exact match."""
     seed_everything(42)
 
     symbols = SymbolSet.DECIMAL[:2]
     bases = (2,)
     min_length = 1
     max_length = 2
-    step_order = StepOrder.SUM_FIRST
+    step_order = StepOrder.CARRY_FIRST
     use_query_tokens = True
 
     model = Transformer(
@@ -337,7 +337,7 @@ def test_addition_addressed_step_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=1200, batch_size=24, lr=8e-4)
+    train(model, train_dataset, max_steps=1300, batch_size=24, lr=6e-4)
 
     metrics = evaluate_addressed_step_ar(
         model,
@@ -411,7 +411,7 @@ def test_addition_addressed_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=1100, batch_size=24, lr=8e-4)
+    train(model, train_dataset, max_steps=1300, batch_size=24, lr=6e-4)
 
     metrics = evaluate_addressed_ar(
         model, eval_problems, num_problems=100, step_order=step_order
