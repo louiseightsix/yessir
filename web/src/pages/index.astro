@@ -1,5 +1,6 @@
 ---
-// Landing page: every experiment, each linking to its Studies page. No sidebar,
+// Landing page: a short intro to yessir and its link to Into the Matrix, then
+// every experiment, each linking to its Studies page. No sidebar,
 // because the sidebar (picker, nav, "Running now") belongs to one experiment.
 import "../styles/global.css";
 import { getSiteData } from "../lib/data";
@@ -26,10 +27,21 @@ function count(n: number, one: string, many: string): string {
         <span class="wordmark-name"><Wordmark /></span>
       </div>
 
+      <!-- What yessir is and where it belongs, for a visitor arriving cold. -->
+      <section class="panel intro">
+        <p>
+          <strong>Yessir!</strong> is a playground for exploring rule-following behaviour in transformer-based models.
+        </p>
+        <p>
+          It's the experimental side of <a href="https://anamorphosis.cc/into-the-matrix/">Into the Matrix</a>, an
+          unscripted adventure to the frontiers of AI. The series makes deliberately bold claims about what models can
+          and can't do with rules; yessir is where I build small, controlled experiments to put them to the test.
+        </p>
+      </section>
+
       <header class="page-header">
         <div>
           <h1>Experiments</h1>
-          <p>Each experiment has its own studies and runs.</p>
         </div>
       </header>
 
@@ -120,6 +132,19 @@ function count(n: number, one: string, many: string): string {
     font-size: 16px;
     font-weight: 600;
     color: var(--c-accent-strong);
+  }
+
+  /* Same panel as the experiment cards, but not a link and with prose at body
+     size, so it reads as the page's introduction rather than another card. */
+  .intro {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    line-height: 1.55;
+  }
+  .intro p {
+    margin: 0;
   }
 
   .credit {
