@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
+from experiments.addition.config import AdditionClsConfig
 from experiments.sir_yes_sir.config import SirYesSirConfig
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.experiment import ExperimentConfig, ExperimentVariant
@@ -310,3 +311,27 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
     assert isinstance(cfg, _VariantBConfig)
     assert cfg.count == 10
     assert cfg.extra_mode == "fast"
+
+
+def test_float_stepping_clamps_probabilities_to_zero_and_one_while_keeping_lr_positive():
+    state = ConfigEditorState(AdditionClsConfig, title="addition/cls")
+
+    for field_name in ("p_prior", "p_chain", "eval_p_chain", "p_terminal"):
+        idx = next(i for i, s in enumerate(state.specs) if s.name == field_name)
+        state.cursor = idx
+        state.handle_key("RIGHT")
+        assert state.values[field_name] > 0.0
+        for _ in range(25):
+            state.handle_key("LEFT")
+        assert state.values[field_name] == 0.0
+        for _ in range(25):
+            state.handle_key("RIGHT")
+        assert state.values[field_name] == 1.0
+
+    lr_idx = next(i for i, s in enumerate(state.specs) if s.name == "lr")
+    state.cursor = lr_idx
+    for _ in range(10):
+        state.handle_key("LEFT")
+    assert state.values["lr"] == 1e-4
+    cfg, err = state.validate()
+    assert cfg is not None and err is None

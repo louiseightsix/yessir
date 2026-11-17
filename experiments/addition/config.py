@@ -103,10 +103,12 @@ class AdditionConfig(ExperimentConfig):
         default=None, metadata={"domain": "int in 2..len(symbol_set) or None"}
     )
     p_prior: float = field(
-        default=0.0, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.0,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     p_chain: float = field(
-        default=0.25, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.25,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
 
@@ -147,7 +149,8 @@ class AdditionConfig(ExperimentConfig):
     eval_batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
     eval_seed: int = field(default=999, metadata={"domain": "int (!= seed)"})
     eval_p_chain: float = field(
-        default=0.25, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.25,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     eval_ood_bases: str | None = field(
         default="3,12", metadata={"domain": "comma-separated ints >= 2 or None"}
@@ -441,7 +444,8 @@ class AdditionStepConfig(AdditionConfig):
     """Shared base config for harnessed step-by-step `addition` variants (`p_terminal`, `all_steps`)."""
 
     p_terminal: float = field(
-        default=0.2, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.2,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     all_steps: bool = False
 

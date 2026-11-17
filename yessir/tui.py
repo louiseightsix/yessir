@@ -43,6 +43,7 @@ class FieldSpec:
     step: int | float
     choices: tuple[Any, ...] | None = None
     min_val: int | float | None = None
+    max_val: int | float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise this field descriptor to JSON-compatible primitives."""
@@ -89,6 +90,7 @@ def build_field_specs(config_cls: type[ExperimentConfig]) -> tuple[FieldSpec, ..
         default_step: int | float = 1e-4 if inner_type is float else 1
         step = meta.get("step", default_step)
         min_val = meta.get("min")
+        max_val = meta.get("max")
         default_val = (
             field.default.value if isinstance(field.default, Enum) else field.default
         )
@@ -103,6 +105,7 @@ def build_field_specs(config_cls: type[ExperimentConfig]) -> tuple[FieldSpec, ..
                 step=step,
                 choices=choices,
                 min_val=min_val,
+                max_val=max_val,
             )
         )
     return tuple(specs)
@@ -131,15 +134,24 @@ def _step_value(spec: FieldSpec, current: Any, delta: int) -> Any:
         next_val = int(current) + delta * step
         if spec.is_optional and next_val < floor:
             return None
-        return max(floor, next_val)
+        next_val = max(floor, next_val)
+        if spec.max_val is not None:
+            next_val = min(int(spec.max_val), next_val)
+        return next_val
 
     if spec.inner_type is float:
         step_f = float(spec.step)
+        floor_f = float(spec.min_val) if spec.min_val is not None else step_f
         if current is None:
-            base_f = float(spec.default) if spec.default is not None else step_f
+            base_f = float(spec.default) if spec.default is not None else floor_f
             return base_f if delta > 0 else None
         next_f = round(float(current) + delta * step_f, 8)
-        return max(step_f, next_f)
+        if spec.is_optional and next_f < floor_f:
+            return None
+        next_f = max(floor_f, next_f)
+        if spec.max_val is not None:
+            next_f = min(float(spec.max_val), next_f)
+        return next_f
 
     return current
 
