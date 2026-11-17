@@ -2,7 +2,7 @@
   "title": "Memorisation vs. in-context lookup (canonical vs. random order)",
   "status": "draft",
   "kind": "comparison",
-  "question": "When trained on a fixed canonical alphabet (e.g. '0'..'9' in order), does the model memorise static token-to-token transitions in its weights rather than attending to the prompt's alphabet section, and how does sample efficiency or minimum depth compare against per-problem shuffled and randomly sampled alphabets?",
+  "question": "How do in-distribution sample efficiency and minimum required depth compare across a fixed canonical alphabet (`resample_alphabet=False`, where static weight memorisation is possible and the `B^L` problem universe overlaps between train and eval at small B, L), per-problem shuffled canonical glyphs (`symbol_pool_size=B, resample_alphabet=True`), and random 240-byte alphabets? (Zero-shot transfer to OOD permuted canonical alphabets after canonical exposure is tested in `addition/prior-override`.)",
   "runs": [],
   "conclusion": null
 }

@@ -127,9 +127,11 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     assert loaded_cfg.log_every == 2
     assert loaded_cfg.eval_permuted_canonical is True
 
-    # With max_steps=5 and log_every=2, steps 1, 2, 4, and 5 are logged.
+    # With max_steps=5 and log_every=2, steps 1, 2, 4, and 5 are logged;
+    # each `cls` step at `batch_size=4` supervises `4 * 3 = 12` targets.
     train_lines = [json.loads(line) for line in train_file.read_text().splitlines()]
     assert [row["step"] for row in train_lines] == [1, 2, 4, 5]
+    assert [row["tokens_seen"] for row in train_lines] == [12, 24, 48, 60]
     for row in train_lines:
         assert isinstance(row["loss"], float)
 
@@ -138,18 +140,29 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     assert loaded_eval == eval_results
 
     loaded_splits = json.loads(eval_splits_file.read_text())
-    assert list(loaded_splits.keys()) == ["id", "ood_base3", "extrap_len", "permuted"]
     expected_split_metric_keys = {
         "exact_match",
         "step_accuracy",
+        "oracle_step_accuracy",
         "digit_accuracy",
         "carry_accuracy",
         "halt_accuracy",
+        "address_accuracy",
         "syntax_malformation",
         "out_of_alphabet",
         "prior_intrusion",
         "procedural_error",
     }
+    # Top-level splits are always present; multi-base splits (`id`, `extrap_len`)
+    # also emit `{split}_base{b}` slices, while `permuted` on `--bases 2,4`
+    # excludes B=2 (`permuted.bases == (4,)`), so no `permuted_base*` slice is emitted.
+    assert {"id", "ood_base3", "extrap_len", "permuted"}.issubset(loaded_splits.keys())
+    assert not any(k.startswith("permuted_base") for k in loaded_splits)
+    assert not any(k.startswith("ood_base3_base") for k in loaded_splits)
+    assert any(k in loaded_splits for k in ("id_base2", "id_base4"))
+    assert any(k in loaded_splits for k in ("extrap_len_base2", "extrap_len_base4"))
+    for split_dict in loaded_splits.values():
+        assert set(split_dict.keys()) == expected_split_metric_keys
     for split_name, prefix in (
         ("id", ""),
         ("ood_base3", "ood_base3_"),
@@ -157,7 +170,6 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
         ("permuted", "permuted_"),
     ):
         split_dict = loaded_splits[split_name]
-        assert set(split_dict.keys()) == expected_split_metric_keys
         assert split_dict["exact_match"] == loaded_eval[f"{prefix}exact_match"]
         assert split_dict["step_accuracy"] == loaded_eval[f"{prefix}step_accuracy"]
 
@@ -332,8 +344,6 @@ def test_dispatch_addition_ar_smoke_run_writes_artefacts(
             "4",
             "--d-ff",
             "32",
-            "--d-position",
-            "8",
             "--d-scratch",
             "0",
         ],
@@ -456,8 +466,6 @@ def test_dispatch_addition_addressed_ar_zero_preamble_smoke_run(
             "4",
             "--d-ff",
             "32",
-            "--d-position",
-            "8",
             "--d-scratch",
             "0",
         ],
@@ -531,22 +539,23 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
     )
     assert res_periodic == res_final
 
-    # Training steps and losses must be identical regardless of mid-training evaluations.
+    # Training steps, losses, and cumulative `tokens_seen` must be identical regardless of mid-training evaluations.
     periodic_train = [
-        (row["step"], row["loss"])
+        (row["step"], row["loss"], row["tokens_seen"])
         for row in (
             json.loads(line)
             for line in (periodic_dir / "train.jsonl").read_text().splitlines()
         )
     ]
     final_train = [
-        (row["step"], row["loss"])
+        (row["step"], row["loss"], row["tokens_seen"])
         for row in (
             json.loads(line)
             for line in (final_only_dir / "train.jsonl").read_text().splitlines()
         )
     ]
-    assert [step for step, _ in periodic_train] == [1, 2, 4, 5]
+    assert [step for step, _, _ in periodic_train] == [1, 2, 4, 5]
+    assert [toks for _, _, toks in periodic_train] == [6, 12, 24, 30]
     assert periodic_train == final_train
     assert json.loads((periodic_dir / "eval_splits.json").read_text()) == json.loads(
         (final_only_dir / "eval_splits.json").read_text()
@@ -569,10 +578,12 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
         assert isinstance(row["elapsed_sec"], float)
         for key in headline_keys:
             assert 0.0 <= row[key] <= 1.0
-        assert list(row["splits"].keys()) == ["id", "ood_base3", "extrap_len"]
+        assert {"id", "ood_base3", "extrap_len"}.issubset(row["splits"].keys())
+        assert any(k in row["splits"] for k in ("id_base2", "id_base4"))
+        assert any(k in row["splits"] for k in ("extrap_len_base2", "extrap_len_base4"))
         assert row["splits"]["id"]["exact_match"] == row["exact_match"]
         assert row["splits"]["ood_base3"]["exact_match"] == row["ood_base3_exact_match"]
-        assert len(row["splits"]["id"]) == 9
+        assert len(row["splits"]["id"]) == 11
 
     assert {k: eval_rows[-1][k] for k in headline_keys} == res_periodic
     assert eval_rows[-1]["splits"] == json.loads(

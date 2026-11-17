@@ -19,7 +19,7 @@ from yessir.training import build_optimizer, resolve_device, seed_everything, tr
 
 
 class EvaluateProblemsFn(Protocol):
-    """Callable contract for a variant's teacher-forced evaluator over an `AdditionProblem` stream."""
+    """Callable contract for a variant's rollout evaluator over an `AdditionProblem` stream."""
 
     def __call__(
         self,
@@ -28,6 +28,7 @@ class EvaluateProblemsFn(Protocol):
         *,
         num_problems: int,
         batch_size: int = 64,
+        per_base_metrics: dict[int, EvalMetrics] | None = None,
     ) -> EvalMetrics: ...
 
 
@@ -35,7 +36,7 @@ def write_eval_splits_json(
     out_dir: Path,
     eval_splits: dict[str, dict[str, float | None]],
 ) -> Path:
-    """Write the full 9-metric + 4-way error diagnostic breakdown per split to `out_dir / 'eval_splits.json'`."""
+    """Write the full `EvalMetrics` diagnostic breakdown per split to `out_dir / 'eval_splits.json'`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "eval_splits.json"
     path.write_text(
@@ -69,11 +70,12 @@ def train_and_evaluate(
     Writes three evaluation artefacts when `out_dir` is given:
     - `eval.jsonl`: one JSON record per evaluated checkpoint (including `max_steps`)
       with `step`, `elapsed_sec`, top-level headline pairs matching `eval.json`, and
-      a nested `"splits"` dict holding all 9 `EvalMetrics` fields per split.
+      a nested `"splits"` dict holding all 11 `EvalMetrics` fields per split (plus
+      `{split}_base{b}` per-base slices for multi-base splits).
     - `eval.json`: final-step compact headline pairs (`exact_match`, `step_accuracy`)
       per split for `web/` tables and charts.
-    - `eval_splits.json`: final-step full 9-field diagnostic `EvalMetrics` keyed by
-      split name.
+    - `eval_splits.json`: final-step full 11-field diagnostic `EvalMetrics` keyed by
+      split name (plus `{split}_base{b}` per-base slices for multi-base splits).
     """
     resolved_device = resolve_device(device)
     tag = f"[addition:{variant_name}]"
@@ -82,7 +84,7 @@ def train_and_evaluate(
     eval_every_str = str(interval) if interval is not None else "final"
     print(
         f"{tag} Starting run: bases={config.bases}, L={config.min_length}..{config.max_length}, "
-        f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
+        f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
         f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
         f"device={resolved_device} -> {dest}",
@@ -119,8 +121,12 @@ def train_and_evaluate(
     train_stream = iter(train_dataset)
     splits = config.eval_splits()
 
-    def _make_on_step(step_offset: int) -> Callable[[int, float], None]:
-        def _on_step(local_step: int, step_loss: float) -> None:
+    tokens_seen = 0
+
+    def _make_on_step(step_offset: int) -> Callable[[int, float, int], None]:
+        def _on_step(local_step: int, step_loss: float, step_tokens: int) -> None:
+            nonlocal tokens_seen
+            tokens_seen += step_tokens
             global_step = step_offset + local_step
             if (
                 global_step == 1
@@ -128,9 +134,13 @@ def train_and_evaluate(
                 or global_step == config.max_steps
             ):
                 if train_logger is not None:
-                    train_logger.log(global_step, {"loss": step_loss})
+                    train_logger.log(
+                        global_step,
+                        {"loss": step_loss, "tokens_seen": tokens_seen},
+                    )
                 print(
-                    f"{tag} step={global_step}/{config.max_steps} loss={step_loss:.4f}",
+                    f"{tag} step={global_step}/{config.max_steps} "
+                    f"loss={step_loss:.4f} tokens={tokens_seen}",
                     flush=True,
                 )
 
@@ -153,7 +163,7 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=effective_batch_size,
             optimizer=optimizer,
-            on_step=_make_on_step(completed_steps),
+            on_step_tokens=_make_on_step(completed_steps),
         )
         completed_steps += chunk_steps
 
@@ -171,15 +181,33 @@ def train_and_evaluate(
                 include_alphabet=include_alphabet,
                 seed=split.seed,
             )
-            metrics = evaluate_fn(
-                model,
-                problems,
-                num_problems=config.num_eval_problems,
-                batch_size=config.eval_batch_size,
+            per_base: dict[int, EvalMetrics] | None = (
+                {} if len(split.bases) > 1 else None
             )
+            if per_base is not None:
+                metrics = evaluate_fn(
+                    model,
+                    problems,
+                    num_problems=config.num_eval_problems,
+                    batch_size=config.eval_batch_size,
+                    per_base_metrics=per_base,
+                )
+            else:
+                metrics = evaluate_fn(
+                    model,
+                    problems,
+                    num_problems=config.num_eval_problems,
+                    batch_size=config.eval_batch_size,
+                )
             eval_results[f"{split.prefix}exact_match"] = metrics.exact_match
             eval_results[f"{split.prefix}step_accuracy"] = metrics.step_accuracy
             eval_splits_results[split.name] = metrics.to_dict()
+            if per_base is not None:
+                for b in split.bases:
+                    if b in per_base:
+                        eval_splits_results[f"{split.name}_base{b}"] = per_base[
+                            b
+                        ].to_dict()
 
             carry_str = (
                 f"{metrics.carry_accuracy:.2%}"

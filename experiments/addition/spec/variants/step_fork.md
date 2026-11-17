@@ -87,10 +87,11 @@ k = 1:  in ([S]):  [BOS] q # 7 [SEP] 7 # [SEP] # [SEP] # [SEP] q [S]  ->  out: 7
 
 ## 4. Evaluation Metrics (`evaluate_step_fork`)
 
-Given teacher-forced greedy predictions `(pred_o[k], pred_c[k], pred_flag[k])` from the `[S]`, `[C]`, and `[F]` query branches at each step `k` in `0 .. K` across all evaluated problems, `evaluate_step_fork` computes the five metrics and 4-way first-error taxonomy defined in [`task.md` §3](../task.md#3-evaluation-metrics-experimentsadditionevaluationpy):
+`evaluate_step_fork` runs batched free-running greedy rollout across all evaluated problems (starting at `carry = s_0` and `output = ()`, decoding the `[S]`, `[C]`, and `[F]` branches at each step until `FLAG_FINISHED` or `max(L_a, L_b) + 1`) and scores the emitted `(pred_o[k], pred_c[k], pred_flag[k])` trajectory against the `K + 1` reference columns defined in [`task.md` §3](../task.md#3-evaluation-metrics-experimentsadditionevaluationpy):
 
-- **`exact_match`** *(per problem)*: fraction of problems where every step `k` in `0 .. K` predicts `pred_o[k] == o_k`, `pred_c[k] == c_{k+1}`, and `pred_flag[k] == flag_k`.
-- **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
-- **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` column steps across all evaluated problems where `pred_o[k] == o_k`.
-- **`carry_accuracy`** *(per carry-active column step)*: fraction of column steps with `c_k != s_0` or `c_{k+1} != s_0` where both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
-- **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right column `K`—no premature halt (`pred_flag[k] == FLAG_CONTINUE` for every `k < K`) and halts on the final column (`pred_flag[K] == FLAG_FINISHED`).
+- **`exact_match`** *(per problem)*: fraction of problems where rollout halts at column `K` and every step `k` in `0 .. K` predicts `pred_o[k] == o_k`, `pred_c[k] == c_{k+1}`, and `pred_flag[k] == flag_k`.
+- **`step_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` reference columns across all evaluated problems reached during rollout with both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}` (columns missed after a premature halt score `0`).
+- **`oracle_step_accuracy`** *(per column step `k` in `0 .. K`, `eval_splits.json` diagnostic)*: single-step teacher-forced column accuracy when each step `k` receives the ground-truth `(c_k, o_0..o_{k-1})` prefix.
+- **`digit_accuracy`** *(per column step `k` in `0 .. K`, `K + 1` steps per problem)*: fraction of the `K + 1` reference columns reached during rollout with `pred_o[k] == o_k`.
+- **`carry_accuracy`** *(per carry-active column step)*: fraction of reference columns with `c_k != s_0` or `c_{k+1} != s_0` reached during rollout with both `pred_o[k] == o_k` and `pred_c[k] == c_{k+1}`.
+- **`halt_accuracy`** *(per problem)*: fraction of problems where rollout halts at the exact right column `K`—no premature halt (`pred_flag[k] == FLAG_CONTINUE` for every `k < K`) and halts on the final column (`pred_flag[K] == FLAG_FINISHED`).

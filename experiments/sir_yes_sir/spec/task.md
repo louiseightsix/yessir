@@ -2,9 +2,9 @@
 
 This experiment is a minimal rule-following task used to test and verify the shared `yessir` machinery end to end.
 
-It is implemented in two variants that share the task definition, input layout, and evaluation metrics below:
-- [`variants/ar.md`](variants/ar.md): autoregressive next-token prediction (`SubspaceLMHead`).
-- [`variants/cls.md`](variants/cls.md): parallel per-step classification (`ParallelClassificationHead`).
+It is implemented in two variants that share the task definition, prompt layout, and evaluation metrics below:
+- [`variants/ar.md`](variants/ar.md): pure language-model autoregressive next-token prediction (`SubspaceLMHead`, `input_ids` only—no side-channel `token_type_ids` or `position_ids`).
+- [`variants/cls.md`](variants/cls.md): step-harnessed parallel per-step classification (`ParallelClassificationHead`, supporting `token_type_pe`, `token_type_nope`, and `nope` embedding modes).
 
 ## 1. Task: In-Context Successor Lookup (`experiments/sir_yes_sir/reference.py`)
 
@@ -59,13 +59,11 @@ Output `position_ids` start at `1` (`o_0` at `1`, `o_{k-1}` at `k`) while the se
 
 See [`variants/ar.md`](variants/ar.md) and [`variants/cls.md`](variants/cls.md) for how each variant constructs training targets and runs greedy generation over this sequence.
 
-### Embedding modes (`EmbeddingMode`)
+### Embedding modes (`EmbeddingMode`, harnessed `cls` variant)
 
 In `SubspaceEmbedding`, token identities (`256`-d one-hot), `token_type_ids` (`16`-d one-hot), `position_ids` (parameter-free unit-norm sinusoidal positional encodings, `d_position`-d), and a zero-initialised scratchpad (`d_scratch`-d) occupy orthogonal slices of the residual stream.
 
-**Residual width (default: held constant)**: `d_model` is the same in every mode. `TOKEN_TYPE_PE` uses `d_model = 256 + 16 + d_position + d_scratch`; when a mode drops the token-type slice (`16`) or the position slice (`d_position`), `d_scratch` grows by the same width, so the modes differ only in what the embedding encodes, not in model capacity.
-
-All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SEP]` delimiters) so sequence length, attention distances, and the prompt-ending `[SEP]` that triggers `o_0` at `k = 0` are held constant across ablations:
+Because [`ar`](variants/ar.md) is a pure language-model variant where the generation loop only appends predicted tokens and checks for `[EOS]`, `ar` operates strictly on `input_ids` (`use_token_type=False, d_position=0, d_scratch=256 -> d_model=512`). In the step-harnessed [`cls`](variants/cls.md) variant, `SirYesSirClsConfig` exposes `EmbeddingMode` across three ablations:
 
 - **`TOKEN_TYPE_PE`**: attaches both `token_type_ids` and section-coupled sinusoidal `position_ids`.
 - **`TOKEN_TYPE_NOPE`**: attaches `token_type_ids` only (`position_ids=None`).
@@ -73,8 +71,14 @@ All three modes keep the exact same `input_ids` (including `[BOS]` and both `[SE
 
 ## 3. Evaluation Metrics (`experiments/sir_yes_sir/evaluation.py`)
 
-Evaluation over a set of problems (computed under teacher forcing) reports three metrics in `0.0..1.0` (`EvalMetrics`) with identical denominators across variants:
+Evaluation over a set of problems runs **free-running greedy rollout** (with `KVCache` acceleration, feeding the model's own predicted outputs forward and stopping per problem on `FLAG_FINISHED` in `cls` or `[EOS]` in `ar`) and reports three headline metrics in `0.0..1.0` (`eval.json` and `EvalMetrics`) alongside a wrap-around diagnostic (`wrap_around_accuracy` in `EvalMetrics` and `eval.jsonl`'s `splits.id`):
 
-- **`exact_match`** *(per problem)*: fraction of problems where every output symbol and halting prediction matches the ground truth. Because all variants use a causal attention mask and deterministic `argmax` decoding, teacher-forced inputs and free-running greedy generation feed the exact same prefix into the model up to the first error on a problem, so teacher-forced `exact_match` equals free-running greedy `exact_match`. This equality holds in exact arithmetic; under `bfloat16` autocast, differences in padding and batch shape can flip near-tied `argmax` decisions, so the two may differ slightly.
-- **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` steps across all evaluated problems where the predicted symbol matches `o_k`.
-- **`halt_accuracy`** *(per problem)*: fraction of problems where the model halts at the exact right step—no premature halt before `o_{L-1}`, and halts immediately after `o_{L-1}`. Scoring halting per problem rather than per step avoids class-imbalance inflation (where a model that never halts would otherwise score near `1 - 1 / L`).
+- **`exact_match`** *(per problem)*: fraction of problems where the model's unassisted greedy rollout matches every output symbol and halting decision (`(o_0, ..., o_{L-1}, EOS)` in `ar`; `((o_0, FLAG_CONTINUE), ..., (o_{L-1}, FLAG_FINISHED))` in `cls`).
+- **`step_accuracy`** *(per input step `k` in `0 .. L - 1`, `L` steps per problem)*: fraction of the `L` reference steps across all evaluated problems where step `k` was reached before halting and the predicted symbol matches `o_k`. Steps missed after a premature halt count as incorrect against the `L` denominator.
+- **`halt_accuracy`** *(per problem)*: fraction of problems where the rollout halts at the exact right step—no premature halt before `o_{L-1}`, and halts immediately after `o_{L-1}`. Scoring halting per problem rather than per step avoids class-imbalance inflation (where a model that never halts would otherwise score near `1 - 1 / L`).
+- **`wrap_around_accuracy`** *(per wrap-around input step `x_k == s_{B-1}`, diagnostic in `eval.jsonl` `splits.id`)*: fraction of reference steps with `x_k == s_{B-1}` (ground-truth successor `s_0`) reached before halting where the predicted symbol equals `s_0`, or `None` if no evaluated step had `x_k == s_{B-1}`.
+
+### Scope & split caveats
+
+- **Fixed-length `id` evaluation and constant halting**: each `sir_yes_sir` run trains and evaluates on a single fixed input length `x_length = L`. Consequently, halting is a constant function of output step count in both `ar` and `cls` (`halt_accuracy` reaches `100%` before symbol lookup converges), and zero-shot OOD length extrapolation (`extrap_len`), variable-length halting, and OOD permuted-alphabet transfer are instead evaluated in [`addition`](../../addition/spec/task.md).
+- **Small-universe train/eval overlap**: with the default 240-byte symbol pool (`resample_alphabet=True`, `B = 4`, `L = 3`), the problem space (`P(240, B) * B^L > 2 * 10^11`) makes accidental overlap between training and the `num_eval_problems = 200` `id` split negligible. Under restricted regimes—such as fixed canonical order (`resample_alphabet=False`, total universe `B^L`, e.g. `4^3 = 64` problems) or small `symbol_pool_size = B` (`B! * B^L`, e.g. `16` problems at `B = 2, L = 3`)—evaluation overlaps substantially with seen training instances.

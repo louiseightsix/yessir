@@ -36,7 +36,7 @@ def train_and_evaluate(
     eval_every_str = str(interval) if interval is not None else "final"
     print(
         f"{tag} Starting run: B={config.alphabet_size}, L={config.x_length}, "
-        f"mode={config.embedding_mode.value}, layers={config.n_layers}, heads={config.n_heads}, "
+        f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
         f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
         f"device={resolved_device} -> {dest}",
@@ -72,13 +72,21 @@ def train_and_evaluate(
     optimizer = build_optimizer(model, lr=config.lr)
     train_stream = iter(train_dataset)
 
-    def _make_on_step(step_offset: int) -> Callable[[int, float], None]:
-        def _on_step(local_step: int, step_loss: float) -> None:
+    tokens_seen = 0
+
+    def _make_on_step(step_offset: int) -> Callable[[int, float, int], None]:
+        def _on_step(local_step: int, step_loss: float, step_tokens: int) -> None:
+            nonlocal tokens_seen
+            tokens_seen += step_tokens
             global_step = step_offset + local_step
             if train_logger is not None:
-                train_logger.log(global_step, {"loss": step_loss})
+                train_logger.log(
+                    global_step,
+                    {"loss": step_loss, "tokens_seen": tokens_seen},
+                )
             print(
-                f"{tag} step={global_step}/{config.max_steps} loss={step_loss:.4f}",
+                f"{tag} step={global_step}/{config.max_steps} "
+                f"loss={step_loss:.4f} tokens={tokens_seen}",
                 flush=True,
             )
 
@@ -95,7 +103,7 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=config.batch_size,
             optimizer=optimizer,
-            on_step=_make_on_step(completed_steps),
+            on_step_tokens=_make_on_step(completed_steps),
         )
         completed_steps += chunk_steps
 
@@ -110,10 +118,14 @@ def train_and_evaluate(
             "step_accuracy": metrics.step_accuracy,
             "halt_accuracy": metrics.halt_accuracy,
         }
+        split_metrics: dict[str, float | None] = {
+            **eval_results,
+            "wrap_around_accuracy": metrics.wrap_around_accuracy,
+        }
         if eval_logger is not None:
             eval_logger.log(
                 completed_steps,
-                {**eval_results, "splits": {"id": dict(eval_results)}},
+                {**eval_results, "splits": {"id": split_metrics}},
             )
         print(
             f"{tag} eval ({config.num_eval_problems} problems): "

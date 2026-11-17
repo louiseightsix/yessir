@@ -22,11 +22,12 @@ def json_safe(metrics: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class MetricsLogger:
-    """Appends `NaN`-safe JSON Lines records (`train.jsonl`, `eval.jsonl`) during a training run."""
+    """Writes `NaN`-safe JSON Lines records (`train.jsonl`, `eval.jsonl`) during a training run."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.unlink(missing_ok=True)
         self._start_time = time.monotonic()
 
     def log(self, step: int, metrics: Mapping[str, Any]) -> dict[str, Any]:

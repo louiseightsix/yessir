@@ -8,6 +8,7 @@ import pytest
 
 from experiments.sir_yes_sir.config import (
     ClsSupervision,
+    SirYesSirArConfig,
     SirYesSirClsConfig,
     SirYesSirConfig,
     SymbolSetName,
@@ -17,22 +18,33 @@ from yessir.alphabet import SymbolSet
 
 
 def test_default_config_is_valid():
-    cfg = SirYesSirConfig()
-    assert cfg.alphabet_size == 4
-    assert cfg.x_length == 3
-    assert cfg.symbol_set == SymbolSetName.ALL
-    assert cfg.symbol_pool_size is None
-    assert cfg.symbol_pool == bytes(SymbolSet.ALL)
-    assert cfg.resample_alphabet is True
-    assert cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
-    assert cfg.use_token_type is True
-    assert cfg.fixed_d_model is True
-    assert cfg.effective_d_position == 32
-    assert cfg.effective_d_scratch == 208
-    assert cfg.d_model == 256 + 16 + 32 + 208 == 512
-    assert cfg.eval_every is None
-    assert cfg.effective_eval_every == 2_500
-    assert cfg.derived_summary() == "d_model=512, symbol_pool_size=240, eval_every=2500"
+    ar_cfg = SirYesSirArConfig()
+    assert ar_cfg.alphabet_size == 4
+    assert ar_cfg.x_length == 3
+    assert ar_cfg.symbol_set == SymbolSetName.ALL
+    assert ar_cfg.symbol_pool_size is None
+    assert ar_cfg.symbol_pool == bytes(SymbolSet.ALL)
+    assert ar_cfg.resample_alphabet is True
+    assert not hasattr(ar_cfg, "embedding_mode")
+    assert not hasattr(ar_cfg, "d_position")
+    assert not hasattr(ar_cfg, "fixed_d_model")
+    assert ar_cfg.use_token_type is False
+    assert ar_cfg.effective_d_position == 0
+    assert ar_cfg.effective_d_scratch == 256
+    assert ar_cfg.d_model == 256 + 256 == 512
+    assert ar_cfg.eval_every is None
+    assert ar_cfg.effective_eval_every == 2_500
+    assert (
+        ar_cfg.derived_summary() == "d_model=512, symbol_pool_size=240, eval_every=2500"
+    )
+
+    cls_cfg = SirYesSirClsConfig()
+    assert cls_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
+    assert cls_cfg.use_token_type is True
+    assert cls_cfg.fixed_d_model is True
+    assert cls_cfg.effective_d_position == 32
+    assert cls_cfg.effective_d_scratch == 208
+    assert cls_cfg.d_model == 256 + 16 + 32 + 208 == 512
     assert SirYesSirConfig(max_steps=100_000).effective_eval_every == 5_000
     assert SirYesSirConfig(max_steps=500_000).effective_eval_every == 25_000
     assert SirYesSirConfig(eval_every=200).effective_eval_every == 200
@@ -45,20 +57,20 @@ def test_default_config_is_valid():
 
 def test_embedding_mode_and_d_position_combinations():
     # Default fixed_d_model=True keeps d_model=512 across modes by growing effective_d_scratch.
-    cfg_tt_nope = SirYesSirConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE)
+    cfg_tt_nope = SirYesSirClsConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE)
     assert cfg_tt_nope.use_token_type is True
     assert cfg_tt_nope.effective_d_position == 0
     assert cfg_tt_nope.effective_d_scratch == 208 + 32 == 240
     assert cfg_tt_nope.d_model == 256 + 16 + 0 + 240 == 512
 
-    cfg_nope = SirYesSirConfig(embedding_mode=EmbeddingMode.NOPE)
+    cfg_nope = SirYesSirClsConfig(embedding_mode=EmbeddingMode.NOPE)
     assert cfg_nope.use_token_type is False
     assert cfg_nope.effective_d_position == 0
     assert cfg_nope.effective_d_scratch == 208 + 16 + 32 == 256
     assert cfg_nope.d_model == 256 + 0 + 0 + 256 == 512
 
     # With fixed_d_model=False, omitted slices shrink d_model instead of growing d_scratch.
-    cfg_tt_nope_shrink = SirYesSirConfig(
+    cfg_tt_nope_shrink = SirYesSirClsConfig(
         embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
         fixed_d_model=False,
     )
@@ -66,7 +78,7 @@ def test_embedding_mode_and_d_position_combinations():
     assert cfg_tt_nope_shrink.effective_d_scratch == 208
     assert cfg_tt_nope_shrink.d_model == 256 + 16 + 0 + 208 == 480
 
-    cfg_nope_shrink = SirYesSirConfig(
+    cfg_nope_shrink = SirYesSirClsConfig(
         embedding_mode=EmbeddingMode.NOPE,
         fixed_d_model=False,
     )
@@ -76,13 +88,13 @@ def test_embedding_mode_and_d_position_combinations():
 
     # TOKEN_TYPE_PE rejects d_position == 0.
     with pytest.raises(ValueError, match="d_position must be > 0"):
-        SirYesSirConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
+        SirYesSirClsConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
 
     # Odd or negative d_position is rejected.
     with pytest.raises(ValueError, match="non-negative even int"):
-        SirYesSirConfig(d_position=15)
+        SirYesSirClsConfig(d_position=15)
     with pytest.raises(ValueError, match="non-negative even int"):
-        SirYesSirConfig(d_position=-2)
+        SirYesSirClsConfig(d_position=-2)
 
 
 def test_symbol_pool_and_alphabet_size_validation():
@@ -129,8 +141,9 @@ def test_model_and_training_bounds():
         SirYesSirConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         SirYesSirConfig(batch_size=0)
-    with pytest.raises(ValueError, match="lr must be > 0"):
-        SirYesSirConfig(lr=0.0)
+    for bad_lr in (0.0, -1e-4, float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="lr must be > 0"):
+            SirYesSirConfig(lr=bad_lr)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
         SirYesSirConfig(eval_every=-1)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):

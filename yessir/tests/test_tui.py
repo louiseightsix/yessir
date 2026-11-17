@@ -3,7 +3,8 @@
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
-from experiments.sir_yes_sir.config import SirYesSirConfig
+from experiments.addition.config import AdditionClsConfig
+from experiments.sir_yes_sir.config import SirYesSirClsConfig
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.experiment import ExperimentConfig, ExperimentVariant
 from yessir.tui import ConfigEditorState, EditorOutcome
@@ -124,7 +125,7 @@ def test_inline_typing_commit_and_escape_cancel():
 
 
 def test_live_cross_parameter_validation_and_run_blocking():
-    state = ConfigEditorState(SirYesSirConfig, title="sir_yes_sir")
+    state = ConfigEditorState(SirYesSirClsConfig, title="sir_yes_sir")
     cfg, err = state.validate()
     assert cfg is not None and err is None
 
@@ -238,6 +239,7 @@ def test_duplicate_run_alert_and_confirmation():
 
 @dataclass(frozen=True, kw_only=True)
 class _VariantBConfig(_SmallConfig):
+    rate: float = 0.75
     extra_mode: str = "fast"
 
 
@@ -300,8 +302,10 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
         "flag",
         "extra_mode",
     ]
-    # Shared field `count` keeps its edited value 10, and `extra_mode` gets its default.
+    # Edited `count` keeps 10; untouched `rate` syncs to `_VariantBConfig`'s default (0.75);
+    # and `extra_mode` gets its default ("fast").
     assert state.values["count"] == 10
+    assert state.values["rate"] == 0.75
     assert state.values["extra_mode"] == "fast"
     assert state.matching_runs() == []
 
@@ -309,4 +313,29 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
     assert err is None
     assert isinstance(cfg, _VariantBConfig)
     assert cfg.count == 10
+    assert cfg.rate == 0.75
     assert cfg.extra_mode == "fast"
+
+
+def test_float_stepping_clamps_probabilities_to_zero_and_one_while_keeping_lr_positive():
+    state = ConfigEditorState(AdditionClsConfig, title="addition/cls")
+
+    for field_name in ("p_prior", "p_chain", "eval_p_chain", "p_terminal"):
+        idx = next(i for i, s in enumerate(state.specs) if s.name == field_name)
+        state.cursor = idx
+        state.handle_key("RIGHT")
+        assert state.values[field_name] > 0.0
+        for _ in range(25):
+            state.handle_key("LEFT")
+        assert state.values[field_name] == 0.0
+        for _ in range(25):
+            state.handle_key("RIGHT")
+        assert state.values[field_name] == 1.0
+
+    lr_idx = next(i for i, s in enumerate(state.specs) if s.name == "lr")
+    state.cursor = lr_idx
+    for _ in range(10):
+        state.handle_key("LEFT")
+    assert state.values["lr"] == 1e-4
+    cfg, err = state.validate()
+    assert cfg is not None and err is None

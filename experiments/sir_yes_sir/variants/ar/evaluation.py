@@ -1,24 +1,25 @@
-"""Teacher-forced evaluation (`evaluate_ar`) for the `ar` variant of `sir_yes_sir`."""
+"""Free-running rollout evaluation (`evaluate_ar`) for the `ar` variant of `sir_yes_sir`."""
 
 import itertools
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import torch
 
-from experiments.sir_yes_sir.evaluation import EvalMetrics
-from yessir.batch import collate_labelled
+from experiments.sir_yes_sir.evaluation import EvalMetrics, parse_prompt_prefix
+from yessir.batch import collate, collate_left_padded
 from yessir.dataset import IGNORE_INDEX, LabelledExample
+from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 
 
-def _validate_ar_item(item: LabelledExample) -> int:
-    """Validate an `ar` per-position `LabelledExample` and return its step count `L`."""
+def _validate_ar_item(item: LabelledExample) -> list[int]:
+    """Validate an `ar` per-position `LabelledExample` and return its `L + 1` target tokens."""
     if len(item.labels) != len(item.example):
         raise ValueError(
             f"expected per-position labels ({len(item.example)}), got {len(item.labels)}"
         )
-    target_tokens = [t for t in item.labels if t != IGNORE_INDEX]
+    target_tokens = [t for t in item.labels if isinstance(t, int) and t != IGNORE_INDEX]
     if len(target_tokens) < 2:
         raise ValueError(
             f"expected non-ignored AR target length >= 2 (L >= 1 symbols + EOS), got {len(target_tokens)}"
@@ -31,7 +32,91 @@ def _validate_ar_item(item: LabelledExample) -> int:
     for k, tok in enumerate(target_tokens[:-1]):
         if tok == SpecialToken.EOS:
             raise ValueError(f"unexpected EOS at non-final target step k={k}")
-    return len(target_tokens) - 1
+    return target_tokens
+
+
+def _slice_prefix_example(example: Example, prefix_len: int) -> Example:
+    """Slice `example` down to its `[BOS] alphabet [SEP] x [SEP]` pure `input_ids` prompt prefix."""
+    return Example(input_ids=example.input_ids[:prefix_len])
+
+
+def _extend_prefix_example(prefix: Example, emitted_symbols: Sequence[int]) -> Example:
+    """Append `emitted_symbols` directly to `prefix.input_ids`."""
+    if not emitted_symbols:
+        return prefix
+    return Example(input_ids=prefix.input_ids + tuple(emitted_symbols))
+
+
+@torch.no_grad()
+def _rollout_ar_chunk(
+    model: Transformer,
+    prefixes_chunk: Sequence[Example],
+    max_tokens_chunk: Sequence[int],
+    *,
+    device: torch.device,
+) -> list[list[int]]:
+    """Run batched pure-LM (`input_ids`-only) `ar` rollout on `prefixes_chunk` using `KVCache`."""
+    eos = int(SpecialToken.EOS)
+    pad = int(SpecialToken.PAD)
+    chunk_size = len(prefixes_chunk)
+    emitted: list[list[int]] = [[] for _ in range(chunk_size)]
+    done: list[bool] = [False] * chunk_size
+
+    if isinstance(model, Transformer):
+        prefill = collate_left_padded(prefixes_chunk).to(device)
+        kv_cache = model.init_kv_cache(
+            int(prefill.input_ids.size(1)) + max(max_tokens_chunk)
+        )
+        logits = model(
+            prefill.input_ids,
+            key_padding_mask=prefill.key_padding_mask,
+            kv_cache=kv_cache,
+        )
+        if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+            raise ValueError("evaluate_ar requires a Transformer with SubspaceLMHead")
+
+        next_tokens = logits[:, -1, :].argmax(dim=-1).tolist()
+        for b_idx, tok in enumerate(next_tokens):
+            emitted[b_idx].append(tok)
+            if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
+                done[b_idx] = True
+
+        while not all(done):
+            step_ids = torch.tensor(
+                [
+                    [pad if done[b_idx] else emitted[b_idx][-1]]
+                    for b_idx in range(chunk_size)
+                ],
+                dtype=torch.long,
+                device=device,
+            )
+            logits = model(step_ids, kv_cache=kv_cache)
+            assert isinstance(logits, torch.Tensor)
+            next_tokens = logits[:, -1, :].argmax(dim=-1).tolist()
+            for b_idx, tok in enumerate(next_tokens):
+                if not done[b_idx]:
+                    emitted[b_idx].append(tok)
+                    if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
+                        done[b_idx] = True
+        return emitted
+
+    while not all(done):
+        active = [b_idx for b_idx, is_done in enumerate(done) if not is_done]
+        step_examples = [
+            _extend_prefix_example(prefixes_chunk[b_idx], emitted[b_idx])
+            for b_idx in active
+        ]
+        batch = collate(step_examples).to(device)
+        logits = model(batch.input_ids, batch.lengths)
+        if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+            raise ValueError("evaluate_ar requires a Transformer with SubspaceLMHead")
+        row_indices = torch.arange(len(active), device=device)
+        next_tokens = logits[row_indices, batch.lengths - 1].argmax(dim=-1).tolist()
+        for b_idx, tok in zip(active, next_tokens, strict=True):
+            emitted[b_idx].append(tok)
+            if tok == eos or len(emitted[b_idx]) >= max_tokens_chunk[b_idx]:
+                done[b_idx] = True
+    return emitted
 
 
 @torch.no_grad()
@@ -42,29 +127,12 @@ def evaluate_ar(
     num_problems: int,
     batch_size: int = 64,
 ) -> EvalMetrics:
-    """Evaluate `model` on `num_problems` problems from an `ar` `dataset`.
+    """Evaluate `model` via batched KV-cached free-running rollout on `num_problems` `ar` problems.
 
-    Why teacher-forced next-token evaluation gives exact match (`exact_match`) for `ar`:
-    Under causal masking and right-padding invariance, free-running greedy generation
-    (`greedy_generate_ar`) feeds the exact same prefix into `model` as teacher forcing up to the
-    first token mismatch. Therefore `greedy_generate_ar` emits `(o_0, ..., o_{L-1}, EOS)` if and
-    only if every non-ignored position's greedy `argmax` matches `labels`.
-
-    Metrics (`experiments/sir_yes_sir/spec/variants/ar.md` §3):
-    - `exact_match` (per problem): every prediction in `o_0, ..., o_{L-1}, EOS` matches.
-    - `step_accuracy` (per input step `k` in `0 .. L - 1`): fraction of the `L` symbol
-      steps where `preds[k] == o_k`.
-    - `halt_accuracy` (per problem): fraction of problems that halt at the exact right
-      step (`preds[k] != EOS` for all `k < L` and `preds[L] == EOS`).
-
-    Args:
-        model: `Transformer` configured with `SubspaceLMHead`.
-        dataset: Stream of per-position `LabelledExample`s (one per problem).
-        num_problems: Number of problems to evaluate (`>= 1`).
-        batch_size: Maximum number of problems per forward pass (`>= 1`).
-
-    Returns:
-        `EvalMetrics` with `exact_match`, `step_accuracy`, and `halt_accuracy`.
+    Starting from each problem's `[BOS] alphabet [SEP] x [SEP]` prompt, generates up
+    to `L + 1` tokens autoregressively (`KVCache`-accelerated) and stops per problem
+    as soon as `SpecialToken.EOS` is emitted (`experiments/sir_yes_sir/spec/variants/ar.md` §2–§3),
+    matching `greedy_generate_ar`.
     """
     if num_problems < 1:
         raise ValueError(f"num_problems must be >= 1, got {num_problems}")
@@ -76,8 +144,21 @@ def evaluate_ar(
         raise ValueError(
             f"dataset exhausted early: needed {num_problems} problems, got {len(items)}"
         )
+
+    eos = int(SpecialToken.EOS)
+    targets_per_problem: list[list[int]] = []
+    prefixes: list[Example] = []
+    problems_ax: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
+    max_tokens_all: list[int] = []
     for item in items:
-        _validate_ar_item(item)
+        targets = _validate_ar_item(item)
+        n_steps = len(targets) - 1
+        prefix_len = len(item.example) - n_steps
+        prefix = _slice_prefix_example(item.example, prefix_len)
+        targets_per_problem.append(targets)
+        prefixes.append(prefix)
+        problems_ax.append(parse_prompt_prefix(prefix.input_ids))
+        max_tokens_all.append(len(targets))
 
     model.eval()
     device = model.device
@@ -85,42 +166,46 @@ def evaluate_ar(
     total_steps = 0
     step_ok_count = 0
     halt_ok_count = 0
+    wrap_steps = 0
+    wrap_ok_count = 0
 
-    for start in range(0, len(items), batch_size):
-        chunk = items[start : start + batch_size]
-        batch, labels = collate_labelled(chunk)
-        batch = batch.to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
+    for start in range(0, num_problems, batch_size):
+        emitted_chunk = _rollout_ar_chunk(
+            model,
+            prefixes[start : start + batch_size],
+            max_tokens_all[start : start + batch_size],
+            device=device,
         )
-        assert isinstance(logits, torch.Tensor)
-        batch_preds = logits.argmax(dim=-1).cpu()
+        targets_chunk = targets_per_problem[start : start + batch_size]
+        ax_chunk = problems_ax[start : start + batch_size]
 
-        for b in range(len(chunk)):
-            valid_mask = labels[b] != IGNORE_INDEX
-            preds = batch_preds[b][valid_mask].tolist()
-            targets = labels[b][valid_mask].tolist()
-
+        for emitted, targets, (alphabet, x) in zip(
+            emitted_chunk, targets_chunk, ax_chunk, strict=True
+        ):
             n_steps = len(targets) - 1
             total_steps += n_steps
-            for k in range(n_steps):
-                if preds[k] == targets[k]:
-                    step_ok_count += 1
-
-            halt_ok = (
-                all(preds[k] != SpecialToken.EOS for k in range(n_steps))
-                and preds[n_steps] == SpecialToken.EOS
+            last_sym = alphabet[-1]
+            symbol_preds = (
+                emitted[:-1] if (emitted and emitted[-1] == eos) else emitted[:n_steps]
             )
+            for k in range(n_steps):
+                is_wrap = x[k] == last_sym
+                if is_wrap:
+                    wrap_steps += 1
+                if k < len(symbol_preds) and symbol_preds[k] == targets[k]:
+                    step_ok_count += 1
+                    if is_wrap:
+                        wrap_ok_count += 1
+
+            halt_ok = (len(emitted) == n_steps + 1) and (emitted[-1] == eos)
             if halt_ok:
                 halt_ok_count += 1
-            if preds == targets:
+            if emitted == targets:
                 em_count += 1
 
     return EvalMetrics(
         exact_match=em_count / num_problems,
         step_accuracy=step_ok_count / total_steps,
         halt_accuracy=halt_ok_count / num_problems,
+        wrap_around_accuracy=(wrap_ok_count / wrap_steps if wrap_steps > 0 else None),
     )

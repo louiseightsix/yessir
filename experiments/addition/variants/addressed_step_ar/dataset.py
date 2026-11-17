@@ -41,7 +41,7 @@ class AdditionAddressedStepArDataset:
         step_order: StepOrder = StepOrder.SUM_FIRST,
         use_query_tokens: bool = False,
         include_alphabet: bool = True,
-        embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+        embedding_mode: EmbeddingMode = EmbeddingMode.NOPE,
         seed: int = 42,
     ) -> None:
         if not (0.0 <= p_terminal <= 1.0):
@@ -99,7 +99,7 @@ class AdditionAddressedStepArDataset:
 
 
 def _add_cli_args(parser: argparse.ArgumentParser) -> None:
-    add_common_dataset_args(parser)
+    add_common_dataset_args(parser, default_embedding_mode=EmbeddingMode.NOPE)
     parser.add_argument(
         "--p-terminal",
         type=float,

@@ -29,9 +29,11 @@ def test_perfect_predictions_score_100_percent_and_zero_errors():
     assert metrics == EvalMetrics(
         exact_match=1.0,
         step_accuracy=1.0,
+        oracle_step_accuracy=1.0,
         digit_accuracy=1.0,
         carry_accuracy=1.0,
         halt_accuracy=1.0,
+        address_accuracy=None,
         out_of_alphabet=0.0,
         prior_intrusion=0.0,
         procedural_error=0.0,
@@ -43,9 +45,11 @@ def test_perfect_predictions_score_100_percent_and_zero_errors():
     assert as_dict == {
         "exact_match": 1.0,
         "step_accuracy": 1.0,
+        "oracle_step_accuracy": 1.0,
         "digit_accuracy": 1.0,
         "carry_accuracy": 1.0,
         "halt_accuracy": 1.0,
+        "address_accuracy": None,
         "out_of_alphabet": 0.0,
         "prior_intrusion": 0.0,
         "procedural_error": 0.0,
@@ -297,15 +301,129 @@ def test_partition_of_unity_across_mixed_outcomes():
     assert metrics.syntax_malformation == pytest.approx(0.2)
 
 
-def test_score_predictions_rejects_empty_or_mismatched_inputs():
+def test_score_predictions_variable_length_rollout_and_oracle_diagnostic():
+    alphabet = SymbolSet.DECIMAL
+    # 987 ('789') + 25 ('52') = 1012 ('2101'): 4 carry-active reference columns (k = 0..3).
+    steps = reference_add(alphabet, b"789", b"52")
+
+    # 1. Premature halt after k = 0: missed columns k = 1..3 count as 0 against the K + 1 = 4 denominator.
+    truncated = (
+        StepPrediction(
+            sum_digit=steps[0].sum_digit,
+            carry_out=steps[0].carry_out,
+            halt_ok=False,
+            address_ok=True,
+        ),
+    )
+    m_trunc = score_predictions(
+        [(alphabet, steps, truncated)],
+        oracle_step_accuracy=0.75,
+        track_addresses=True,
+    )
+    assert m_trunc.exact_match == 0.0
+    assert m_trunc.step_accuracy == pytest.approx(0.25)
+    assert m_trunc.oracle_step_accuracy == pytest.approx(0.75)
+    assert m_trunc.digit_accuracy == pytest.approx(0.25)
+    assert m_trunc.carry_accuracy == pytest.approx(0.25)
+    assert m_trunc.address_accuracy == pytest.approx(0.25)
+    assert m_trunc.halt_accuracy == 0.0
+    assert m_trunc.syntax_malformation == 1.0
+
+    # 2. Overrun past K (`len(preds) == 5 > 4`): fails exact_match and halt_accuracy with SYNTAX_MALFORMATION.
+    overrun = (
+        *_perfect_preds(steps[:-1]),
+        StepPrediction(
+            sum_digit=steps[-1].sum_digit,
+            carry_out=steps[-1].carry_out,
+            halt_ok=False,
+        ),
+        StepPrediction(sum_digit=ord("0"), carry_out=ord("0"), halt_ok=True),
+    )
+    m_over = score_predictions([(alphabet, steps, overrun)])
+    assert m_over.exact_match == 0.0
+    assert m_over.step_accuracy == 1.0
+    assert m_over.halt_accuracy == 0.0
+    assert m_over.syntax_malformation == 1.0
+
+    # 3. Empty predictions (`()` when premature EOS occurs before column 0) -> SYNTAX_MALFORMATION.
+    m_empty = score_predictions([(alphabet, steps, ())], track_addresses=True)
+    assert m_empty.exact_match == 0.0
+    assert m_empty.step_accuracy == 0.0
+    assert m_empty.address_accuracy == 0.0
+    assert m_empty.halt_accuracy == 0.0
+    assert m_empty.syntax_malformation == 1.0
+
+    # 4. `syntax_ok=False` gates `digit_accuracy`, `step_accuracy`, and `carry_accuracy` (`E-1`).
+    bad_syntax = list(_perfect_preds(steps))
+    bad_syntax[0] = StepPrediction(
+        sum_digit=steps[0].sum_digit,
+        carry_out=steps[0].carry_out,
+        syntax_ok=False,
+        address_ok=False,
+    )
+    bad_syntax[1] = StepPrediction(
+        sum_digit=steps[1].sum_digit,
+        carry_out=steps[1].carry_out,
+        syntax_ok=False,
+        address_ok=True,  # e.g. valid address, bad query token
+    )
+    for k in (2, 3):
+        bad_syntax[k] = StepPrediction(
+            sum_digit=steps[k].sum_digit,
+            carry_out=steps[k].carry_out,
+            syntax_ok=True,
+            address_ok=True,
+        )
+    m_syn = score_predictions([(alphabet, steps, bad_syntax)], track_addresses=True)
+    assert m_syn.exact_match == 0.0
+    assert m_syn.digit_accuracy == pytest.approx(0.5)
+    assert m_syn.step_accuracy == pytest.approx(0.5)
+    assert m_syn.carry_accuracy == pytest.approx(0.5)
+    assert m_syn.address_accuracy == pytest.approx(0.75)
+    assert m_syn.syntax_malformation == 1.0
+
+
+def test_score_predictions_per_base_metrics_and_oracle_counts():
+    b2_alpha = b"ab"
+    b2_steps = reference_add(b2_alpha, b"b", b"b")  # 1 + 1 = 10_2 (2 steps)
+    b4_alpha = b"wxyz"
+    b4_steps = reference_add(b4_alpha, b"x", b"y")  # 1 + 2 = 3_4 (1 step)
+
+    b2_wrong = [
+        StepPrediction(sum_digit=ord("b"), carry_out=ord("a"), halt_ok=False),
+        StepPrediction(sum_digit=ord("b"), carry_out=ord("a"), halt_ok=True),
+    ]
+    b4_right = _perfect_preds(b4_steps)
+
+    per_base: dict[int, EvalMetrics] = {}
+    pooled = score_predictions(
+        [
+            (b2_alpha, b2_steps, b2_wrong),
+            (b4_alpha, b4_steps, b4_right),
+        ],
+        oracle_ok_per_problem=[1, 1],
+        per_base_metrics=per_base,
+    )
+    assert list(per_base.keys()) == [2, 4]
+    assert pooled.exact_match == pytest.approx(0.5)
+    assert pooled.step_accuracy == pytest.approx(2 / 3)  # 1 of 2 on B=2, 1 of 1 on B=4
+    assert pooled.oracle_step_accuracy == pytest.approx(2 / 3)
+
+    assert per_base[2].exact_match == 0.0
+    assert per_base[2].step_accuracy == pytest.approx(0.5)
+    assert per_base[2].oracle_step_accuracy == pytest.approx(0.5)
+    assert per_base[2].procedural_error == 1.0
+
+    assert per_base[4].exact_match == 1.0
+    assert per_base[4].step_accuracy == 1.0
+    assert per_base[4].oracle_step_accuracy == 1.0
+
+
+def test_score_predictions_rejects_empty_inputs():
     alphabet = b"01"
     steps = reference_add(alphabet, b"0", b"0")
     with pytest.raises(ValueError, match="at least 1 problem"):
         score_predictions([])
-    with pytest.raises(ValueError, match="must match steps length"):
-        score_predictions([(alphabet, steps, ())])
-    with pytest.raises(ValueError, match="must match steps length"):
-        classify_first_error(alphabet, steps, ())
     with pytest.raises(ValueError, match="at least 1 ColumnStep"):
         score_predictions([(alphabet, (), ())])
     with pytest.raises(ValueError, match="at least 1 ColumnStep"):

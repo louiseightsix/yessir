@@ -4,7 +4,6 @@ import argparse
 from collections.abc import Iterator, Sequence
 
 from experiments.sir_yes_sir.inputs import (
-    EmbeddingMode,
     add_common_dataset_args,
     iter_problems,
     resolve_symbol_pool,
@@ -17,7 +16,7 @@ from yessir.vocab import TokenSequence
 
 
 class SirYesSirArDataset:
-    """Infinite deterministic stream of autoregressive (`ar`) `LabelledExample`s for `sir_yes_sir`.
+    """Infinite deterministic stream of pure-LM (`input_ids`-only) `ar` `LabelledExample`s for `sir_yes_sir`.
 
     Each yielded `LabelledExample` is one complete problem `(alphabet, x)` with
     `(o_0, ..., o_{L-1})` appended to the prompt prefix and next-token `labels`
@@ -31,14 +30,12 @@ class SirYesSirArDataset:
         x_length: int = 3,
         symbols: TokenSequence = SymbolSet.ALL,
         resample_alphabet: bool = True,
-        embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
         self._symbol_pool = resolve_symbol_pool(alphabet_size, x_length, symbols)
         self._alphabet_size = alphabet_size
         self._x_length = x_length
         self._resample_alphabet = resample_alphabet
-        self._embedding_mode = EmbeddingMode(embedding_mode)
         self._seed = seed
 
     def __iter__(self) -> Iterator[LabelledExample]:
@@ -50,11 +47,11 @@ class SirYesSirArDataset:
             seed=self._seed,
             resample_alphabet=self._resample_alphabet,
         ):
-            yield build_ar_labelled_example(
-                alphabet,
-                x,
-                embedding_mode=self._embedding_mode,
-            )
+            yield build_ar_labelled_example(alphabet, x)
+
+
+def _add_cli_args(parser: argparse.ArgumentParser) -> None:
+    add_common_dataset_args(parser, include_embedding_mode=False)
 
 
 def _build_from_args(args: argparse.Namespace) -> SirYesSirArDataset:
@@ -62,7 +59,6 @@ def _build_from_args(args: argparse.Namespace) -> SirYesSirArDataset:
         alphabet_size=args.alphabet_size,
         x_length=args.x_length,
         resample_alphabet=args.resample_alphabet,
-        embedding_mode=args.embedding_mode,
         seed=args.seed,
     )
 
@@ -71,7 +67,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Generate, print, or dump `sir_yes_sir` (`ar`) training examples."""
     run_inspect_cli(
         description="Generate, print, or dump sir_yes_sir (ar) training examples.",
-        add_dataset_args=add_common_dataset_args,
+        add_dataset_args=_add_cli_args,
         build_dataset=_build_from_args,
         argv=argv,
     )

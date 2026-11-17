@@ -1,6 +1,7 @@
 """Minimal training utilities (`resolve_device`, `seed_everything`, `build_optimizer`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
 
 import itertools
+import math
 import os
 import random
 from collections.abc import Callable, Iterable, Sequence
@@ -84,8 +85,8 @@ def build_optimizer(
     lr: float = DEFAULT_LR,
 ) -> torch.optim.AdamW:
     """Create an AdamW optimiser with `betas=(0.9, 0.95)`, `eps=1e-8` (GPT-3), and `weight_decay=0.0`."""
-    if lr <= 0:
-        raise ValueError(f"lr must be > 0, got {lr}")
+    if not math.isfinite(lr) or lr <= 0:
+        raise ValueError(f"lr must be > 0 and finite, got {lr}")
     return torch.optim.AdamW(
         model.parameters(),
         lr=lr,
@@ -99,12 +100,14 @@ def parallel_classification_cross_entropy(
     logits: Sequence[torch.Tensor],
     labels: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute the sum of cross-entropy losses across `ParallelClassificationHead` outputs.
+    """Compute the mean cross-entropy loss per head (`nats / target`) across `ParallelClassificationHead` outputs.
 
     When a `ParallelClassificationHead` predicts `H` conditionally independent labels
-    `(y_0, ..., y_{H-1})` from a hidden state `h`, the joint log-probability is
-    `sum_h log P(y_h | h)`. Minimising the negative joint log-likelihood is therefore
-    the unweighted sum of each head's cross-entropy loss.
+    `(y_0, ..., y_{H-1})` from a hidden state `h`, the negative joint log-likelihood is
+    `sum_h CE_h`. Dividing by `H = len(logits)` normalises the scalar loss into mean
+    cross-entropy per supervised target (`nats / target`), matching
+    `next_token_cross_entropy` across variants while rescaling gradients by the
+    constant factor `1 / H`.
 
     Supports both single-step classification (`logits[h]` of shape `(B, num_classes_h)`,
     `labels` of shape `(B, H)`) and per-position classification
@@ -118,7 +121,7 @@ def parallel_classification_cross_entropy(
             indices in `0..num_classes_h - 1` or `IGNORE_INDEX`.
 
     Returns:
-        Scalar loss tensor (sum across heads of mean cross-entropy over non-ignored positions).
+        Scalar loss tensor (mean across the `H` heads of mean cross-entropy over non-ignored positions).
     """
     if not logits:
         raise ValueError("logits must contain at least one head")
@@ -145,7 +148,7 @@ def parallel_classification_cross_entropy(
             labels[..., h].reshape(-1),
             ignore_index=IGNORE_INDEX,
         )
-    return total_loss
+    return total_loss / num_targets
 
 
 def next_token_cross_entropy(
@@ -197,28 +200,12 @@ def pack_classification_labels(items: Sequence[LabelledExample]) -> torch.Tensor
     return torch.tensor([item.labels for item in items], dtype=torch.long)
 
 
-def train_step(
+def _train_step_with_tokens(
     model: Transformer,
     optimizer: torch.optim.Optimizer,
     items: Sequence[LabelledExample],
-) -> float:
-    """Run one fp32 forward/backward/optimiser step on a batch of `LabelledExample`s.
-
-    Moves the collated `Batch` and `labels` onto `model.device` and dispatches on
-    `model.head`:
-    - `SubspaceLMHead`: collates per-position labels with `collate_labelled`
-      and computes `next_token_cross_entropy`.
-    - `ParallelClassificationHead` (per-position, when `items[0].labels[0]` is a
-      per-position tuple): collates with `collate_labelled`, projects all positions
-      (`lengths=None`), and computes `parallel_classification_cross_entropy`.
-    - `ParallelClassificationHead` (single-step, when `items[0].labels` is a 1D tuple
-      of per-head targets): collates with `collate`, packs labels with
-      `pack_classification_labels`, projects at `lengths - 1`, and computes
-      `parallel_classification_cross_entropy`.
-
-    Returns:
-        The scalar loss value (`float`) for this step before the parameter update.
-    """
+) -> tuple[float, int]:
+    """Run one fp32 optimiser step and return `(step_loss, supervised_target_count)`."""
     if not items:
         raise ValueError("items must not be empty")
 
@@ -262,9 +249,36 @@ def train_step(
         assert isinstance(logits, tuple)
         loss = parallel_classification_cross_entropy(logits, labels)
 
+    supervised_targets = int((labels != IGNORE_INDEX).sum().item())
     loss.backward()
     optimizer.step()
-    return loss.item()
+    return loss.item(), supervised_targets
+
+
+def train_step(
+    model: Transformer,
+    optimizer: torch.optim.Optimizer,
+    items: Sequence[LabelledExample],
+) -> float:
+    """Run one fp32 forward/backward/optimiser step on a batch of `LabelledExample`s.
+
+    Moves the collated `Batch` and `labels` onto `model.device` and dispatches on
+    `model.head`:
+    - `SubspaceLMHead`: collates per-position labels with `collate_labelled`
+      and computes `next_token_cross_entropy`.
+    - `ParallelClassificationHead` (per-position, when `items[0].labels[0]` is a
+      per-position tuple): collates with `collate_labelled`, projects all positions
+      (`lengths=None`), and computes `parallel_classification_cross_entropy`.
+    - `ParallelClassificationHead` (single-step, when `items[0].labels` is a 1D tuple
+      of per-head targets): collates with `collate`, packs labels with
+      `pack_classification_labels`, projects at `lengths - 1`, and computes
+      `parallel_classification_cross_entropy`.
+
+    Returns:
+        The scalar loss value (`float`, in `nats / target`) before the parameter update.
+    """
+    loss_val, _ = _train_step_with_tokens(model, optimizer, items)
+    return loss_val
 
 
 def train(
@@ -276,13 +290,14 @@ def train(
     lr: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
     on_step: Callable[[int, float], None] | None = None,
+    on_step_tokens: Callable[[int, float, int], None] | None = None,
 ) -> list[float]:
     """Train `model` on batches drawn from `dataset` for `max_steps` optimisation steps.
 
     Pass a persistent iterator `stream = iter(dataset)` and an existing `optimizer`
     to resume training across multiple `train(...)` calls (e.g. between evaluations)
     without restarting the data stream or resetting Adam state. Cannot specify both
-    `lr` and `optimizer`.
+    `lr` and `optimizer`, nor both `on_step` and `on_step_tokens`.
 
     Returns:
         List of per-step scalar training losses of length `max_steps`.
@@ -293,6 +308,8 @@ def train(
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
     if optimizer is not None and lr is not None:
         raise ValueError("cannot specify both lr and optimizer")
+    if on_step is not None and on_step_tokens is not None:
+        raise ValueError("cannot specify both on_step and on_step_tokens")
 
     if optimizer is None:
         optimizer = build_optimizer(model, lr=DEFAULT_LR if lr is None else lr)
@@ -305,8 +322,10 @@ def train(
             raise ValueError(
                 f"dataset exhausted early: needed {batch_size} examples, got {len(items)}"
             )
-        step_loss = train_step(model, optimizer, items)
+        step_loss, step_tokens = _train_step_with_tokens(model, optimizer, items)
         losses.append(step_loss)
         if on_step is not None:
             on_step(step_idx, step_loss)
+        elif on_step_tokens is not None:
+            on_step_tokens(step_idx, step_loss, step_tokens)
     return losses

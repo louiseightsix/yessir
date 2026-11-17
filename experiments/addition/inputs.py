@@ -463,7 +463,7 @@ def iter_problems(
     permuted_canonical: bool = False,
     p_chain: float = 0.25,
     include_alphabet: bool = True,
-    seed: int = 42,
+    seed: int | str = 42,
 ) -> Iterator[AdditionProblem]:
     """Validate parameters eagerly and return an infinite deterministic stream of `AdditionProblem`s."""
     bases_tuple, symbol_pool = validate_sampling_params(
@@ -507,13 +507,23 @@ def iter_problem_steps(
     include_alphabet: bool = True,
     p_terminal: float = 0.2,
     all_steps: bool = False,
-    seed: int = 42,
+    seed: int | str = 42,
 ) -> Iterator[tuple[AdditionProblem, tuple[ColumnStep, ...], int]]:
     """Yield `(problem, steps, k)` items for step-by-step harnessed variants.
 
     Step-index selection uses a separate PRNG stream (`f"{seed}:step"`) decoupled
     from `iter_problems(seed=seed)`, so changing `p_terminal` or `all_steps`
     keeps the underlying sequence of generated `AdditionProblem`s identical.
+
+    Note on mini-batch diversity (`spec/task.md` §1): when `all_steps=False`
+    (default), each yielded item comes from a fresh independent `AdditionProblem`
+    (`batch_size` distinct alphabets/operand pairs per optimiser step). When
+    `all_steps=True`, all `K + 1` column steps of each problem are yielded
+    consecutively (`k = 0 .. K`), so at fixed `batch_size` each optimiser step
+    sees only `~batch_size / E[K + 1]` distinct problems (`~4.5` on `L = 1..20`
+    at `batch_size = 64`), correlates consecutive batch rows on the same prompt
+    prefix, and ignores `p_terminal` (`FLAG_FINISHED` appears once per `K + 1`
+    steps).
     """
     if not (0.0 <= p_terminal <= 1.0):
         raise ValueError(f"p_terminal must be in 0.0..1.0, got {p_terminal}")
@@ -549,7 +559,12 @@ def iter_problem_steps(
     return _stream()
 
 
-def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
+def add_common_dataset_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_embedding_mode: bool = True,
+    default_embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+) -> None:
     """Attach shared `addition` dataset inspection CLI flags to `parser`."""
     parser.add_argument(
         "--bases",
@@ -588,13 +603,14 @@ def add_common_dataset_args(parser: argparse.ArgumentParser) -> None:
         default=0.25,
         help="Probability of injecting a multi-column carry chain (default: 0.25)",
     )
-    parser.add_argument(
-        "--embedding-mode",
-        type=EmbeddingMode,
-        choices=tuple(EmbeddingMode),
-        default=EmbeddingMode.TOKEN_TYPE_PE,
-        help="Embedding mode for token_type_ids and position_ids (default: token_type_pe)",
-    )
+    if include_embedding_mode:
+        parser.add_argument(
+            "--embedding-mode",
+            type=EmbeddingMode,
+            choices=tuple(EmbeddingMode),
+            default=default_embedding_mode,
+            help=f"Embedding mode for token_type_ids and position_ids (default: {default_embedding_mode.value})",
+        )
     parser.add_argument(
         "--seed",
         type=int,

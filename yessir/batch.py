@@ -1,4 +1,4 @@
-"""Batched model inputs (`Batch`) and right-padding collation (`collate`, `collate_labelled`)."""
+"""Batched model inputs (`Batch`, `LeftPaddedBatch`) and padding collation (`collate`, `collate_left_padded`, `collate_labelled`)."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -54,6 +54,86 @@ def _pad_sequences(
     for i, row in enumerate(rows):
         out[i, : len(row)] = torch.tensor(row, dtype=torch.long)
     return out
+
+
+def _left_pad_sequences(
+    rows: Sequence[Sequence[int]], pad_value: int, max_len: int
+) -> torch.Tensor:
+    out = torch.full((len(rows), max_len), pad_value, dtype=torch.long)
+    for i, row in enumerate(rows):
+        out[i, max_len - len(row) :] = torch.tensor(row, dtype=torch.long)
+    return out
+
+
+@dataclass(frozen=True)
+class LeftPaddedBatch:
+    """A left-padded batch of `Example`s aligned at their final token (`index -1`).
+
+    Used to prefill `KVCache` for batched autoregressive decoding: every example's
+    final prompt token sits at column `max_seq_len - 1`, while leading `PAD` slots
+    (`0 .. max_seq_len - length - 1`) are masked out via `key_padding_mask`
+    (`True` = real token, `False` = leading `PAD`).
+    """
+
+    input_ids: torch.Tensor
+    key_padding_mask: torch.Tensor
+    lengths: torch.Tensor
+    token_type_ids: torch.Tensor | None = None
+    position_ids: torch.Tensor | None = None
+
+    def to(self, device: torch.device | str) -> "LeftPaddedBatch":
+        """Return a `LeftPaddedBatch` with all present tensors on `device`."""
+        return LeftPaddedBatch(
+            input_ids=self.input_ids.to(device),
+            key_padding_mask=self.key_padding_mask.to(device),
+            lengths=self.lengths.to(device),
+            token_type_ids=(
+                self.token_type_ids.to(device)
+                if self.token_type_ids is not None
+                else None
+            ),
+            position_ids=(
+                self.position_ids.to(device) if self.position_ids is not None else None
+            ),
+        )
+
+
+def collate_left_padded(examples: Sequence[Example]) -> LeftPaddedBatch:
+    """Left-pad a non-empty sequence of `Example`s into a `LeftPaddedBatch`."""
+    if not examples:
+        raise ValueError("cannot collate an empty sequence of Example")
+
+    lengths = [len(ex) for ex in examples]
+    max_len = max(lengths)
+
+    type_rows = [ex.token_type_ids for ex in examples if ex.token_type_ids is not None]
+    if type_rows and len(type_rows) != len(examples):
+        raise ValueError(
+            "all examples in a batch must either provide token_type_ids or omit them"
+        )
+
+    pos_rows = [ex.position_ids for ex in examples if ex.position_ids is not None]
+    if pos_rows and len(pos_rows) != len(examples):
+        raise ValueError(
+            "all examples in a batch must either provide position_ids or omit them"
+        )
+
+    lengths_tensor = torch.tensor(lengths, dtype=torch.long)
+    col_indices = torch.arange(max_len, dtype=torch.long).unsqueeze(0)
+    pad_counts = (max_len - lengths_tensor).unsqueeze(1)
+    key_padding_mask = col_indices >= pad_counts
+
+    return LeftPaddedBatch(
+        input_ids=_left_pad_sequences(
+            [ex.input_ids for ex in examples], SpecialToken.PAD, max_len
+        ),
+        key_padding_mask=key_padding_mask,
+        lengths=lengths_tensor,
+        token_type_ids=(
+            _left_pad_sequences(type_rows, 0, max_len) if type_rows else None
+        ),
+        position_ids=_left_pad_sequences(pos_rows, 0, max_len) if pos_rows else None,
+    )
 
 
 def collate(examples: Sequence[Example]) -> Batch:

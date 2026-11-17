@@ -1,5 +1,6 @@
 """Configuration schemas, evaluation-split specs, and cross-parameter validation for `addition`."""
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
@@ -51,7 +52,7 @@ class EvalSplit:
     p_prior: float
     permuted_canonical: bool
     p_chain: float
-    seed: int
+    seed: int | str
 
 
 def parse_bases_csv(raw: str, *, field_name: str) -> tuple[int, ...]:
@@ -103,23 +104,19 @@ class AdditionConfig(ExperimentConfig):
         default=None, metadata={"domain": "int in 2..len(symbol_set) or None"}
     )
     p_prior: float = field(
-        default=0.0, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.0,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     p_chain: float = field(
-        default=0.25, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.25,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
 
-    # Model architecture
+    # Model architecture (`ar` / `addressed_ar` pure-LM base; `AdditionStepConfig` adds harness embedding slices)
     n_layers: int = field(default=6, metadata={"domain": "int >= 1"})
     n_heads: int = field(default=8, metadata={"domain": "int >= 1 (divides d_model)"})
     d_ff: int = field(default=1376, metadata={"domain": "int >= 1", "step": 32})
-    d_position: int = field(
-        default=32,
-        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
-    )
-    d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
-    fixed_d_model: bool = True
+    d_scratch: int = field(default=256, metadata={"domain": "int >= 0", "step": 16})
 
     # Training & logging
     max_steps: int = field(
@@ -147,7 +144,8 @@ class AdditionConfig(ExperimentConfig):
     eval_batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
     eval_seed: int = field(default=999, metadata={"domain": "int (!= seed)"})
     eval_p_chain: float = field(
-        default=0.25, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.25,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     eval_ood_bases: str | None = field(
         default="3,12", metadata={"domain": "comma-separated ints >= 2 or None"}
@@ -159,7 +157,6 @@ class AdditionConfig(ExperimentConfig):
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbol_set", SymbolSetName(self.symbol_set))
-        object.__setattr__(self, "embedding_mode", EmbeddingMode(self.embedding_mode))
 
         train_bases = parse_bases_csv(self.bases, field_name="bases")
         object.__setattr__(self, "bases", ",".join(str(b) for b in train_bases))
@@ -241,14 +238,6 @@ class AdditionConfig(ExperimentConfig):
                 f"eval_p_chain must be in 0.0..1.0, got {self.eval_p_chain}"
             )
 
-        if self.d_position < 0 or self.d_position % 2 != 0:
-            raise ValueError(
-                f"d_position must be a non-negative even int, got {self.d_position}"
-            )
-        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
-            raise ValueError(
-                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
-            )
         if self.d_scratch < 0:
             raise ValueError(f"d_scratch must be >= 0, got {self.d_scratch}")
         if self.n_layers <= 0:
@@ -266,8 +255,8 @@ class AdditionConfig(ExperimentConfig):
             raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
-        if self.lr <= 0:
-            raise ValueError(f"lr must be > 0, got {self.lr}")
+        if not math.isfinite(self.lr) or self.lr <= 0:
+            raise ValueError(f"lr must be > 0 and finite, got {self.lr}")
         if self.log_every < 1:
             raise ValueError(f"log_every must be >= 1, got {self.log_every}")
         if self.eval_every is not None and (
@@ -319,25 +308,22 @@ class AdditionConfig(ExperimentConfig):
     @property
     def use_token_type(self) -> bool:
         """Whether `SubspaceEmbedding` includes the 16-d `token_type_ids` slice."""
-        return self.embedding_mode != EmbeddingMode.NOPE
+        return False
 
     @property
     def effective_d_position(self) -> int:
-        """Position-slice width passed to `SubspaceEmbedding` (`0` when `position_ids` are omitted)."""
-        return (
-            self.d_position if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
-        )
+        """Position-slice width passed to `SubspaceEmbedding` (`0` for pure-LM `ar` / `addressed_ar`)."""
+        return 0
 
     @property
     def effective_d_scratch(self) -> int:
-        """Scratch-slice width passed to `SubspaceEmbedding` (`spec/task.md` §2)."""
-        if not self.fixed_d_model:
-            return self.d_scratch
-        dropped_token_type = 0 if self.use_token_type else MAX_TOKEN_TYPES
-        dropped_position = (
-            0 if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else self.d_position
-        )
-        return self.d_scratch + dropped_token_type + dropped_position
+        """Scratch-slice width passed to `SubspaceEmbedding`."""
+        return self.d_scratch
+
+    @property
+    def embedding_mode_label(self) -> str:
+        """Human-readable embedding mode name for run startup logs."""
+        return EmbeddingMode.NOPE.value
 
     @property
     def d_model(self) -> int:
@@ -350,10 +336,9 @@ class AdditionConfig(ExperimentConfig):
             + self.effective_d_scratch
         )
 
-    def _split_seed(self, offset: int) -> int:
-        """Derive a deterministic split seed from `eval_seed` that never collides with `seed`."""
-        candidate = self.eval_seed + offset
-        return candidate + 1 if candidate == self.seed else candidate
+    def _split_seed(self, split_name: str) -> str:
+        """Derive a domain-separated split seed invariant across integer training `seed` sweeps."""
+        return f"{self.eval_seed}:eval:{split_name}"
 
     def eval_splits(self) -> tuple[EvalSplit, ...]:
         """Build the ordered sequence of evaluation splits (`id` first, followed by enabled OOD splits)."""
@@ -368,21 +353,22 @@ class AdditionConfig(ExperimentConfig):
                 p_prior=self.p_prior,
                 permuted_canonical=False,
                 p_chain=self.eval_p_chain,
-                seed=self._split_seed(0),
+                seed=self._split_seed("id"),
             )
         ]
         for b in self.parsed_eval_ood_bases:
+            split_name = f"ood_base{b}"
             splits.append(
                 EvalSplit(
-                    name=f"ood_base{b}",
-                    prefix=f"ood_base{b}_",
+                    name=split_name,
+                    prefix=f"{split_name}_",
                     bases=(b,),
                     min_length=self.min_length,
                     max_length=self.max_length,
                     p_prior=0.0,
                     permuted_canonical=False,
                     p_chain=self.eval_p_chain,
-                    seed=self._split_seed(1000 + b),
+                    seed=self._split_seed(split_name),
                 )
             )
         if self.eval_extrap_max_length is not None:
@@ -396,21 +382,25 @@ class AdditionConfig(ExperimentConfig):
                     p_prior=self.p_prior,
                     permuted_canonical=False,
                     p_chain=self.eval_p_chain,
-                    seed=self._split_seed(2000),
+                    seed=self._split_seed("extrap_len"),
                 )
             )
         if self.eval_permuted_canonical:
+            # Exclude B = 2 whenever any B >= 3 training base is available: in
+            # binary, 1 / (B - 1) == 1.0 makes every in-alphabet value error
+            # unconditionally count as `prior_intrusion` (`spec/task.md` §3).
+            permuted_bases = tuple(b for b in train_bases if b >= 3) or train_bases
             splits.append(
                 EvalSplit(
                     name="permuted",
                     prefix="permuted_",
-                    bases=train_bases,
+                    bases=permuted_bases,
                     min_length=self.min_length,
                     max_length=self.max_length,
                     p_prior=0.0,
                     permuted_canonical=True,
                     p_chain=self.eval_p_chain,
-                    seed=self._split_seed(3000),
+                    seed=self._split_seed("permuted"),
                 )
             )
         return tuple(splits)
@@ -438,17 +428,63 @@ class AdditionConfig(ExperimentConfig):
 
 @dataclass(frozen=True, kw_only=True)
 class AdditionStepConfig(AdditionConfig):
-    """Shared base config for harnessed step-by-step `addition` variants (`p_terminal`, `all_steps`)."""
+    """Shared base config for harnessed step-by-step `addition` variants.
 
+    Adds harness-supplied `embedding_mode`, `d_position`, `fixed_d_model` (keeping
+    `d_model = 256 + 16 + d_position + d_scratch = 512` across modes by default),
+    and step-sampling controls (`p_terminal`, `all_steps`).
+    """
+
+    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
+    d_position: int = field(
+        default=32,
+        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
+    )
+    d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
+    fixed_d_model: bool = True
     p_terminal: float = field(
-        default=0.2, metadata={"domain": "float in 0.0..1.0", "step": 0.05}
+        default=0.2,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
     )
     all_steps: bool = False
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "embedding_mode", EmbeddingMode(self.embedding_mode))
+        if self.d_position < 0 or self.d_position % 2 != 0:
+            raise ValueError(
+                f"d_position must be a non-negative even int, got {self.d_position}"
+            )
+        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
+            raise ValueError(
+                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
+            )
         super().__post_init__()
         if not (0.0 <= self.p_terminal <= 1.0):
             raise ValueError(f"p_terminal must be in 0.0..1.0, got {self.p_terminal}")
+
+    @property
+    def use_token_type(self) -> bool:
+        return self.embedding_mode != EmbeddingMode.NOPE
+
+    @property
+    def effective_d_position(self) -> int:
+        return (
+            self.d_position if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+        )
+
+    @property
+    def effective_d_scratch(self) -> int:
+        if not self.fixed_d_model:
+            return self.d_scratch
+        dropped_token_type = 0 if self.use_token_type else MAX_TOKEN_TYPES
+        dropped_position = (
+            0 if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else self.d_position
+        )
+        return self.d_scratch + dropped_token_type + dropped_position
+
+    @property
+    def embedding_mode_label(self) -> str:
+        return self.embedding_mode.value
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -475,7 +511,7 @@ class AdditionStepArConfig(AdditionStepConfig):
 
 @dataclass(frozen=True, kw_only=True)
 class AdditionArConfig(AdditionConfig):
-    """Configuration schema for the full-trace `ar` variant of `addition`."""
+    """Configuration schema for the pure-LM full-trace `ar` variant of `addition` (`input_ids` only)."""
 
     step_order: StepOrder = StepOrder.SUM_FIRST
     use_query_tokens: bool = False
@@ -507,8 +543,15 @@ def _validate_zero_preamble_lengths(
 
 @dataclass(frozen=True, kw_only=True)
 class AdditionAddressedStepArConfig(AdditionStepArConfig):
-    """Configuration schema for the `addressed_step_ar` variant of `addition`."""
+    """Configuration schema for the `addressed_step_ar` variant of `addition`.
 
+    Defaults `embedding_mode` to `EmbeddingMode.NOPE` so explicit `[IDX] addr(j)`
+    base-`B` addresses are not confounded with sinusoidal `position_ids` out of the
+    box, while still allowing `--embedding-mode token_type_pe` / `token_type_nope`
+    for step-harness ablations.
+    """
+
+    embedding_mode: EmbeddingMode = EmbeddingMode.NOPE
     include_alphabet: bool = True
 
     def __post_init__(self) -> None:
@@ -518,7 +561,7 @@ class AdditionAddressedStepArConfig(AdditionStepArConfig):
 
 @dataclass(frozen=True, kw_only=True)
 class AdditionAddressedArConfig(AdditionArConfig):
-    """Configuration schema for the full-trace `addressed_ar` variant of `addition`."""
+    """Configuration schema for the pure-LM full-trace `addressed_ar` variant of `addition` (`input_ids` only)."""
 
     include_alphabet: bool = True
 

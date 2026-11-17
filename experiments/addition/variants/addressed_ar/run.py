@@ -34,7 +34,6 @@ def run_addition_addressed_ar(
         step_order=config.step_order,
         use_query_tokens=config.use_query_tokens,
         include_alphabet=config.include_alphabet,
-        embedding_mode=config.embedding_mode,
         seed=config.seed,
     )
     evaluate_fn = partial(
@@ -42,7 +41,6 @@ def run_addition_addressed_ar(
         step_order=config.step_order,
         use_query_tokens=config.use_query_tokens,
         include_alphabet=config.include_alphabet,
-        embedding_mode=config.embedding_mode,
     )
     return train_and_evaluate(
         variant_name="addressed_ar",

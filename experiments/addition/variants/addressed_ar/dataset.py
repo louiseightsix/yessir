@@ -4,7 +4,6 @@ import argparse
 from collections.abc import Iterator, Sequence
 
 from experiments.addition.inputs import (
-    EmbeddingMode,
     StepOrder,
     add_common_dataset_args,
     iter_problems,
@@ -20,7 +19,7 @@ from yessir.vocab import TokenSequence
 
 
 class AdditionAddressedArDataset:
-    """Infinite deterministic stream of full-trace `addressed_ar` `LabelledExample`s.
+    """Infinite deterministic stream of pure-LM (`input_ids`-only) full-trace `addressed_ar` `LabelledExample`s.
 
     Each yielded `LabelledExample` represents one complete addition problem
     `(alphabet, a, b)` with pre-shifted next-token labels across all base-`B`
@@ -41,7 +40,6 @@ class AdditionAddressedArDataset:
         step_order: StepOrder = StepOrder.SUM_FIRST,
         use_query_tokens: bool = False,
         include_alphabet: bool = True,
-        embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
         seed: int = 42,
     ) -> None:
         bases_tuple, symbol_pool = validate_sampling_params(
@@ -64,7 +62,6 @@ class AdditionAddressedArDataset:
         self._step_order = StepOrder(step_order)
         self._use_query_tokens = use_query_tokens
         self._include_alphabet = include_alphabet
-        self._embedding_mode = EmbeddingMode(embedding_mode)
         self._seed = seed
 
     def __iter__(self) -> Iterator[LabelledExample]:
@@ -86,12 +83,11 @@ class AdditionAddressedArDataset:
                 step_order=self._step_order,
                 use_query_tokens=self._use_query_tokens,
                 include_alphabet=self._include_alphabet,
-                embedding_mode=self._embedding_mode,
             )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser) -> None:
-    add_common_dataset_args(parser)
+    add_common_dataset_args(parser, include_embedding_mode=False)
     parser.add_argument(
         "--step-order",
         type=StepOrder,
@@ -124,7 +120,6 @@ def _build_from_args(args: argparse.Namespace) -> AdditionAddressedArDataset:
         step_order=args.step_order,
         use_query_tokens=args.use_query_tokens,
         include_alphabet=args.include_alphabet,
-        embedding_mode=args.embedding_mode,
         seed=args.seed,
     )
 

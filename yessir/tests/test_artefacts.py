@@ -104,6 +104,7 @@ def test_config_and_eval_writers(tmp_path: Path):
         config=cfg,
         device="mps",
         git_info=fake_git,
+        started_at="2026-11-12T13:36:00Z",
     )
     assert cfg_path == run_dir / "config.json"
     cfg_payload = json.loads(cfg_path.read_text())
@@ -111,6 +112,7 @@ def test_config_and_eval_writers(tmp_path: Path):
         "experiment": "sir_yes_sir",
         "variant": "cls",
         "device": "mps",
+        "started_at": "2026-11-12T13:36:00Z",
         "git_commit_sha": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         "git_short_sha": "953e4d9",
         "git_commit_date": "2026-11-12",

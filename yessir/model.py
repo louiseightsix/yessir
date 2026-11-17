@@ -6,7 +6,12 @@ from collections.abc import Sequence
 import torch
 from torch import nn
 
-from yessir.blocks import RMSNorm, TransformerBlock
+from yessir.blocks import (
+    KVCache,
+    RMSNorm,
+    TransformerBlock,
+    build_causal_attention_mask,
+)
 from yessir.embedding import SubspaceEmbedding
 from yessir.heads import HeadType, ParallelClassificationHead, SubspaceLMHead
 
@@ -112,21 +117,59 @@ class Transformer(nn.Module):
             layer.attn.out_proj.weight.mul_(residual_scale)
             layer.ffn.down_proj.weight.mul_(residual_scale)
 
+    def init_kv_cache(self, max_seq_len: int) -> KVCache:
+        """Create an empty `KVCache` sized for `len(self.layers)` blocks up to `max_seq_len` tokens."""
+        return KVCache(n_layers=len(self.layers), max_seq_len=max_seq_len)
+
     def forward(
         self,
         input_ids: torch.Tensor,
         lengths: torch.Tensor | None = None,
         token_type_ids: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
+        *,
+        key_padding_mask: torch.Tensor | None = None,
+        kv_cache: KVCache | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, ...]:
-        """Run embedding, transformer blocks, and output head on a padded batch."""
+        """Run embedding, transformer blocks, and output head on a batch (optionally cached)."""
+        if kv_cache is not None:
+            if torch.is_grad_enabled():
+                raise RuntimeError(
+                    "KVCache is inference-only; wrap cached forward calls in torch.no_grad()"
+                )
+            attn_mask = kv_cache.prepare_step(
+                int(input_ids.size(0)),
+                int(input_ids.size(1)),
+                device=input_ids.device,
+                key_padding_mask=key_padding_mask,
+            )
+        elif key_padding_mask is not None:
+            if (
+                key_padding_mask.shape != input_ids.shape
+                or key_padding_mask.dtype != torch.bool
+            ):
+                raise ValueError(
+                    f"key_padding_mask must be a bool tensor matching input_ids shape {tuple(input_ids.shape)}"
+                )
+            attn_mask = build_causal_attention_mask(key_padding_mask, start_pos=0)
+        else:
+            attn_mask = None
+
         x = self.embedding(
             input_ids,
             token_type_ids=token_type_ids,
             position_ids=position_ids,
         )
-        for layer in self.layers:
-            x = layer(x)
+        for layer_idx, layer in enumerate(self.layers):
+            assert isinstance(layer, TransformerBlock)
+            x = layer(
+                x,
+                attn_mask=attn_mask,
+                kv_cache=kv_cache,
+                layer_idx=layer_idx,
+            )
+        if kv_cache is not None:
+            kv_cache.commit()
         if isinstance(self.head, SubspaceLMHead):
             return self.head(x)
         return self.head(x, lengths)

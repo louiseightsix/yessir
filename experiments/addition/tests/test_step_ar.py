@@ -1,7 +1,7 @@
 """Tests for the `step_ar` variant (`inputs`, `dataset`, `evaluation`, `generation`)."""
 
 import itertools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -80,22 +80,21 @@ class _ScriptedRolloutStepArModel:
         return logits
 
 
-class _ScriptedEvalStepArModel:
-    """Fake `SubspaceLMHead` model placing scripted `(t_0, t_1, flag_k)` at the 3 supervised positions."""
+class _PrefixLookupLMModel:
+    """Causal `SubspaceLMHead` fake mapping unpadded prefixes `input_ids[:pos+1]` to next token."""
 
     def __init__(
         self,
-        scripted_triples: Sequence[tuple[Token, Token, Token]],
+        table: Mapping[tuple[int, ...], Token],
         *,
-        use_query_tokens: bool,
+        default: Token = int(SpecialToken.FLAG_FINISHED),
     ) -> None:
-        self._triples = list(scripted_triples)
-        self._use_query_tokens = use_query_tokens
-        self._cursor = 0
+        self._table = dict(table)
+        self._default = default
         self.training = True
         self.device = torch.device("cpu")
 
-    def eval(self) -> "_ScriptedEvalStepArModel":
+    def eval(self) -> "_PrefixLookupLMModel":
         self.training = False
         return self
 
@@ -109,17 +108,14 @@ class _ScriptedEvalStepArModel:
         assert lengths is not None
         batch_size, seq_len = input_ids.shape
         logits = torch.zeros(batch_size, seq_len, VOCAB_SIZE)
-        offsets = (-5, -3, -1) if self._use_query_tokens else (-3, -2, -1)
-
         for b in range(batch_size):
             n = int(lengths[b].item())
-            # Poison every position with PAD first so reading wrong offsets or padded tails fails.
             logits[b, :, int(SpecialToken.PAD)] = 50.0
-            t_0, t_1, flag_k = self._triples[self._cursor]
-            self._cursor += 1
-            for offset, tok in zip(offsets, (t_0, t_1, flag_k), strict=True):
-                logits[b, n + offset, int(SpecialToken.PAD)] = 0.0
-                logits[b, n + offset, tok] = 100.0
+            row = tuple(input_ids[b, :n].tolist())
+            for pos in range(n):
+                tok = self._table.get(row[: pos + 1], self._default)
+                logits[b, pos, int(SpecialToken.PAD)] = 0.0
+                logits[b, pos, tok] = 100.0
         return logits
 
 
@@ -419,52 +415,103 @@ def test_rollout_step_ar_unpacks_step_order_and_inserts_query_tokens():
 
 @pytest.mark.parametrize("step_order", list(StepOrder))
 @pytest.mark.parametrize("use_query_tokens", [False, True])
-def test_evaluate_step_ar_all_modes_and_batch_size_invariance(
+def test_evaluate_step_ar_all_modes_rollout_cascade_and_batch_size_invariance(
     step_order: StepOrder, use_query_tokens: bool
 ):
-    problems = list(
-        itertools.islice(
-            iter_problems(
-                bases=(2, 10), min_length=1, max_length=4, p_prior=1.0, seed=5
-            ),
-            2,
-        )
-    )
-    s0 = reference_add(problems[0].alphabet, problems[0].a, problems[0].b)
-    s1 = reference_add(problems[1].alphabet, problems[1].a, problems[1].b)
+    from experiments.addition.inputs import AdditionProblem
 
-    p0_triples = [
-        (*pack_step_order(st.sum_digit, st.carry_out, step_order), int(st.flag))
-        for st in s0
-    ]
-    wrong_digit = (
-        problems[1].alphabet[0]
-        if s1[0].sum_digit != problems[1].alphabet[0]
-        else problems[1].alphabet[1]
+    prob0 = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"101"), b=tuple(b"010"))
+    prob1 = AdditionProblem(
+        alphabet=tuple(b"0123456789"), a=tuple(b"99"), b=tuple(b"1")
     )
-    p1_triples = [
-        (*pack_step_order(wrong_digit, s1[0].carry_out, step_order), int(s1[0].flag)),
-        *[
-            (*pack_step_order(st.sum_digit, st.carry_out, step_order), int(st.flag))
-            for st in s1[1:]
-        ],
-    ]
+    s0 = reference_add(prob0.alphabet, prob0.a, prob0.b)
+    s1 = reference_add(prob1.alphabet, prob1.a, prob1.b)
+
+    def _register_step(
+        table: dict[tuple[int, ...], int],
+        prob: AdditionProblem,
+        carry_in: int,
+        out_prefix: tuple[int, ...],
+        t0: int,
+        t1: int,
+        flag_tok: int,
+    ) -> None:
+        for partial, nxt in (
+            ((), t0),
+            ((t0,), t1),
+            ((t0, t1), flag_tok),
+        ):
+            ex = build_step_ar_example(
+                prob.alphabet,
+                prob.a,
+                prob.b,
+                carry_in,
+                out_prefix,
+                partial,
+                step_order=step_order,
+                use_query_tokens=use_query_tokens,
+            )
+            table[ex.input_ids] = nxt
+
+    table: dict[tuple[int, ...], int] = {}
+    out0 = tuple(st.sum_digit for st in s0)
+    for k, st in enumerate(s0):
+        t0, t1 = pack_step_order(st.sum_digit, st.carry_out, step_order)
+        _register_step(table, prob0, st.carry_in, out0[:k], t0, t1, int(st.flag))
+
+    out1 = tuple(st.sum_digit for st in s1)
+    for k, st in enumerate(s1):
+        t0, t1 = pack_step_order(st.sum_digit, st.carry_out, step_order)
+        _register_step(table, prob1, st.carry_in, out1[:k], t0, t1, int(st.flag))
+
+    # Override k=0 of prob1 to drop carry_out ('0' instead of '1').
+    # Under CARRY_FIRST, also verify E-2: if oracle c_1='1' were injected, o_0 would be '0',
+    # whereas conditioning on the model's own wrong c_1='0' emits wrong o_0='9'!
+    if step_order == StepOrder.CARRY_FIRST:
+        _register_step(
+            table,
+            prob1,
+            ord("0"),
+            (),
+            ord("0"),
+            ord("9"),
+            int(SpecialToken.FLAG_CONTINUE),
+        )
+        rollout_o0 = ord("9")
+    else:
+        _register_step(
+            table,
+            prob1,
+            ord("0"),
+            (),
+            ord("0"),
+            ord("0"),
+            int(SpecialToken.FLAG_CONTINUE),
+        )
+        rollout_o0 = ord("0")
+
+    t0_r1, t1_r1 = pack_step_order(ord("9"), ord("0"), step_order)
+    _register_step(
+        table,
+        prob1,
+        ord("0"),
+        (rollout_o0,),
+        t0_r1,
+        t1_r1,
+        int(SpecialToken.FLAG_FINISHED),
+    )
 
     m_b1 = evaluate_step_ar(
-        _ScriptedEvalStepArModel(
-            p0_triples + p1_triples, use_query_tokens=use_query_tokens
-        ),  # ty: ignore[invalid-argument-type]
-        problems,
+        _PrefixLookupLMModel(table),  # ty: ignore[invalid-argument-type]
+        [prob0, prob1],
         num_problems=2,
         batch_size=1,
         step_order=step_order,
         use_query_tokens=use_query_tokens,
     )
     m_b5 = evaluate_step_ar(
-        _ScriptedEvalStepArModel(
-            p0_triples + p1_triples, use_query_tokens=use_query_tokens
-        ),  # ty: ignore[invalid-argument-type]
-        problems,
+        _PrefixLookupLMModel(table),  # ty: ignore[invalid-argument-type]
+        [prob0, prob1],
         num_problems=2,
         batch_size=5,
         step_order=step_order,
@@ -472,10 +519,12 @@ def test_evaluate_step_ar_all_modes_and_batch_size_invariance(
     )
     assert m_b1 == m_b5
     assert m_b1.exact_match == pytest.approx(0.5)
-    assert m_b1.halt_accuracy == pytest.approx(1.0)
+    assert m_b1.halt_accuracy == pytest.approx(0.5)
     total_steps = len(s0) + len(s1)
-    assert m_b1.step_accuracy == pytest.approx((total_steps - 1) / total_steps)
-    assert m_b1.digit_accuracy == pytest.approx((total_steps - 1) / total_steps)
+    assert m_b1.step_accuracy == pytest.approx(len(s0) / total_steps)
+    assert m_b1.oracle_step_accuracy == pytest.approx((total_steps - 1) / total_steps)
+    expected_digits = len(s0) + (0 if step_order == StepOrder.CARRY_FIRST else 1)
+    assert m_b1.digit_accuracy == pytest.approx(expected_digits / total_steps)
 
 
 def test_evaluate_and_rollout_step_ar_with_real_transformer_and_validation():

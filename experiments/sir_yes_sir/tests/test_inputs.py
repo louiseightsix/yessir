@@ -138,9 +138,8 @@ def test_build_ar_labelled_example_layout():
     assert len(labelled.example) == prefix_len + len(x)
     assert len(labelled.labels) == len(labelled.example)
     assert labelled.example.input_ids[prefix_len:] == expected_output
-    assert labelled.example.position_ids is not None
-    # Query at second [SEP] is position_id 0; o_0, o_1, o_2 sit at position_ids 1, 2, 3
-    assert labelled.example.position_ids[prefix_len - 1 :] == (0, 1, 2, 3)
+    assert labelled.example.token_type_ids is None
+    assert labelled.example.position_ids is None
     # Prefix before the second [SEP] is masked with IGNORE_INDEX; from second [SEP] onward predicts (o_0..o_{L-1}, EOS)
     assert labelled.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
     assert labelled.labels[prefix_len - 1 :] == expected_targets

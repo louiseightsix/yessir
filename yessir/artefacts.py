@@ -1,5 +1,6 @@
 """Run directory naming (`generate_run_name`, `default_run_dir`), git provenance (`GitInfo`), JSON artefact writers/readers (`write_config_json`, `read_config_dict`, `write_eval_json`, `load_existing_run_configs`), and study definitions (`StudyStatus`, `StudyKind`, `StudyRun`, `Study`, `write_study_json`, `read_study_json`, `load_studies`)."""
 
+import datetime
 import json
 import random
 import re
@@ -113,14 +114,26 @@ def write_config_json(
     config: ExperimentConfig,
     device: str,
     git_info: GitInfo | None = None,
+    started_at: str | None = None,
 ) -> Path:
-    """Write experiment/variant names, device, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`."""
+    """Write experiment/variant names, device, start time, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`.
+
+    `started_at` is when the run started, as UTC ISO 8601 (`2026-11-17T15:55:13.123456Z`, the same
+    format as `submitted_at` in `vertex.json`); it defaults to now. Together with `elapsed_sec` in
+    `train.jsonl` it gives the wall-clock time of a run's last progress. File modification times
+    can't do that, because a git checkout resets them.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     info = git_info if git_info is not None else get_git_info()
+    if started_at is None:
+        started_at = (
+            datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+        )
     payload: dict[str, Any] = {
         "experiment": experiment_name,
         "variant": variant_name,
         "device": device,
+        "started_at": started_at,
         "git_commit_sha": info.commit_sha,
         "git_short_sha": info.short_sha,
         "git_commit_date": info.commit_date,

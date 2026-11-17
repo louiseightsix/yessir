@@ -1,9 +1,15 @@
-"""Tests for `Batch` and `collate`."""
+"""Tests for `Batch`, `LeftPaddedBatch`, `collate`, `collate_left_padded`, and `collate_labelled`."""
 
 import pytest
 import torch
 
-from yessir.batch import Batch, collate, collate_labelled
+from yessir.batch import (
+    Batch,
+    LeftPaddedBatch,
+    collate,
+    collate_labelled,
+    collate_left_padded,
+)
 from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
@@ -178,3 +184,81 @@ def test_batch_to_moves_present_tensors_and_preserves_none():
     assert moved_minimal.lengths.device.type == "meta"
     assert moved_minimal.token_type_ids is None
     assert moved_minimal.position_ids is None
+
+
+def test_collate_left_padded_aligns_final_tokens_and_builds_key_mask():
+    ex1 = Example(
+        input_ids=(SpecialToken.BOS, 10),
+        token_type_ids=(0, 3),
+        position_ids=(0, 0),
+    )
+    ex2 = Example(
+        input_ids=(SpecialToken.BOS, 10, 11, 12),
+        token_type_ids=(0, 1, 2, 3),
+        position_ids=(0, 0, 1, 0),
+    )
+
+    batch = collate_left_padded([ex1, ex2])
+    assert isinstance(batch, LeftPaddedBatch)
+    pad = int(SpecialToken.PAD)
+    assert torch.equal(
+        batch.input_ids,
+        torch.tensor(
+            [
+                [pad, pad, SpecialToken.BOS, 10],
+                [SpecialToken.BOS, 10, 11, 12],
+            ],
+            dtype=torch.long,
+        ),
+    )
+    assert torch.equal(
+        batch.key_padding_mask,
+        torch.tensor(
+            [
+                [False, False, True, True],
+                [True, True, True, True],
+            ],
+            dtype=torch.bool,
+        ),
+    )
+    assert torch.equal(batch.lengths, torch.tensor([2, 4], dtype=torch.long))
+    assert batch.token_type_ids is not None
+    assert torch.equal(
+        batch.token_type_ids,
+        torch.tensor([[0, 0, 0, 3], [0, 1, 2, 3]], dtype=torch.long),
+    )
+    assert batch.position_ids is not None
+    assert torch.equal(
+        batch.position_ids,
+        torch.tensor([[0, 0, 0, 0], [0, 0, 1, 0]], dtype=torch.long),
+    )
+
+    moved = batch.to("meta")
+    assert moved.input_ids.device.type == "meta"
+    assert moved.key_padding_mask.device.type == "meta"
+    assert moved.lengths.device.type == "meta"
+    assert (
+        moved.token_type_ids is not None and moved.token_type_ids.device.type == "meta"
+    )
+    assert moved.position_ids is not None and moved.position_ids.device.type == "meta"
+
+    minimal = collate_left_padded([Example(input_ids=(1, 2))])
+    assert minimal.token_type_ids is None
+    assert minimal.position_ids is None
+    moved_min = minimal.to("meta")
+    assert moved_min.token_type_ids is None
+    assert moved_min.position_ids is None
+
+    with pytest.raises(ValueError, match="cannot collate an empty sequence"):
+        collate_left_padded([])
+    with pytest.raises(ValueError, match="token_type_ids"):
+        collate_left_padded(
+            [
+                Example(input_ids=(1, 2), token_type_ids=(0, 1)),
+                Example(input_ids=(1, 2)),
+            ]
+        )
+    with pytest.raises(ValueError, match="position_ids"):
+        collate_left_padded(
+            [Example(input_ids=(1, 2), position_ids=(0, 1)), Example(input_ids=(1, 2))]
+        )

@@ -50,12 +50,13 @@ def test_default_configs_and_derived_properties():
     assert cfg.symbol_set == SymbolSetName.ALL
     assert cfg.symbol_pool_size is None
     assert cfg.symbol_pool == bytes(SymbolSet.ALL)
-    assert cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
-    assert cfg.use_token_type is True
-    assert cfg.fixed_d_model is True
-    assert cfg.effective_d_position == 32
-    assert cfg.effective_d_scratch == 208
-    assert cfg.d_model == 256 + 16 + 32 + 208 == 512
+    assert not hasattr(cfg, "embedding_mode")
+    assert not hasattr(cfg, "d_position")
+    assert not hasattr(cfg, "fixed_d_model")
+    assert cfg.use_token_type is False
+    assert cfg.effective_d_position == 0
+    assert cfg.effective_d_scratch == 256
+    assert cfg.d_model == 256 + 256 == 512
     assert cfg.log_every == 100
     assert cfg.eval_every is None
     assert cfg.effective_eval_every == 5_000
@@ -74,26 +75,42 @@ def test_default_configs_and_derived_properties():
 
     cls_cfg = AdditionClsConfig()
     assert isinstance(cls_cfg, AdditionStepConfig)
+    assert cls_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
+    assert cls_cfg.use_token_type is True
+    assert cls_cfg.fixed_d_model is True
+    assert cls_cfg.effective_d_position == 32
+    assert cls_cfg.effective_d_scratch == 208
+    assert cls_cfg.d_model == 512
     assert cls_cfg.p_terminal == 0.2
     assert cls_cfg.all_steps is False
 
     fork_cfg = AdditionStepForkConfig()
     assert isinstance(fork_cfg, AdditionStepConfig)
+    assert fork_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
     assert fork_cfg.p_terminal == 0.2
     assert fork_cfg.all_steps is False
 
     step_ar_cfg = AdditionStepArConfig()
     assert isinstance(step_ar_cfg, AdditionStepConfig)
+    assert step_ar_cfg.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE
     assert step_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert step_ar_cfg.use_query_tokens is False
 
     ar_cfg = AdditionArConfig()
     assert not isinstance(ar_cfg, AdditionStepConfig)
+    assert not hasattr(ar_cfg, "embedding_mode")
+    assert ar_cfg.d_scratch == 256
+    assert ar_cfg.d_model == 512
     assert ar_cfg.step_order == StepOrder.SUM_FIRST
     assert ar_cfg.use_query_tokens is False
 
     addr_step_ar_cfg = AdditionAddressedStepArConfig()
     assert isinstance(addr_step_ar_cfg, AdditionStepArConfig)
+    assert addr_step_ar_cfg.embedding_mode == EmbeddingMode.NOPE
+    assert addr_step_ar_cfg.use_token_type is False
+    assert addr_step_ar_cfg.effective_d_position == 0
+    assert addr_step_ar_cfg.effective_d_scratch == 256
+    assert addr_step_ar_cfg.d_model == 512
     assert addr_step_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert addr_step_ar_cfg.use_query_tokens is False
     assert addr_step_ar_cfg.include_alphabet is True
@@ -101,25 +118,28 @@ def test_default_configs_and_derived_properties():
     addr_ar_cfg = AdditionAddressedArConfig()
     assert isinstance(addr_ar_cfg, AdditionArConfig)
     assert not isinstance(addr_ar_cfg, AdditionStepConfig)
+    assert not hasattr(addr_ar_cfg, "embedding_mode")
+    assert addr_ar_cfg.d_scratch == 256
+    assert addr_ar_cfg.d_model == 512
     assert addr_ar_cfg.step_order == StepOrder.SUM_FIRST
     assert addr_ar_cfg.use_query_tokens is False
     assert addr_ar_cfg.include_alphabet is True
 
 
 def test_embedding_mode_and_fixed_d_model_combinations():
-    cfg_tt_nope = AdditionConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE)
+    cfg_tt_nope = AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE)
     assert cfg_tt_nope.use_token_type is True
     assert cfg_tt_nope.effective_d_position == 0
     assert cfg_tt_nope.effective_d_scratch == 208 + 32 == 240
     assert cfg_tt_nope.d_model == 512
 
-    cfg_nope = AdditionConfig(embedding_mode=EmbeddingMode.NOPE)
+    cfg_nope = AdditionStepConfig(embedding_mode=EmbeddingMode.NOPE)
     assert cfg_nope.use_token_type is False
     assert cfg_nope.effective_d_position == 0
     assert cfg_nope.effective_d_scratch == 208 + 16 + 32 == 256
     assert cfg_nope.d_model == 512
 
-    cfg_tt_nope_shrink = AdditionConfig(
+    cfg_tt_nope_shrink = AdditionStepConfig(
         embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
         fixed_d_model=False,
     )
@@ -127,7 +147,7 @@ def test_embedding_mode_and_fixed_d_model_combinations():
     assert cfg_tt_nope_shrink.effective_d_scratch == 208
     assert cfg_tt_nope_shrink.d_model == 480
 
-    cfg_nope_shrink = AdditionConfig(
+    cfg_nope_shrink = AdditionStepConfig(
         embedding_mode=EmbeddingMode.NOPE,
         fixed_d_model=False,
     )
@@ -136,7 +156,7 @@ def test_embedding_mode_and_fixed_d_model_combinations():
     assert cfg_nope_shrink.d_model == 464
 
 
-def test_eval_splits_construction_and_seed_non_collision():
+def test_eval_splits_construction_and_seed_sweep_invariance():
     # OOD bases already present in `bases` are automatically skipped; blank string disables OOD bases.
     cfg = AdditionConfig(
         bases="2, 3, 10",
@@ -150,20 +170,16 @@ def test_eval_splits_construction_and_seed_non_collision():
         seed=1999,
         eval_seed=999,
     )
-    # Note: seed=1999 collides with eval_seed + 1000? For b=12, 999 + 1012 = 2011;
-    # let's also explicitly check collision avoidance when seed == eval_seed + 2000.
-    cfg_collide = AdditionConfig(
+    cfg_blank_ood = AdditionConfig(
         bases="2,10",
         eval_ood_bases="",
         eval_extrap_max_length=30,
         seed=2999,
         eval_seed=999,
     )
-    assert cfg_collide.eval_ood_bases is None
-    assert cfg_collide.parsed_eval_ood_bases == ()
-    collide_splits = cfg_collide.eval_splits()
-    assert [s.name for s in collide_splits] == ["id", "extrap_len"]
-    assert collide_splits[1].seed == 3000 != cfg_collide.seed
+    assert cfg_blank_ood.eval_ood_bases is None
+    assert cfg_blank_ood.parsed_eval_ood_bases == ()
+    assert [s.name for s in cfg_blank_ood.eval_splits()] == ["id", "extrap_len"]
 
     # The stored value keeps only the OOD bases that get a split.
     assert cfg.eval_ood_bases == "12"
@@ -183,7 +199,7 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.5,
             permuted_canonical=False,
             p_chain=0.3,
-            seed=999,
+            seed="999:eval:id",
         ),
         EvalSplit(
             name="ood_base12",
@@ -194,7 +210,7 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.0,
             permuted_canonical=False,
             p_chain=0.3,
-            seed=999 + 1012,
+            seed="999:eval:ood_base12",
         ),
         EvalSplit(
             name="extrap_len",
@@ -205,20 +221,90 @@ def test_eval_splits_construction_and_seed_non_collision():
             p_prior=0.5,
             permuted_canonical=False,
             p_chain=0.3,
-            seed=999 + 2000,
+            seed="999:eval:extrap_len",
         ),
         EvalSplit(
             name="permuted",
             prefix="permuted_",
-            bases=(2, 3, 10),
+            bases=(3, 10),
             min_length=1,
             max_length=10,
             p_prior=0.0,
             permuted_canonical=True,
             p_chain=0.3,
-            seed=999 + 3000,
+            seed="999:eval:permuted",
         ),
     )
+
+    # Pure-binary `bases="2"` falls back to `(2,)` on `permuted` instead of an empty tuple.
+    b2_only = AdditionConfig(
+        bases="2", eval_ood_bases="", eval_permuted_canonical=True
+    ).eval_splits()
+    assert b2_only[-1].name == "permuted"
+    assert b2_only[-1].bases == (2,)
+
+    # Multi-seed training sweeps (including seeds like 2002, 2011, 2999, 3999 that
+    # previously triggered integer +1 collision bumps at `eval_seed=999`) evaluate on
+    # strictly identical problem sets, and adjacent `ood_base3`/`ood_base4` splits
+    # receive distinct domain-separated seeds.
+    from itertools import islice
+
+    from experiments.addition.inputs import iter_problems
+
+    baseline_cfg = AdditionConfig(
+        bases="2,8,10",
+        eval_ood_bases="3,4,12",
+        eval_permuted_canonical=True,
+        seed=42,
+        eval_seed=999,
+    )
+    baseline_splits = baseline_cfg.eval_splits()
+    assert len({s.seed for s in baseline_splits}) == len(baseline_splits)
+    baseline_problems = {
+        s.name: list(
+            islice(
+                iter_problems(
+                    bases=s.bases,
+                    min_length=s.min_length,
+                    max_length=s.max_length,
+                    p_prior=s.p_prior,
+                    permuted_canonical=s.permuted_canonical,
+                    p_chain=s.p_chain,
+                    seed=s.seed,
+                ),
+                10,
+            )
+        )
+        for s in baseline_splits
+    }
+    for sweep_seed in (1999, 2002, 2003, 2011, 2999, 3999):
+        sweep_cfg = AdditionConfig(
+            bases="2,8,10",
+            eval_ood_bases="3,4,12",
+            eval_permuted_canonical=True,
+            seed=sweep_seed,
+            eval_seed=999,
+        )
+        assert sweep_cfg.eval_splits() == baseline_splits
+        for s in sweep_cfg.eval_splits():
+            probs = list(
+                islice(
+                    iter_problems(
+                        bases=s.bases,
+                        min_length=s.min_length,
+                        max_length=s.max_length,
+                        p_prior=s.p_prior,
+                        permuted_canonical=s.permuted_canonical,
+                        p_chain=s.p_chain,
+                        seed=s.seed,
+                    ),
+                    10,
+                )
+            )
+            assert probs == baseline_problems[s.name]
+        # Domain-separated `"999:eval:id"` never replays integer `sweep_seed` stream.
+        train_probs = list(islice(iter_problems(bases=(2, 8, 10), seed=sweep_seed), 10))
+        assert train_probs != baseline_problems["id"]
 
 
 def test_config_validation_rejections():
@@ -256,9 +342,9 @@ def test_config_validation_rejections():
     with pytest.raises(ValueError, match="eval_p_chain must be in 0.0..1.0"):
         AdditionConfig(eval_p_chain=1.5)
     with pytest.raises(ValueError, match="non-negative even int"):
-        AdditionConfig(d_position=15)
+        AdditionStepConfig(d_position=15)
     with pytest.raises(ValueError, match="d_position must be > 0"):
-        AdditionConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
+        AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
     with pytest.raises(ValueError, match="d_scratch must be >= 0"):
         AdditionConfig(d_scratch=-1)
     with pytest.raises(ValueError, match="n_layers must be > 0"):
@@ -273,8 +359,9 @@ def test_config_validation_rejections():
         AdditionConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         AdditionConfig(batch_size=0)
-    with pytest.raises(ValueError, match="lr must be > 0"):
-        AdditionConfig(lr=0.0)
+    for bad_lr in (0.0, -1e-4, float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="lr must be > 0"):
+            AdditionConfig(lr=bad_lr)
     with pytest.raises(ValueError, match="log_every must be >= 1"):
         AdditionConfig(log_every=0)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):

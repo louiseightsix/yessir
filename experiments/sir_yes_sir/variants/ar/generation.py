@@ -18,12 +18,11 @@ def greedy_generate_ar(
     model: Transformer,
     alphabet: TokenSequence,
     x: TokenSequence,
-    *,
-    embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
 ) -> list[Token]:
     """Run free-running greedy autoregressive generation on `(alphabet, x)`.
 
-    Starts with `output = ()` after the second `[SEP]` and greedily appends one
+    Starts with `output = ()` after the second `[SEP]` (`input_ids` only, with no
+    side-channel `token_type_ids` or `position_ids`) and greedily appends one
     `argmax` token per forward pass from `SubspaceLMHead` (up to `len(x) + 1`
     tokens), stopping as soon as `SpecialToken.EOS` is emitted
     (`experiments/sir_yes_sir/spec/variants/ar.md` §2).
@@ -32,7 +31,6 @@ def greedy_generate_ar(
         model: `Transformer` configured with `SubspaceLMHead`.
         alphabet: Ordered problem alphabet of `B >= 2` distinct byte symbols.
         x: Input sequence of `L >= 1` symbols drawn from `alphabet`.
-        embedding_mode: Which of `token_type_ids` and `position_ids` to attach.
 
     Returns:
         List of generated tokens (including the terminating `SpecialToken.EOS` if emitted).
@@ -49,15 +47,10 @@ def greedy_generate_ar(
             alphabet_tokens,
             x_tokens,
             output,
-            embedding_mode=embedding_mode,
+            embedding_mode=EmbeddingMode.NOPE,
         )
         batch = collate([example]).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
+        logits = model(batch.input_ids, batch.lengths)
         assert isinstance(logits, torch.Tensor)
         next_token = int(logits[0, -1].argmax(dim=-1).item())
         output.append(next_token)
