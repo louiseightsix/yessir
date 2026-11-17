@@ -2,7 +2,7 @@
   "title": "Step sampling and terminal-step oversampling (p_terminal) in harnessed variants",
   "status": "draft",
   "kind": "ablation",
-  "question": "For the step-by-step harnessed variants (cls, step_fork, step_ar, addressed_step_ar), how does sampling one column step k per generated problem with terminal-step oversampling (p_terminal = 0.2 vs. 0.0) compare against yielding all K + 1 steps of each problem sequentially for sample efficiency and halt_accuracy?",
+  "question": "For the step-by-step harnessed variants (cls, step_fork, step_ar, addressed_step_ar), how does sampling one column step k per generated problem (`all_steps=False`, giving `batch_size` independent `(alphabet, a, b)` problems per optimiser step) with terminal-step oversampling (`p_terminal = 0.2` vs. `0.0`) compare against yielding all `K + 1` steps of each problem sequentially (`all_steps=True`, where fixed `batch_size` sees only `~batch_size / E[K + 1]` distinct problems per optimiser step—`~4.5` at `batch_size=64` on `L=1..20`—with correlated consecutive rows and natural `1 / (K + 1)` terminal-flag frequency) in convergence per optimiser step, distinct problems seen, and `halt_accuracy`?",
   "runs": [],
   "conclusion": null
 }

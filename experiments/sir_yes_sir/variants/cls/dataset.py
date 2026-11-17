@@ -27,11 +27,15 @@ class SirYesSirClsDataset:
     How examples are emitted per problem `(alphabet, x)` (`supervision`):
     - `ClsSupervision.SINGLE_PASS` (default): yields one per-position
       `LabelledExample` per problem (`build_cls_labelled_example`) supervising all
-      `L` query positions in a single teacher-forced forward pass.
-    - `ClsSupervision.ALL_STEPS`: yields `L` separate single-step `LabelledExample`s
-      per problem (`k = 0 .. L - 1`) reading the final position `lengths - 1`.
+      `L` query positions (`2 * L` targets across the two heads) in a single
+      teacher-forced forward pass (`batch_size` distinct problems per optimiser step).
+    - `ClsSupervision.ALL_STEPS`: yields `L` consecutive single-step `LabelledExample`s
+      per problem (`k = 0 .. L - 1`) reading the final position `lengths - 1`. At
+      fixed `batch_size`, each mini-batch sees `~batch_size / L` distinct problems
+      and groups correlated steps of the same `(alphabet, x)` together.
     - `ClsSupervision.RANDOM_STEP`: yields one randomly sampled single-step
-      `LabelledExample` (`k` in `0 .. L - 1`) per problem.
+      `LabelledExample` (`k` in `0 .. L - 1`) per problem (`batch_size` independent
+      problems per optimiser step).
     """
 
     def __init__(

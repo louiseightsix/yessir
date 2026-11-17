@@ -514,6 +514,16 @@ def iter_problem_steps(
     Step-index selection uses a separate PRNG stream (`f"{seed}:step"`) decoupled
     from `iter_problems(seed=seed)`, so changing `p_terminal` or `all_steps`
     keeps the underlying sequence of generated `AdditionProblem`s identical.
+
+    Note on mini-batch diversity (`spec/task.md` §1): when `all_steps=False`
+    (default), each yielded item comes from a fresh independent `AdditionProblem`
+    (`batch_size` distinct alphabets/operand pairs per optimiser step). When
+    `all_steps=True`, all `K + 1` column steps of each problem are yielded
+    consecutively (`k = 0 .. K`), so at fixed `batch_size` each optimiser step
+    sees only `~batch_size / E[K + 1]` distinct problems (`~4.5` on `L = 1..20`
+    at `batch_size = 64`), correlates consecutive batch rows on the same prompt
+    prefix, and ignores `p_terminal` (`FLAG_FINISHED` appears once per `K + 1`
+    steps).
     """
     if not (0.0 <= p_terminal <= 1.0):
         raise ValueError(f"p_terminal must be in 0.0..1.0, got {p_terminal}")

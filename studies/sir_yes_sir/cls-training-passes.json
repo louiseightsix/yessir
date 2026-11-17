@@ -2,7 +2,7 @@
   "title": "cls training: one pass per problem vs. one example per step",
   "status": "draft",
   "kind": "comparison",
-  "question": "For the cls variant, how do sample efficiency, wall-clock cost, and final accuracy compare between one teacher-forced pass reading all L query positions (the default), L separate single-step examples per problem, and one randomly sampled step k per problem?",
+  "question": "For the cls variant, how do sample efficiency, wall-clock cost, and final accuracy compare between `single_pass` (one teacher-forced pass supervising all L query positions of `batch_size` distinct problems per optimiser step), `all_steps` (L consecutive single-step examples per problem, supervising `batch_size` steps from only `~batch_size / L` distinct problems per optimiser step with within-batch step correlation), and `random_step` (one randomly sampled step k per problem, supervising `batch_size` steps from `batch_size` independent problems per optimiser step), evaluated both per optimiser step and per `tokens_seen` / distinct problems seen?",
   "runs": [],
   "conclusion": null
 }
