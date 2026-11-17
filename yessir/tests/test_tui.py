@@ -161,18 +161,18 @@ def test_live_cross_parameter_validation_and_run_blocking():
     assert cfg is not None and err is None
     rendered_valid = "\n".join(state.render_lines())
     assert (
-        "Status: VALID (d_model=512, symbol_pool_size=240, eval_every=2500)"
+        "Status: VALID (d_model=512, symbol_pool_size=240, eval_every=50)"
         in rendered_valid
     )
 
-    # `eval_every` (`min=0`, `step=500`) steps `None -> 0 -> 500 -> 0 -> None`.
+    # `eval_every` (`min=0`, `step=50`) steps `None -> 0 -> 50 -> 0 -> None`.
     eval_idx = next(i for i, s in enumerate(state.specs) if s.name == "eval_every")
     state.cursor = eval_idx
     assert state.values["eval_every"] is None
     state.handle_key("RIGHT")
     assert state.values["eval_every"] == 0
     state.handle_key("RIGHT")
-    assert state.values["eval_every"] == 500
+    assert state.values["eval_every"] == 50
     state.handle_key("LEFT")
     assert state.values["eval_every"] == 0
     state.handle_key("LEFT")

@@ -153,7 +153,7 @@ class AdditionConfig(ExperimentConfig):
     eval_extrap_max_length: int | None = field(
         default=40, metadata={"domain": "int > max_length or None", "step": 5}
     )
-    eval_permuted_canonical: bool = False
+    eval_permuted_canonical: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbol_set", SymbolSetName(self.symbol_set))

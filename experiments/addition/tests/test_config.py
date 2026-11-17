@@ -59,10 +59,11 @@ def test_default_configs_and_derived_properties():
     assert cfg.d_model == 256 + 256 == 512
     assert cfg.log_every == 100
     assert cfg.eval_every is None
+    assert cfg.eval_permuted_canonical is True
     assert cfg.effective_eval_every == 5_000
     assert (
         cfg.derived_summary()
-        == "d_model=512, symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len]"
+        == "d_model=512, symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
     )
     assert AdditionConfig(max_steps=500_000).effective_eval_every == 25_000
     assert AdditionConfig(max_steps=30_000).effective_eval_every == 2_500
@@ -70,7 +71,7 @@ def test_default_configs_and_derived_properties():
     assert AdditionConfig(eval_every=0).effective_eval_every is None
     assert (
         AdditionConfig(eval_every=0).derived_summary()
-        == "d_model=512, symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len]"
+        == "d_model=512, symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
     )
 
     cls_cfg = AdditionClsConfig()
@@ -174,6 +175,7 @@ def test_eval_splits_construction_and_seed_sweep_invariance():
         bases="2,10",
         eval_ood_bases="",
         eval_extrap_max_length=30,
+        eval_permuted_canonical=False,
         seed=2999,
         eval_seed=999,
     )
@@ -181,12 +183,16 @@ def test_eval_splits_construction_and_seed_sweep_invariance():
     assert cfg_blank_ood.parsed_eval_ood_bases == ()
     assert [s.name for s in cfg_blank_ood.eval_splits()] == ["id", "extrap_len"]
 
-    # The stored value keeps only the OOD bases that get a split.
+    # The stored value keeps only the OOD bases that get a split; `permuted` is enabled by default.
     assert cfg.eval_ood_bases == "12"
     assert cfg.parsed_eval_ood_bases == (12,)
     all_trained = AdditionConfig(bases="2,3,12", eval_ood_bases="3,12")
     assert all_trained.eval_ood_bases is None
-    assert [s.name for s in all_trained.eval_splits()] == ["id", "extrap_len"]
+    assert [s.name for s in all_trained.eval_splits()] == [
+        "id",
+        "extrap_len",
+        "permuted",
+    ]
 
     splits = cfg.eval_splits()
     assert splits == (
@@ -422,7 +428,7 @@ def test_json_round_trip():
         eval_p_chain=0.3,
         eval_ood_bases="3, 8",
         eval_extrap_max_length=None,
-        eval_permuted_canonical=True,
+        eval_permuted_canonical=False,
         p_terminal=0.35,
         all_steps=True,
     )

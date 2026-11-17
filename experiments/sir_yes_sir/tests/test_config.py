@@ -33,9 +33,9 @@ def test_default_config_is_valid():
     assert ar_cfg.effective_d_scratch == 256
     assert ar_cfg.d_model == 256 + 256 == 512
     assert ar_cfg.eval_every is None
-    assert ar_cfg.effective_eval_every == 2_500
+    assert ar_cfg.effective_eval_every == 50
     assert (
-        ar_cfg.derived_summary() == "d_model=512, symbol_pool_size=240, eval_every=2500"
+        ar_cfg.derived_summary() == "d_model=512, symbol_pool_size=240, eval_every=50"
     )
 
     cls_cfg = SirYesSirClsConfig()
@@ -45,6 +45,8 @@ def test_default_config_is_valid():
     assert cls_cfg.effective_d_position == 32
     assert cls_cfg.effective_d_scratch == 208
     assert cls_cfg.d_model == 256 + 16 + 32 + 208 == 512
+    assert SirYesSirConfig(max_steps=200).effective_eval_every == 50
+    assert SirYesSirConfig(max_steps=2_000).effective_eval_every == 100
     assert SirYesSirConfig(max_steps=100_000).effective_eval_every == 5_000
     assert SirYesSirConfig(max_steps=500_000).effective_eval_every == 25_000
     assert SirYesSirConfig(eval_every=200).effective_eval_every == 200

@@ -6,9 +6,11 @@ from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.alphabet import SymbolSet
-from yessir.defaults import DEFAULT_LR, default_eval_every
+from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
+
+SIR_YES_SIR_MIN_EVAL_EVERY = 50
 
 SIR_YES_SIR_DESCRIPTION = "In-context cyclic successor lookup smoke-test experiment."
 CLS_DESCRIPTION = (
@@ -89,8 +91,8 @@ class SirYesSirConfig(ExperimentConfig):
     eval_every: int | None = field(
         default=None,
         metadata={
-            "domain": "int >= 0 or None (None = max(2500, max_steps // 20); 0 = final only)",
-            "step": 500,
+            "domain": "int >= 0 or None (None = max(50, max_steps // 20); 0 = final only)",
+            "step": 50,
             "min": 0,
         },
     )
@@ -204,7 +206,7 @@ class SirYesSirConfig(ExperimentConfig):
     def effective_eval_every(self) -> int | None:
         """Periodic evaluation interval in steps (`None` when `eval_every == 0` disables mid-run checkpoints)."""
         if self.eval_every is None:
-            return default_eval_every(self.max_steps)
+            return max(SIR_YES_SIR_MIN_EVAL_EVERY, self.max_steps // 20)
         return self.eval_every if self.eval_every > 0 else None
 
     def derived_summary(self) -> str:
