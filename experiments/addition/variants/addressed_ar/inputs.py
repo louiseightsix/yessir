@@ -25,18 +25,9 @@ def _column_body_slot_metadata(
     body_idx: int,
     *,
     step_order: StepOrder,
-    use_query_tokens: bool,
 ) -> tuple[TokenType, int]:
-    """Return `(token_type_id, position_id)` for body offset `body_idx` within column `k` (`spec/variants/addressed_ar.md` §1)."""
-    if not use_query_tokens:
-        is_sum = (
-            (body_idx == 0) if step_order == StepOrder.SUM_FIRST else (body_idx == 1)
-        )
-        return (TokenType.OUTPUT, k) if is_sum else (TokenType.CARRY, k + 1)
-
-    if body_idx in (0, 2):
-        return (TokenType.SPECIAL, k)
-    is_sum = (body_idx == 1) if step_order == StepOrder.SUM_FIRST else (body_idx == 3)
+    """Return `(token_type_id, position_id)` for unqueried body offset `body_idx` (`0` or `1`) within column `k`."""
+    is_sum = (body_idx == 0) if step_order == StepOrder.SUM_FIRST else (body_idx == 1)
     return (TokenType.OUTPUT, k) if is_sum else (TokenType.CARRY, k + 1)
 
 
@@ -84,35 +75,59 @@ def build_addressed_ar_example(
         alphabet, a, b, include_alphabet=include_alphabet
     )
     alphabet_tokens = tuple(alphabet)
-    body_len = 4 if use_query_tokens else 2
+    idx_tok = int(AdditionToken.IDX)
+    q_sum = int(AdditionToken.QUERY_SUM)
+    q_carry = int(AdditionToken.QUERY_CARRY)
 
     k = 0
-    addr_len = len(encode_address(0, alphabet_tokens))
-    col_len = 1 + addr_len + body_len
+    in_segment = False
     slot = 0
+    addr_len = len(encode_address(0, alphabet_tokens))
+    pending_query: int | None = None
 
-    for tok in trace:
-        if slot == 0:
+    for raw_tok in trace:
+        tok = int(raw_tok)
+        if tok == idx_tok:
+            if in_segment:
+                k += 1
+                addr_len = len(encode_address(k, alphabet_tokens))
+            in_segment = True
+            slot = 1
+            pending_query = None
             tt, pos = TokenType.SPECIAL, k
-        elif slot <= addr_len:
-            tt, pos = TokenType.ADDRESS, k
         else:
-            tt, pos = _column_body_slot_metadata(
-                k,
-                slot - 1 - addr_len,
-                step_order=order,
-                use_query_tokens=use_query_tokens,
-            )
-        input_ids.append(int(tok))
+            if not in_segment:
+                in_segment = True
+                slot = 1
+            if use_query_tokens:
+                if tok in (q_sum, q_carry):
+                    pending_query = tok
+                    tt, pos = TokenType.SPECIAL, k
+                elif pending_query == q_sum:
+                    pending_query = None
+                    tt, pos = TokenType.OUTPUT, k
+                elif pending_query == q_carry:
+                    pending_query = None
+                    tt, pos = TokenType.CARRY, k + 1
+                else:
+                    tt, pos = TokenType.ADDRESS, k
+            else:
+                if slot <= addr_len:
+                    tt, pos = TokenType.ADDRESS, k
+                elif slot <= addr_len + 2:
+                    tt, pos = _column_body_slot_metadata(
+                        k,
+                        slot - 1 - addr_len,
+                        step_order=order,
+                    )
+                else:
+                    # Hold column `k` on overlong malformed segments until `[IDX]` arrives.
+                    tt, pos = TokenType.SPECIAL, k
+            slot += 1
+
+        input_ids.append(tok)
         token_type_ids.append(tt)
         position_ids.append(pos)
-
-        slot += 1
-        if slot == col_len:
-            k += 1
-            addr_len = len(encode_address(k, alphabet_tokens))
-            col_len = 1 + addr_len + body_len
-            slot = 0
 
     return make_example(input_ids, token_type_ids, position_ids, embedding_mode)
 

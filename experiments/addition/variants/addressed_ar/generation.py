@@ -20,7 +20,7 @@ from experiments.addition.variants.addressed_ar.inputs import (
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
-from yessir.vocab import Token, TokenSequence
+from yessir.vocab import SYMBOL_RANGE, Token, TokenSequence
 
 
 @dataclass(frozen=True)
@@ -80,6 +80,12 @@ def parse_addressed_ar_trace(
                 return parsed, False
         else:
             pred_t0, pred_t1 = body
+        if (
+            any(tok not in SYMBOL_RANGE for tok in addr)
+            or pred_t0 not in SYMBOL_RANGE
+            or pred_t1 not in SYMBOL_RANGE
+        ):
+            return parsed, False
         sum_digit, carry_out = unpack_step_order(pred_t0, pred_t1, order)
         parsed.append(
             AddressedTraceStep(address=addr, sum_digit=sum_digit, carry_out=carry_out)

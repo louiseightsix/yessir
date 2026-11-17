@@ -629,6 +629,32 @@ def test_rollout_and_parse_addressed_ar_trace():
         use_query_tokens=True,
     ) == ([], False)
 
+    # Control / special tokens inside address or value slots parse as malformed.
+    assert parse_addressed_ar_trace(
+        [
+            idx,
+            int(SpecialToken.SEP),
+            int(SpecialToken.PAD),
+            int(SpecialToken.BOS),
+            eos,
+        ]
+    ) == ([], False)
+    assert parse_addressed_ar_trace(
+        [idx, ord("a"), ord("a"), int(AdditionToken.QUERY_FLAG), eos]
+    ) == ([], False)
+    assert parse_addressed_ar_trace(
+        [
+            idx,
+            int(AdditionToken.QUERY_SUM),
+            int(AdditionToken.QUERY_SUM),
+            ord("a"),
+            int(AdditionToken.QUERY_CARRY),
+            ord("b"),
+            eos,
+        ],
+        use_query_tokens=True,
+    ) == ([], False)
+
     # Length cap when EOS is never emitted: for `max_columns = 3` in base 2 (`addr` lengths 1, 1, 2)
     # and `use_query_tokens=False` (`body_len = 2`), `max_tokens = (4 + 4 + 5) + 1 == 14`.
     never_noq = _ScriptedRolloutAddressedArModel([ord("a")] * 20)
@@ -641,6 +667,121 @@ def test_rollout_and_parse_addressed_ar_trace():
     )
     assert len(capped) == 14
     assert parse_addressed_ar_trace(capped)[1] is False
+
+
+def test_build_addressed_ar_example_resynchronises_on_idx_after_wrong_width_address():
+    """Verify `[IDX]` boundaries keep `token_type_ids` and `position_ids` aligned during rollout."""
+    idx = int(AdditionToken.IDX)
+    q_s = int(AdditionToken.QUERY_SUM)
+    q_c = int(AdditionToken.QUERY_CARRY)
+    alphabet = b"01"
+    a = b"111"
+    b = b"1"
+    prefix_len = len(build_addressed_ar_example(alphabet, a, b, ()))
+
+    # Column k = 2 emits a 1-bit address (`'1'`) instead of a 2-bit address (`'0', '1'`),
+    # followed by a well-formed column k = 3 (`[IDX] '1' '1' '0' '0'`).
+    short_addr_trace = (
+        idx,
+        ord("0"),
+        ord("0"),
+        ord("1"),  # k = 0 (addr_len = 1)
+        idx,
+        ord("1"),
+        ord("0"),
+        ord("1"),  # k = 1 (addr_len = 1)
+        idx,
+        ord("1"),
+        ord("0"),
+        ord("1"),  # k = 2 (short 1-bit addr + 2 body tokens)
+        idx,
+        ord("1"),
+        ord("1"),
+        ord("0"),
+        ord("0"),  # k = 3 (resynchronised!)
+    )
+    ex_short = build_addressed_ar_example(alphabet, a, b, short_addr_trace)
+    assert ex_short.token_type_ids is not None
+    assert ex_short.position_ids is not None
+    # Column 3 starts at trace offset 12 (`prefix_len + 12`).
+    assert ex_short.token_type_ids[prefix_len + 12 :] == (
+        TokenType.SPECIAL,
+        TokenType.ADDRESS,
+        TokenType.ADDRESS,
+        TokenType.OUTPUT,
+        TokenType.CARRY,
+    )
+    assert ex_short.position_ids[prefix_len + 12 :] == (3, 3, 3, 3, 4)
+
+    # Incremental causal-prefix invariance holds even across malformed traces.
+    for t_len in range(len(short_addr_trace) + 1):
+        partial = build_addressed_ar_example(alphabet, a, b, short_addr_trace[:t_len])
+        end = prefix_len + t_len
+        assert partial.token_type_ids == ex_short.token_type_ids[:end]
+        assert partial.position_ids == ex_short.position_ids[:end]
+
+    # Overlong segment at k = 1 (2-bit address where 1-bit was expected) still keeps
+    # the next `[IDX]` at k = 2 rather than advancing early to k = 3.
+    overlong_trace = (
+        idx,
+        ord("0"),
+        ord("0"),
+        ord("1"),  # k = 0
+        idx,
+        ord("1"),
+        ord("0"),
+        ord("0"),
+        ord("1"),  # k = 1 (extra token)
+        idx,
+        ord("0"),
+        ord("1"),
+        ord("0"),
+        ord("1"),  # k = 2
+    )
+    ex_long = build_addressed_ar_example(alphabet, a, b, overlong_trace)
+    assert ex_long.token_type_ids is not None
+    assert ex_long.position_ids is not None
+    assert ex_long.token_type_ids[prefix_len + 9 :] == (
+        TokenType.SPECIAL,
+        TokenType.ADDRESS,
+        TokenType.ADDRESS,
+        TokenType.OUTPUT,
+        TokenType.CARRY,
+    )
+    assert ex_long.position_ids[prefix_len + 9 :] == (2, 2, 2, 2, 3)
+
+    # With `use_query_tokens=True`, `[S]` and `[C]` align `(OUTPUT, k)` and `(CARRY, k + 1)`
+    # even within the wrong-width-address column itself.
+    wrong_width_q = (
+        idx,
+        ord("0"),
+        q_s,
+        ord("0"),
+        q_c,
+        ord("1"),  # k = 0
+        idx,
+        ord("1"),
+        ord("0"),
+        q_s,
+        ord("0"),
+        q_c,
+        ord("1"),  # k = 1 with 2-bit addr
+    )
+    ex_q = build_addressed_ar_example(
+        alphabet, a, b, wrong_width_q, use_query_tokens=True
+    )
+    assert ex_q.token_type_ids is not None
+    assert ex_q.position_ids is not None
+    assert ex_q.token_type_ids[prefix_len + 6 :] == (
+        TokenType.SPECIAL,
+        TokenType.ADDRESS,
+        TokenType.ADDRESS,
+        TokenType.SPECIAL,
+        TokenType.OUTPUT,
+        TokenType.SPECIAL,
+        TokenType.CARRY,
+    )
+    assert ex_q.position_ids[prefix_len + 6 :] == (1, 1, 1, 1, 1, 1, 2)
 
 
 @pytest.mark.parametrize("step_order", list(StepOrder))
