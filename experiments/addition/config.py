@@ -404,11 +404,15 @@ class AdditionConfig(ExperimentConfig):
                 )
             )
         if self.eval_permuted_canonical:
+            # Exclude B = 2 whenever any B >= 3 training base is available: in
+            # binary, 1 / (B - 1) == 1.0 makes every in-alphabet value error
+            # unconditionally count as `prior_intrusion` (`spec/task.md` §3).
+            permuted_bases = tuple(b for b in train_bases if b >= 3) or train_bases
             splits.append(
                 EvalSplit(
                     name="permuted",
                     prefix="permuted_",
-                    bases=train_bases,
+                    bases=permuted_bases,
                     min_length=self.min_length,
                     max_length=self.max_length,
                     p_prior=0.0,

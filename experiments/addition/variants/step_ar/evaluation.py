@@ -95,6 +95,7 @@ def evaluate_step_ar(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    per_base_metrics: dict[int, EvalMetrics] | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via batched free-running rollout across `num_problems` problems.
 
@@ -216,8 +217,7 @@ def evaluate_step_ar(
             step = oracle_steps[i][k]
             oracle_ok[i][k] = (pred_o == step.sum_digit) and (pred_c == step.carry_out)
 
-    total_oracle_steps = sum(len(steps) for steps in oracle_steps)
-    oracle_ok_count = sum(1 for row in oracle_ok for ok in row if ok is True)
+    oracle_ok_counts = [sum(1 for ok in row if ok is True) for row in oracle_ok]
 
     evaluated: list[
         tuple[tuple[int, ...], tuple[ColumnStep, ...], tuple[StepPrediction, ...]]
@@ -238,5 +238,6 @@ def evaluate_step_ar(
     return score_predictions(
         evaluated,
         step_order=order,
-        oracle_step_accuracy=oracle_ok_count / total_oracle_steps,
+        oracle_ok_per_problem=oracle_ok_counts,
+        per_base_metrics=per_base_metrics,
     )

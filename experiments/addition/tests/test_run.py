@@ -138,7 +138,6 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     assert loaded_eval == eval_results
 
     loaded_splits = json.loads(eval_splits_file.read_text())
-    assert list(loaded_splits.keys()) == ["id", "ood_base3", "extrap_len", "permuted"]
     expected_split_metric_keys = {
         "exact_match",
         "step_accuracy",
@@ -152,6 +151,16 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
         "prior_intrusion",
         "procedural_error",
     }
+    # Top-level splits are always present; multi-base splits (`id`, `extrap_len`)
+    # also emit `{split}_base{b}` slices, while `permuted` on `--bases 2,4`
+    # excludes B=2 (`permuted.bases == (4,)`), so no `permuted_base*` slice is emitted.
+    assert {"id", "ood_base3", "extrap_len", "permuted"}.issubset(loaded_splits.keys())
+    assert not any(k.startswith("permuted_base") for k in loaded_splits)
+    assert not any(k.startswith("ood_base3_base") for k in loaded_splits)
+    assert any(k in loaded_splits for k in ("id_base2", "id_base4"))
+    assert any(k in loaded_splits for k in ("extrap_len_base2", "extrap_len_base4"))
+    for split_dict in loaded_splits.values():
+        assert set(split_dict.keys()) == expected_split_metric_keys
     for split_name, prefix in (
         ("id", ""),
         ("ood_base3", "ood_base3_"),
@@ -159,7 +168,6 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
         ("permuted", "permuted_"),
     ):
         split_dict = loaded_splits[split_name]
-        assert set(split_dict.keys()) == expected_split_metric_keys
         assert split_dict["exact_match"] == loaded_eval[f"{prefix}exact_match"]
         assert split_dict["step_accuracy"] == loaded_eval[f"{prefix}step_accuracy"]
 
@@ -571,7 +579,9 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
         assert isinstance(row["elapsed_sec"], float)
         for key in headline_keys:
             assert 0.0 <= row[key] <= 1.0
-        assert list(row["splits"].keys()) == ["id", "ood_base3", "extrap_len"]
+        assert {"id", "ood_base3", "extrap_len"}.issubset(row["splits"].keys())
+        assert any(k in row["splits"] for k in ("id_base2", "id_base4"))
+        assert any(k in row["splits"] for k in ("extrap_len_base2", "extrap_len_base4"))
         assert row["splits"]["id"]["exact_match"] == row["exact_match"]
         assert row["splits"]["ood_base3"]["exact_match"] == row["ood_base3_exact_match"]
         assert len(row["splits"]["id"]) == 11

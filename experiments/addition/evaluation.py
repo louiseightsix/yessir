@@ -167,7 +167,9 @@ def score_predictions(
     *,
     step_order: StepOrder = StepOrder.SUM_FIRST,
     oracle_step_accuracy: float | None = None,
+    oracle_ok_per_problem: Sequence[int] | None = None,
     track_addresses: bool = False,
+    per_base_metrics: dict[int, EvalMetrics] | None = None,
 ) -> EvalMetrics:
     """Compute `EvalMetrics` over `(alphabet, steps, predictions)` problem tuples.
 
@@ -175,10 +177,24 @@ def score_predictions(
     by free-running rollout: columns missed after a premature halt (`len(preds) < K + 1`)
     count as missed steps against the `K + 1` reference denominator, and over-running
     past `K` (`len(preds) > K + 1`) fails `halt_accuracy` and `exact_match`.
+
+    When `per_base_metrics` is supplied, it is populated in sorted base order with
+    the `EvalMetrics` slice for each distinct `B = len(alphabet)` present in
+    `evaluated_problems` (without running any additional model forward passes).
     """
     num_problems = len(evaluated_problems)
     if num_problems < 1:
         raise ValueError("evaluated_problems must contain at least 1 problem")
+    if oracle_ok_per_problem is not None:
+        if oracle_step_accuracy is not None:
+            raise ValueError(
+                "pass at most one of oracle_step_accuracy and oracle_ok_per_problem"
+            )
+        if len(oracle_ok_per_problem) != num_problems:
+            raise ValueError(
+                f"oracle_ok_per_problem length ({len(oracle_ok_per_problem)}) "
+                f"must equal len(evaluated_problems) ({num_problems})"
+            )
 
     em_count = 0
     halt_ok_count = 0
@@ -223,12 +239,41 @@ def score_predictions(
             halt_ok_count += 1
 
     rollout_step_acc = step_ok_count / total_steps
+    resolved_oracle_acc = (
+        sum(oracle_ok_per_problem) / total_steps
+        if oracle_ok_per_problem is not None
+        else (
+            rollout_step_acc if oracle_step_accuracy is None else oracle_step_accuracy
+        )
+    )
+
+    if per_base_metrics is not None:
+        per_base_metrics.clear()
+        indices_by_base: dict[int, list[int]] = {}
+        for idx, (alphabet, _, _) in enumerate(evaluated_problems):
+            indices_by_base.setdefault(len(alphabet), []).append(idx)
+        for base in sorted(indices_by_base):
+            idxs = indices_by_base[base]
+            sub_problems = [evaluated_problems[idx] for idx in idxs]
+            sub_oracle = (
+                [oracle_ok_per_problem[idx] for idx in idxs]
+                if oracle_ok_per_problem is not None
+                else None
+            )
+            per_base_metrics[base] = score_predictions(
+                sub_problems,
+                step_order=step_order,
+                oracle_step_accuracy=(
+                    oracle_step_accuracy if sub_oracle is None else None
+                ),
+                oracle_ok_per_problem=sub_oracle,
+                track_addresses=track_addresses,
+            )
+
     return EvalMetrics(
         exact_match=em_count / num_problems,
         step_accuracy=rollout_step_acc,
-        oracle_step_accuracy=(
-            rollout_step_acc if oracle_step_accuracy is None else oracle_step_accuracy
-        ),
+        oracle_step_accuracy=resolved_oracle_acc,
         digit_accuracy=digit_ok_count / total_steps,
         carry_accuracy=(
             carry_ok_count / carry_active_steps if carry_active_steps > 0 else None

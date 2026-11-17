@@ -229,7 +229,7 @@ def _parse_ar_rollout(
     return tuple(step_preds)
 
 
-def _compute_ar_oracle_step_accuracy(
+def _compute_ar_oracle_counts(
     model: Transformer,
     problems: Sequence[AdditionProblem],
     oracle_steps: Sequence[tuple[ColumnStep, ...]],
@@ -239,8 +239,8 @@ def _compute_ar_oracle_step_accuracy(
     use_query_tokens: bool,
     embedding_mode: EmbeddingMode,
     device: torch.device,
-) -> float:
-    """Compute teacher-forced `oracle_step_accuracy` across all `K + 1` columns in one pass per chunk."""
+) -> list[int]:
+    """Return per-problem teacher-forced column match counts across all `K + 1` columns."""
     eos = int(SpecialToken.EOS)
     q_0, q_1, _ = step_query_tokens(step_order)
     stride = 4 if use_query_tokens else 2
@@ -264,8 +264,7 @@ def _compute_ar_oracle_step_accuracy(
         )
         num_targets_list.append(len(trace) + 1)
 
-    total_steps = 0
-    oracle_ok_count = 0
+    oracle_ok_per_problem: list[int] = []
     for start in range(0, len(examples), batch_size):
         chunk = examples[start : start + batch_size]
         steps_chunk = oracle_steps[start : start + batch_size]
@@ -284,8 +283,8 @@ def _compute_ar_oracle_step_accuracy(
         ):
             n = int(batch.lengths[b_idx].item())
             preds = argmax_ids[b_idx, n - num_targets : n].tolist()
+            prob_ok = 0
             for k, step in enumerate(steps):
-                total_steps += 1
                 col_slice = preds[stride * k : stride * (k + 1)]
                 if use_query_tokens:
                     pred_q0, pred_t0, pred_q1, pred_t1 = col_slice
@@ -299,9 +298,10 @@ def _compute_ar_oracle_step_accuracy(
                     and (pred_o == step.sum_digit)
                     and (pred_c == step.carry_out)
                 ):
-                    oracle_ok_count += 1
+                    prob_ok += 1
+            oracle_ok_per_problem.append(prob_ok)
 
-    return oracle_ok_count / total_steps
+    return oracle_ok_per_problem
 
 
 @torch.no_grad()
@@ -314,6 +314,7 @@ def evaluate_ar(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    per_base_metrics: dict[int, EvalMetrics] | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via KV-cached free-running rollout across `num_problems` full-trace `ar` problems.
 
@@ -361,7 +362,7 @@ def evaluate_ar(
             )
         )
 
-    oracle_step_acc = _compute_ar_oracle_step_accuracy(
+    oracle_ok_counts = _compute_ar_oracle_counts(
         model,
         problem_list,
         oracle_steps,
@@ -393,5 +394,6 @@ def evaluate_ar(
     return score_predictions(
         evaluated,
         step_order=order,
-        oracle_step_accuracy=oracle_step_acc,
+        oracle_ok_per_problem=oracle_ok_counts,
+        per_base_metrics=per_base_metrics,
     )

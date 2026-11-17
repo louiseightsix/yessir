@@ -383,6 +383,42 @@ def test_score_predictions_variable_length_rollout_and_oracle_diagnostic():
     assert m_syn.syntax_malformation == 1.0
 
 
+def test_score_predictions_per_base_metrics_and_oracle_counts():
+    b2_alpha = b"ab"
+    b2_steps = reference_add(b2_alpha, b"b", b"b")  # 1 + 1 = 10_2 (2 steps)
+    b4_alpha = b"wxyz"
+    b4_steps = reference_add(b4_alpha, b"x", b"y")  # 1 + 2 = 3_4 (1 step)
+
+    b2_wrong = [
+        StepPrediction(sum_digit=ord("b"), carry_out=ord("a"), halt_ok=False),
+        StepPrediction(sum_digit=ord("b"), carry_out=ord("a"), halt_ok=True),
+    ]
+    b4_right = _perfect_preds(b4_steps)
+
+    per_base: dict[int, EvalMetrics] = {}
+    pooled = score_predictions(
+        [
+            (b2_alpha, b2_steps, b2_wrong),
+            (b4_alpha, b4_steps, b4_right),
+        ],
+        oracle_ok_per_problem=[1, 1],
+        per_base_metrics=per_base,
+    )
+    assert list(per_base.keys()) == [2, 4]
+    assert pooled.exact_match == pytest.approx(0.5)
+    assert pooled.step_accuracy == pytest.approx(2 / 3)  # 1 of 2 on B=2, 1 of 1 on B=4
+    assert pooled.oracle_step_accuracy == pytest.approx(2 / 3)
+
+    assert per_base[2].exact_match == 0.0
+    assert per_base[2].step_accuracy == pytest.approx(0.5)
+    assert per_base[2].oracle_step_accuracy == pytest.approx(0.5)
+    assert per_base[2].procedural_error == 1.0
+
+    assert per_base[4].exact_match == 1.0
+    assert per_base[4].step_accuracy == 1.0
+    assert per_base[4].oracle_step_accuracy == 1.0
+
+
 def test_score_predictions_rejects_empty_inputs():
     alphabet = b"01"
     steps = reference_add(alphabet, b"0", b"0")

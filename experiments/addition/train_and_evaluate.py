@@ -28,6 +28,7 @@ class EvaluateProblemsFn(Protocol):
         *,
         num_problems: int,
         batch_size: int = 64,
+        per_base_metrics: dict[int, EvalMetrics] | None = None,
     ) -> EvalMetrics: ...
 
 
@@ -69,11 +70,12 @@ def train_and_evaluate(
     Writes three evaluation artefacts when `out_dir` is given:
     - `eval.jsonl`: one JSON record per evaluated checkpoint (including `max_steps`)
       with `step`, `elapsed_sec`, top-level headline pairs matching `eval.json`, and
-      a nested `"splits"` dict holding all 9 `EvalMetrics` fields per split.
+      a nested `"splits"` dict holding all 11 `EvalMetrics` fields per split (plus
+      `{split}_base{b}` per-base slices for multi-base splits).
     - `eval.json`: final-step compact headline pairs (`exact_match`, `step_accuracy`)
       per split for `web/` tables and charts.
-    - `eval_splits.json`: final-step full 9-field diagnostic `EvalMetrics` keyed by
-      split name.
+    - `eval_splits.json`: final-step full 11-field diagnostic `EvalMetrics` keyed by
+      split name (plus `{split}_base{b}` per-base slices for multi-base splits).
     """
     resolved_device = resolve_device(device)
     tag = f"[addition:{variant_name}]"
@@ -171,15 +173,33 @@ def train_and_evaluate(
                 include_alphabet=include_alphabet,
                 seed=split.seed,
             )
-            metrics = evaluate_fn(
-                model,
-                problems,
-                num_problems=config.num_eval_problems,
-                batch_size=config.eval_batch_size,
+            per_base: dict[int, EvalMetrics] | None = (
+                {} if len(split.bases) > 1 else None
             )
+            if per_base is not None:
+                metrics = evaluate_fn(
+                    model,
+                    problems,
+                    num_problems=config.num_eval_problems,
+                    batch_size=config.eval_batch_size,
+                    per_base_metrics=per_base,
+                )
+            else:
+                metrics = evaluate_fn(
+                    model,
+                    problems,
+                    num_problems=config.num_eval_problems,
+                    batch_size=config.eval_batch_size,
+                )
             eval_results[f"{split.prefix}exact_match"] = metrics.exact_match
             eval_results[f"{split.prefix}step_accuracy"] = metrics.step_accuracy
             eval_splits_results[split.name] = metrics.to_dict()
+            if per_base is not None:
+                for b in split.bases:
+                    if b in per_base:
+                        eval_splits_results[f"{split.name}_base{b}"] = per_base[
+                            b
+                        ].to_dict()
 
             carry_str = (
                 f"{metrics.carry_accuracy:.2%}"

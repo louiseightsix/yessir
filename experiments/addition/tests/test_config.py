@@ -206,7 +206,7 @@ def test_eval_splits_construction_and_seed_sweep_invariance():
         EvalSplit(
             name="permuted",
             prefix="permuted_",
-            bases=(2, 3, 10),
+            bases=(3, 10),
             min_length=1,
             max_length=10,
             p_prior=0.0,
@@ -215,6 +215,13 @@ def test_eval_splits_construction_and_seed_sweep_invariance():
             seed="999:eval:permuted",
         ),
     )
+
+    # Pure-binary `bases="2"` falls back to `(2,)` on `permuted` instead of an empty tuple.
+    b2_only = AdditionConfig(
+        bases="2", eval_ood_bases="", eval_permuted_canonical=True
+    ).eval_splits()
+    assert b2_only[-1].name == "permuted"
+    assert b2_only[-1].bases == (2,)
 
     # Multi-seed training sweeps (including seeds like 2002, 2011, 2999, 3999 that
     # previously triggered integer +1 collision bumps at `eval_seed=999`) evaluate on
