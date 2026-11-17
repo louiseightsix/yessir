@@ -119,7 +119,11 @@ def evaluate_ar(
                 syntax_ok = (pred_q0 == int(q_0)) and (pred_q1 == int(q_1))
             else:
                 pred_t0, pred_t1 = col_slice
-                syntax_ok = True
+                # Without query tokens, `col_slice[0]` (`preds[2 * k]`) is the column
+                # boundary after `[SEP]` (`k = 0`) or column `k - 1` (`k >= 1`), so a
+                # premature `[EOS]` there is a halting/syntax failure rather than an
+                # out-of-alphabet digit error (`spec/task.md` §3, `spec/variants/ar.md` §4).
+                syntax_ok = pred_t0 != eos
             pred_o, pred_c = unpack_step_order(pred_t0, pred_t1, order)
             no_premature_eos = all(tok != eos for tok in col_slice)
             halt_ok = (

@@ -486,22 +486,52 @@ def test_evaluate_ar_query_syntax_premature_eos_and_step_order_taxonomy():
     assert m_bad_q.halt_accuracy == 1.0
     assert m_bad_q.syntax_malformation == 1.0
 
-    # 2. Premature EOS inside column 0 -> halt_accuracy=0.0, out_of_alphabet=1.0.
+    # 2. Boundary premature EOS (`preds[2 * k]`, e.g. at k = 0 or between columns k = 0 and k = 1)
+    # under both `use_query_tokens=False` and `use_query_tokens=True` -> syntax_malformation=1.0,
+    # halt_accuracy=0.0; mid-column EOS (`preds[2 * k + 1]` after valid `t_0`) -> out_of_alphabet=1.0.
     noq_targets = [
         *build_ar_trace_tokens(
             steps, step_order=StepOrder.SUM_FIRST, use_query_tokens=False
         ),
         eos,
     ]
-    premature = list(noq_targets)
-    premature[0] = eos
-    m_prem = evaluate_ar(
-        _ScriptedEvalArModel([premature]),  # ty: ignore[invalid-argument-type]
+    for boundary_idx, expected_step_acc in ((0, 0.5), (2, 0.5)):
+        premature_boundary = list(noq_targets)
+        premature_boundary[boundary_idx] = eos
+        m_prem = evaluate_ar(
+            _ScriptedEvalArModel([premature_boundary]),  # ty: ignore[invalid-argument-type]
+            [prob],
+            num_problems=1,
+        )
+        assert m_prem.exact_match == 0.0
+        assert m_prem.step_accuracy == pytest.approx(expected_step_acc)
+        assert m_prem.halt_accuracy == 0.0
+        assert m_prem.syntax_malformation == 1.0
+        assert m_prem.out_of_alphabet == 0.0
+
+    premature_q_boundary = list(q_targets)
+    premature_q_boundary[4] = eos  # boundary before column 1 (`[S]`)
+    m_prem_q = evaluate_ar(
+        _ScriptedEvalArModel([premature_q_boundary]),  # ty: ignore[invalid-argument-type]
+        [prob],
+        num_problems=1,
+        use_query_tokens=True,
+    )
+    assert m_prem_q.exact_match == 0.0
+    assert m_prem_q.step_accuracy == 1.0
+    assert m_prem_q.halt_accuracy == 0.0
+    assert m_prem_q.syntax_malformation == 1.0
+
+    premature_mid = list(noq_targets)
+    premature_mid[1] = eos  # mid-column `c_1` slot after valid `o_0`
+    m_prem_mid = evaluate_ar(
+        _ScriptedEvalArModel([premature_mid]),  # ty: ignore[invalid-argument-type]
         [prob],
         num_problems=1,
     )
-    assert m_prem.halt_accuracy == 0.0
-    assert m_prem.out_of_alphabet == 1.0
+    assert m_prem_mid.halt_accuracy == 0.0
+    assert m_prem_mid.out_of_alphabet == 1.0
+    assert m_prem_mid.syntax_malformation == 0.0
 
     # 3. `step_order` determines first-error classification when both o_0 (in-alphabet wrong)
     # and c_1 (out-of-alphabet 255) fail in column 0:
