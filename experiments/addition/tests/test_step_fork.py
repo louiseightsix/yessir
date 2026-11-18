@@ -448,3 +448,4 @@ def test_evaluate_and_rollout_step_fork_with_real_transformer_and_validation():
         )
     with pytest.raises(ValueError, match="SubspaceLMHead"):
         rollout_step_fork(cls_model, b"01", b"0", b"1")
+    assert AdditionStepForkDataset.BRANCHES_PER_STEP == 3

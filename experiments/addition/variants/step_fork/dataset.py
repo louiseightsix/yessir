@@ -21,12 +21,18 @@ from yessir.vocab import TokenSequence
 class AdditionStepForkDataset:
     """Infinite deterministic stream of branched `step_fork` `LabelledExample`s.
 
-    For each sampled column transition `(problem, steps, k)`, yields its 3 parallel
-    query branches (`[S]`, `[C]`, `[F]`) consecutively (`spec/variants/step_fork.md` §3).
-    Collating `3 * batch_size` consecutive items per optimisation step therefore
-    groups `batch_size` column transitions and `3 * batch_size` supervised target
-    tokens into each batch.
+    For each sampled column transition `(problem, steps, k)`, yields its
+    `BRANCHES_PER_STEP = 3` parallel query branches (`[S]`, `[C]`, `[F]`)
+    consecutively (`spec/variants/step_fork.md` §3).
+
+    Batching contract: callers of `train(model, dataset, batch_size=...)` should
+    pass a multiple of `BRANCHES_PER_STEP` (`3 * transitions_per_step`, as
+    `run_addition_step_fork` does via `3 * config.batch_size`) so every column
+    transition's `([S], [C], [F])` triple stays in one mini-batch rather than
+    splitting across optimiser steps when `batch_size % 3 != 0`.
     """
+
+    BRANCHES_PER_STEP: int = 3
 
     def __init__(
         self,

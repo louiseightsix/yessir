@@ -895,3 +895,29 @@ def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
         )
     with pytest.raises(ValueError, match="SubspaceLMHead"):
         rollout_addressed_ar(cls_model, b"01", b"0", b"1")
+
+
+def test_evaluate_addressed_ar_token_budget_subchunking_is_invariant(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import experiments.addition.variants.addressed_ar.evaluation as eval_mod
+
+    seed_everything(0)
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=0,
+    )
+    problems = list(
+        itertools.islice(
+            iter_problems(bases=(2,), min_length=6, max_length=8, seed=3), 5
+        )
+    )
+    baseline = evaluate_addressed_ar(model, problems, num_problems=5, batch_size=1)
+    monkeypatch.setattr(eval_mod, "MAX_EVAL_CHUNK_TOKENS", 100)
+    subchunked = evaluate_addressed_ar(model, problems, num_problems=5, batch_size=256)
+    assert subchunked == baseline

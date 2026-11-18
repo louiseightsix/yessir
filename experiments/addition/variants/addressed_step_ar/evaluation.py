@@ -1,7 +1,7 @@
 """Free-running rollout evaluation (`evaluate_addressed_step_ar`) for the `addressed_step_ar` variant of `addition`."""
 
 import itertools
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 
 import torch
 
@@ -22,6 +22,27 @@ from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 
+# Caps per-forward-pass padded tokens (`chunk_len * max_seq_len <= 65_536`) so
+# default `eval_batch_size = 64` on `B = 2, L = 40` (`802` tokens -> `51,328`)
+# runs unsplit while large `eval_batch_size` values (`256`–`512`) sub-chunk safely.
+MAX_EVAL_CHUNK_TOKENS = 65_536
+
+
+def _iter_token_bounded_chunks(
+    examples: Sequence[Example],
+    *,
+    batch_size: int,
+    max_chunk_tokens: int | None = None,
+) -> Iterator[Sequence[Example]]:
+    """Yield slices of `examples` of at most `batch_size` items and `max_chunk_tokens` padded tokens."""
+    budget = MAX_EVAL_CHUNK_TOKENS if max_chunk_tokens is None else max_chunk_tokens
+    for start in range(0, len(examples), batch_size):
+        outer = examples[start : start + batch_size]
+        max_len = max(len(ex) for ex in outer)
+        sub_size = max(1, min(len(outer), budget // max(1, max_len)))
+        for sub in range(0, len(outer), sub_size):
+            yield outer[sub : sub + sub_size]
+
 
 def _predict_last_token_chunks(
     model: Transformer,
@@ -29,11 +50,13 @@ def _predict_last_token_chunks(
     *,
     batch_size: int,
     device: torch.device,
+    max_chunk_tokens: int | None = None,
 ) -> list[int]:
-    """Run `examples` in `batch_size` chunks and return greedy `argmax` at `lengths - 1`."""
+    """Run `examples` in token-bounded `batch_size` chunks and return greedy `argmax` at `lengths - 1`."""
     preds: list[int] = []
-    for start in range(0, len(examples), batch_size):
-        chunk = examples[start : start + batch_size]
+    for chunk in _iter_token_bounded_chunks(
+        examples, batch_size=batch_size, max_chunk_tokens=max_chunk_tokens
+    ):
         batch = collate(chunk).to(device)
         logits = model(
             batch.input_ids,
@@ -57,12 +80,14 @@ def _predict_oracle_pairs_chunks(
     use_query_tokens: bool,
     batch_size: int,
     device: torch.device,
+    max_chunk_tokens: int | None = None,
 ) -> list[tuple[int, int]]:
     """Read teacher-forced `(pred_t0, pred_t1)` in one pass per chunk for `oracle_step_accuracy`."""
     offsets = (-5, -3) if use_query_tokens else (-3, -2)
     pairs: list[tuple[int, int]] = []
-    for start in range(0, len(examples), batch_size):
-        chunk = examples[start : start + batch_size]
+    for chunk in _iter_token_bounded_chunks(
+        examples, batch_size=batch_size, max_chunk_tokens=max_chunk_tokens
+    ):
         batch = collate(chunk).to(device)
         logits = model(
             batch.input_ids,

@@ -28,6 +28,11 @@ from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
 
+# Caps per-chunk KV-cache / teacher-forced token allocation (`chunk_len * max_seq_len <= 65_536`)
+# so default `eval_batch_size = 64` on `B = 2, L = 40` (`911` tokens -> `58,304`) runs
+# unsplit while large `eval_batch_size` values (`256`–`512`) sub-chunk safely.
+MAX_EVAL_CHUNK_TOKENS = 65_536
+
 
 @torch.no_grad()
 def _rollout_addressed_ar_chunk(
@@ -275,48 +280,56 @@ def _compute_addressed_ar_oracle_counts(
 
     oracle_ok_per_problem: list[int] = []
     for start in range(0, len(examples), batch_size):
-        chunk = examples[start : start + batch_size]
-        probs_chunk = problems[start : start + batch_size]
-        steps_chunk = oracle_steps[start : start + batch_size]
-        targets_chunk = num_targets_list[start : start + batch_size]
-        batch = collate(chunk).to(device)
-        logits = model(batch.input_ids, batch.lengths)
-        assert isinstance(logits, torch.Tensor)
-        argmax_ids = logits.argmax(dim=-1)
-        for b_idx, (prob, steps, num_targets) in enumerate(
-            zip(probs_chunk, steps_chunk, targets_chunk, strict=True)
-        ):
-            n = int(batch.lengths[b_idx].item())
-            preds = argmax_ids[b_idx, n - num_targets : n].tolist()
-            col_offset = 0
-            prob_ok = 0
-            for k, step in enumerate(steps):
-                addr_k = encode_address(k, prob.alphabet)
-                addr_len = len(addr_k)
-                entry_len = 1 + addr_len + body_len
-                col_slice = preds[col_offset : col_offset + entry_len]
-                col_offset += entry_len
+        outer_ex = examples[start : start + batch_size]
+        max_len = max(len(ex) for ex in outer_ex)
+        sub_size = max(1, min(len(outer_ex), MAX_EVAL_CHUNK_TOKENS // max(1, max_len)))
+        for sub in range(0, len(outer_ex), sub_size):
+            s = start + sub
+            e = s + sub_size
+            chunk = examples[s:e]
+            probs_chunk = problems[s:e]
+            steps_chunk = oracle_steps[s:e]
+            targets_chunk = num_targets_list[s:e]
+            batch = collate(chunk).to(device)
+            logits = model(batch.input_ids, batch.lengths)
+            assert isinstance(logits, torch.Tensor)
+            argmax_ids = logits.argmax(dim=-1)
+            for b_idx, (prob, steps, num_targets) in enumerate(
+                zip(probs_chunk, steps_chunk, targets_chunk, strict=True)
+            ):
+                n = int(batch.lengths[b_idx].item())
+                preds = argmax_ids[b_idx, n - num_targets : n].tolist()
+                col_offset = 0
+                prob_ok = 0
+                for k, step in enumerate(steps):
+                    addr_k = encode_address(k, prob.alphabet)
+                    addr_len = len(addr_k)
+                    entry_len = 1 + addr_len + body_len
+                    col_slice = preds[col_offset : col_offset + entry_len]
+                    col_offset += entry_len
 
-                header_ok = (col_slice[0] == idx_tok) and (
-                    tuple(col_slice[1 : 1 + addr_len]) == addr_k
-                )
-                body = col_slice[1 + addr_len :]
-                if use_query_tokens:
-                    pred_q0, pred_t0, pred_q1, pred_t1 = body
-                    syntax_ok = (
-                        header_ok and (pred_q0 == int(q_0)) and (pred_q1 == int(q_1))
+                    header_ok = (col_slice[0] == idx_tok) and (
+                        tuple(col_slice[1 : 1 + addr_len]) == addr_k
                     )
-                else:
-                    pred_t0, pred_t1 = body
-                    syntax_ok = header_ok
-                pred_o, pred_c = unpack_step_order(pred_t0, pred_t1, step_order)
-                if (
-                    syntax_ok
-                    and (pred_o == step.sum_digit)
-                    and (pred_c == step.carry_out)
-                ):
-                    prob_ok += 1
-            oracle_ok_per_problem.append(prob_ok)
+                    body = col_slice[1 + addr_len :]
+                    if use_query_tokens:
+                        pred_q0, pred_t0, pred_q1, pred_t1 = body
+                        syntax_ok = (
+                            header_ok
+                            and (pred_q0 == int(q_0))
+                            and (pred_q1 == int(q_1))
+                        )
+                    else:
+                        pred_t0, pred_t1 = body
+                        syntax_ok = header_ok
+                    pred_o, pred_c = unpack_step_order(pred_t0, pred_t1, step_order)
+                    if (
+                        syntax_ok
+                        and (pred_o == step.sum_digit)
+                        and (pred_c == step.carry_out)
+                    ):
+                        prob_ok += 1
+                oracle_ok_per_problem.append(prob_ok)
 
     return oracle_ok_per_problem
 
@@ -367,20 +380,43 @@ def evaluate_addressed_ar(
         for prob in problem_list
     ]
 
+    prefix_lens_all = [
+        len(
+            build_addressed_ar_example(
+                prob.alphabet,
+                prob.a,
+                prob.b,
+                (),
+                include_alphabet=include_alphabet,
+            )
+        )
+        for prob in problem_list
+    ]
+
     model.eval()
     device = model.device
     emitted_per_problem: list[list[int]] = []
 
     for start in range(0, num_problems, batch_size):
-        emitted_per_problem.extend(
-            _rollout_addressed_ar_chunk(
-                model,
-                problem_list[start : start + batch_size],
-                max_tokens_all[start : start + batch_size],
-                include_alphabet=include_alphabet,
-                device=device,
-            )
+        outer_end = min(num_problems, start + batch_size)
+        max_total_len = max(
+            prefix_lens_all[i] + max_tokens_all[i] for i in range(start, outer_end)
         )
+        sub_size = max(
+            1,
+            min(outer_end - start, MAX_EVAL_CHUNK_TOKENS // max(1, max_total_len)),
+        )
+        for sub in range(start, outer_end, sub_size):
+            sub_end = min(outer_end, sub + sub_size)
+            emitted_per_problem.extend(
+                _rollout_addressed_ar_chunk(
+                    model,
+                    problem_list[sub:sub_end],
+                    max_tokens_all[sub:sub_end],
+                    include_alphabet=include_alphabet,
+                    device=device,
+                )
+            )
 
     oracle_ok_counts = _compute_addressed_ar_oracle_counts(
         model,
