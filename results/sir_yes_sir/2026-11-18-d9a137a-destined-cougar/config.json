@@ -1,8 +1,8 @@
 {
   "experiment": "sir_yes_sir",
   "variant": "cls",
-  "device": "auto",
-  "started_at": "2026-11-18T19:00:06.933585Z",
+  "device": "cuda",
+  "started_at": "2026-11-18T19:16:34.366474Z",
   "git_commit_sha": "d9a137aabf09500415387c302be2b5c8ab3ce7cf",
   "git_short_sha": "d9a137a",
   "git_commit_date": "2026-11-18",
