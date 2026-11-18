@@ -245,8 +245,10 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
             submitted_specs.append(
                 json.loads(Path(cmd[cfg_idx]).read_text(encoding="utf-8"))
             )
+            reg_idx = cmd.index("--region") + 1
+            used_region = cmd[reg_idx]
             payload = {
-                "name": "projects/123/locations/us-central1/customJobs/987654321",
+                "name": f"projects/123/locations/{used_region}/customJobs/987654321",
                 "createTime": "2026-11-12T23:00:00Z",
                 "state": "JOB_STATE_PENDING",
             }
@@ -260,6 +262,8 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     record = cmd_submit(
         [exp],
         [
+            "--region",
+            "us-east4",
             "sir_yes_sir",
             "cls",
             "--max-steps",
@@ -276,6 +280,7 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     )
     assert record is not None
     assert record.job_id == "987654321"
+    assert record.region == "us-east4"
     assert record.experiment == "sir_yes_sir"
     assert record.variant == "cls"
     assert record.run_name.startswith("2026-11-12-953e4d9-")
@@ -481,27 +486,63 @@ def test_cmd_list_and_cmd_pull(
     )
     write_vertex_json(run_dir, rec)
 
+    other_dir = tmp_path / "sir_yes_sir" / "2026-11-12-953e4d9-east-otter"
+    other_rec = VertexJobRecord(
+        job_name="projects/123/locations/us-east4/customJobs/222222222",
+        job_id="222222222",
+        display_name="sir_yes_sir-2026-11-12-953e4d9-east-otter",
+        project=settings.project,
+        region="us-east4",
+        experiment="sir_yes_sir",
+        variant="cls",
+        run_name="2026-11-12-953e4d9-east-otter",
+        git_commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
+        repo_url=settings.repo_url,
+        image_uri=settings.image_uri,
+        gcs_run_uri="gs://test-yessir-bucket/results/sir_yes_sir/2026-11-12-953e4d9-east-otter",
+        machine_type="g2-standard-4",
+        accelerator_type="NVIDIA_L4",
+        accelerator_count=1,
+        submitted_at="2026-11-12T23:05:00Z",
+    )
+    write_vertex_json(other_dir, other_rec)
+
     def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if cmd[:4] == ["gcloud", "ai", "custom-jobs", "list"]:
-            jobs = [
-                {
-                    "name": rec.job_name,
-                    "displayName": rec.display_name,
-                    "state": "JOB_STATE_SUCCEEDED",
-                    "createTime": "2026-11-12T23:00:00Z",
-                },
-                {
-                    "name": "projects/123/locations/us-central1/customJobs/111111111",
-                    "displayName": "historical-job",
-                    "state": "JOB_STATE_FAILED",
-                    "createTime": "2026-11-10T12:00:00Z",
-                },
-            ]
+            reg_idx = cmd.index("--region") + 1
+            queried_region = cmd[reg_idx]
+            if queried_region == "us-central1":
+                jobs = [
+                    {
+                        "name": rec.job_name,
+                        "displayName": rec.display_name,
+                        "state": "JOB_STATE_SUCCEEDED",
+                        "createTime": "2026-11-12T23:00:00Z",
+                    },
+                    {
+                        "name": "projects/123/locations/us-central1/customJobs/111111111",
+                        "displayName": "historical-job",
+                        "state": "JOB_STATE_FAILED",
+                        "createTime": "2026-11-10T12:00:00Z",
+                    },
+                ]
+            elif queried_region == "us-east4":
+                jobs = [
+                    {
+                        "name": other_rec.job_name,
+                        "displayName": other_rec.display_name,
+                        "state": "JOB_STATE_RUNNING",
+                        "createTime": "2026-11-12T23:05:00Z",
+                    },
+                ]
+            else:
+                raise AssertionError(f"unexpected region {queried_region}")
             return subprocess.CompletedProcess(
                 cmd, 0, stdout=json.dumps(jobs), stderr=""
             )
         if cmd[:3] == ["gcloud", "storage", "cp"]:
-            (run_dir / "eval.json").write_text(
+            dest_dir = Path(cmd[-1])
+            (dest_dir / "eval.json").write_text(
                 '{"exact_match": 1.0}\n', encoding="utf-8"
             )
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -510,17 +551,25 @@ def test_cmd_list_and_cmd_pull(
     monkeypatch.setattr(subprocess, "run", _fake_run)
 
     jobs = cmd_list(settings, results_root=tmp_path)
-    assert len(jobs) == 2
+    assert len(jobs) == 3
     list_out = capsys.readouterr().out
     assert "987654321" in list_out
+    assert "us-central1" in list_out
     assert "SUCCEEDED" in list_out
+    assert "222222222" in list_out
+    assert "us-east4" in list_out
+    assert "RUNNING" in list_out
     assert "111111111" in list_out
     assert "historical-job" in list_out
 
-    # Pull populates eval.json, and a subsequent pull skips already-pulled runs unless --force.
+    east_only = cmd_list(settings, region="us-east4", results_root=tmp_path)
+    assert len(east_only) == 1
+
+    # Pull populates eval.json across regions, and a subsequent pull skips already-pulled runs unless --force.
     pulled = cmd_pull(results_root=tmp_path)
-    assert pulled == [run_dir]
+    assert pulled == [run_dir, other_dir]
     assert (run_dir / "eval.json").is_file()
+    assert (other_dir / "eval.json").is_file()
 
     pulled_again = cmd_pull(results_root=tmp_path)
     assert pulled_again == []

@@ -378,6 +378,7 @@ def cmd_submit(
 ) -> VertexJobRecord | None:
     """Resolve experiment config, upload config to GCS, submit a Vertex Custom Job, and record local run files."""
     wrapper = argparse.ArgumentParser(add_help=False)
+    wrapper.add_argument("--region", default=None)
     wrapper.add_argument("--machine-type", default=None)
     wrapper.add_argument("--accelerator-type", default=None)
     wrapper.add_argument("--accelerator-count", type=int, default=None)
@@ -396,6 +397,7 @@ def cmd_submit(
 
     effective_settings = dataclasses.replace(
         settings,
+        region=vertex_args.region or settings.region,
         machine_type=vertex_args.machine_type or settings.machine_type,
         accelerator_type=(
             vertex_args.accelerator_type
@@ -525,7 +527,9 @@ def cmd_submit(
         submitted_at=submitted_at,
     )
     write_vertex_json(out_dir, record)
-    print(f"Submitted Vertex job {job_id} ({display_name})")
+    print(
+        f"Submitted Vertex job {job_id} ({display_name}) in {effective_settings.region}"
+    )
     print(f"  local dir: {out_dir}")
     print(f"  gcs uri:   {gcs_run_uri}")
     return record
@@ -534,53 +538,74 @@ def cmd_submit(
 def cmd_list(
     settings: VertexSettings,
     *,
+    region: str | None = None,
     results_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     """List all Vertex AI Custom Jobs (including historical ones) paired with local run directories."""
-    stdout = _run_checked(
-        [
-            "gcloud",
-            "ai",
-            "custom-jobs",
-            "list",
-            "--project",
-            settings.project,
-            "--region",
-            settings.region,
-            "--format=json",
-        ]
-    )
-    remote_jobs: list[dict[str, Any]] = json.loads(stdout) if stdout.strip() else []
-
+    local_runs = find_local_vertex_runs(results_root)
     local_by_job_name: dict[str, tuple[Path, VertexJobRecord]] = {}
     local_by_display: dict[str, tuple[Path, VertexJobRecord]] = {}
-    for run_dir, rec in find_local_vertex_runs(results_root):
+    for run_dir, rec in local_runs:
         if rec.job_name:
             local_by_job_name[rec.job_name] = (run_dir, rec)
         local_by_display[rec.display_name] = (run_dir, rec)
 
-    rows: list[tuple[str, str, str, str, str, str]] = []
-    for job in remote_jobs:
-        name = str(job.get("name", ""))
-        job_id = name.rsplit("/", 1)[-1] if "/" in name else name
-        state = str(job.get("state", "UNKNOWN")).removeprefix("JOB_STATE_")
-        created = str(job.get("createTime", ""))[:19].replace("T", " ")
-        display = str(job.get("displayName", ""))
-        match = local_by_job_name.get(name) or local_by_display.get(display)
-        if match is not None:
-            run_dir, _ = match
-            local_label = f"{run_dir.parent.name}/{run_dir.name}"
-            pulled = "yes" if (run_dir / "eval.json").is_file() else "no"
-        else:
-            local_label = "-"
-            pulled = "-"
-        rows.append((job_id, state, created, display, local_label, pulled))
+    if region is not None:
+        regions_to_query = [region]
+    else:
+        seen_regions: dict[str, None] = {settings.region: None}
+        for _, rec in local_runs:
+            if rec.region:
+                seen_regions[rec.region] = None
+        regions_to_query = list(seen_regions)
+
+    remote_jobs: list[dict[str, Any]] = []
+    rows: list[tuple[str, str, str, str, str, str, str]] = []
+    for reg in regions_to_query:
+        stdout = _run_checked(
+            [
+                "gcloud",
+                "ai",
+                "custom-jobs",
+                "list",
+                "--project",
+                settings.project,
+                "--region",
+                reg,
+                "--format=json",
+            ]
+        )
+        reg_jobs: list[dict[str, Any]] = json.loads(stdout) if stdout.strip() else []
+        remote_jobs.extend(reg_jobs)
+        for job in reg_jobs:
+            name = str(job.get("name", ""))
+            job_id = name.rsplit("/", 1)[-1] if "/" in name else name
+            state = str(job.get("state", "UNKNOWN")).removeprefix("JOB_STATE_")
+            created = str(job.get("createTime", ""))[:19].replace("T", " ")
+            display = str(job.get("displayName", ""))
+            match = local_by_job_name.get(name) or local_by_display.get(display)
+            if match is not None:
+                run_dir, _ = match
+                local_label = f"{run_dir.parent.name}/{run_dir.name}"
+                pulled = "yes" if (run_dir / "eval.json").is_file() else "no"
+            else:
+                local_label = "-"
+                pulled = "-"
+            rows.append((job_id, reg, state, created, display, local_label, pulled))
 
     if not rows:
         print("No Vertex AI custom jobs found.")
         return remote_jobs
 
-    headers = ("JOB_ID", "STATE", "CREATED", "DISPLAY_NAME", "LOCAL_RUN", "PULLED")
+    headers = (
+        "JOB_ID",
+        "REGION",
+        "STATE",
+        "CREATED",
+        "DISPLAY_NAME",
+        "LOCAL_RUN",
+        "PULLED",
+    )
     widths = [
         max(len(headers[i]), *(len(r[i]) for r in rows)) for i in range(len(headers))
     ]
@@ -670,9 +695,14 @@ def run_vertex_cli(
         add_help=False,
     )
 
-    sub.add_parser(
+    p_list = sub.add_parser(
         "list",
         help="List all Vertex AI Custom Jobs (including historical jobs) and their local status",
+    )
+    p_list.add_argument(
+        "--region",
+        default=None,
+        help="Optional region to list jobs from (default: vertex.toml region plus any region in local vertex.json files)",
     )
 
     p_pull = sub.add_parser(
@@ -720,7 +750,7 @@ def run_vertex_cli(
     if parsed.subcommand in ("build-image", "build"):
         cmd_build_image(settings, local_docker=parsed.local_docker)
     elif parsed.subcommand == "list":
-        cmd_list(settings, results_root=results_root)
+        cmd_list(settings, region=parsed.region, results_root=results_root)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
