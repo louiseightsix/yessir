@@ -782,14 +782,47 @@ def cmd_quota(settings: VertexSettings) -> dict[str, dict[str, int]]:
     return quotas
 
 
-def _run_matches(rec: VertexJobRecord, run_filter: str) -> bool:
-    """Return True if `run_filter` names this run (run name, display name, job ID, or <experiment>/<run_name>)."""
-    return run_filter in (
-        rec.run_name,
-        rec.display_name,
-        rec.job_id,
-        f"{rec.experiment}/{rec.run_name}",
-    )
+class RunNotFoundError(ValueError):
+    """`run_filter` names no local run, or more than one. The CLI prints it without a traceback."""
+
+
+def find_runs(
+    local_runs: Sequence[tuple[Path, VertexJobRecord]], run_filter: str
+) -> list[tuple[Path, VertexJobRecord]]:
+    """Return the local runs `run_filter` names.
+
+    An exact run name, display name, job ID, or <experiment>/<run_name> wins.
+    Otherwise a short name such as `blessed-escargot` matches the run whose name
+    ends in `-blessed-escargot`, as long as exactly one does.
+    """
+    exact = [
+        (run_dir, rec)
+        for run_dir, rec in local_runs
+        if run_filter
+        in (
+            rec.run_name,
+            rec.display_name,
+            rec.job_id,
+            f"{rec.experiment}/{rec.run_name}",
+        )
+    ]
+    if exact:
+        return exact
+    by_suffix = [
+        (run_dir, rec)
+        for run_dir, rec in local_runs
+        if rec.run_name.endswith(f"-{run_filter}")
+    ]
+    if not by_suffix:
+        raise RunNotFoundError(
+            f"No local Vertex run matching {run_filter!r} found under results/"
+        )
+    if len(by_suffix) > 1:
+        names = "\n".join(f"  {rec.experiment}/{rec.run_name}" for _, rec in by_suffix)
+        raise RunNotFoundError(
+            f"{run_filter!r} matches more than one run; use the full name:\n{names}"
+        )
+    return by_suffix
 
 
 def cmd_pull(
@@ -800,19 +833,14 @@ def cmd_pull(
 ) -> list[Path]:
     """Pull remote GCS artefacts (`train.jsonl`, `eval.json`, etc.) into local run directories."""
     local_runs = find_local_vertex_runs(results_root)
-    targets: list[tuple[Path, VertexJobRecord]] = []
-    for run_dir, rec in local_runs:
-        if run_filter is not None:
-            if not _run_matches(rec, run_filter):
-                continue
-        elif not force and (run_dir / "eval.json").is_file():
-            continue
-        targets.append((run_dir, rec))
-
-    if run_filter is not None and not targets:
-        raise ValueError(
-            f"No local Vertex run matching {run_filter!r} found under results/"
-        )
+    if run_filter is not None:
+        targets = find_runs(local_runs, run_filter)
+    else:
+        targets = [
+            (run_dir, rec)
+            for run_dir, rec in local_runs
+            if force or not (run_dir / "eval.json").is_file()
+        ]
 
     pulled_dirs: list[Path] = []
     for run_dir, rec in targets:
@@ -892,12 +920,7 @@ def cmd_logs(
 
     targets: list[tuple[Path, VertexJobRecord, dict[str, Any]]] = []
     if run_filter is not None:
-        matches = [(d, r) for d, r in local_runs if _run_matches(r, run_filter)]
-        if not matches:
-            raise ValueError(
-                f"No local Vertex run matching {run_filter!r} found under results/"
-            )
-        for run_dir, rec in matches:
+        for run_dir, rec in find_runs(local_runs, run_filter):
             stdout = _run_checked(
                 [
                     "gcloud",
@@ -1079,7 +1102,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Entry point for `python -m yessir.vertex`."""
     from experiments.__main__ import EXPERIMENTS
 
-    run_vertex_cli(EXPERIMENTS, argv)
+    try:
+        run_vertex_cli(EXPERIMENTS, argv)
+    except RunNotFoundError as e:
+        sys.exit(f"error: {e}")
 
 
 if __name__ == "__main__":

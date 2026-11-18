@@ -12,6 +12,7 @@ import pytest
 from yessir.artefacts import GitInfo, get_git_info
 from yessir.experiment import Experiment, ExperimentConfig, ExperimentVariant
 from yessir.vertex import (
+    RunNotFoundError,
     VertexJobRecord,
     VertexSettings,
     build_custom_job_spec,
@@ -22,6 +23,7 @@ from yessir.vertex import (
     cmd_pull,
     cmd_submit,
     find_local_vertex_runs,
+    find_runs,
     format_job_log,
     gpu_quota_by_region,
     is_commit_pushed_to_remote,
@@ -912,3 +914,47 @@ def test_cmd_logs_for_one_run_and_for_failed_runs_without_logs(
 
     with pytest.raises(ValueError, match="either a run or --failed"):
         cmd_logs(settings, results_root=tmp_path)
+
+
+def test_find_runs_accepts_full_or_short_names():
+    def _rec(experiment: str, run_name: str, job_id: str) -> VertexJobRecord:
+        return VertexJobRecord(
+            job_name=f"projects/123/locations/us-east4/customJobs/{job_id}",
+            job_id=job_id,
+            display_name=f"{experiment}-{run_name}",
+            project="test-gcp-project",
+            region="us-east4",
+            experiment=experiment,
+            variant="cls",
+            run_name=run_name,
+            git_commit_sha="7431adafefaf394447865140bab52f4059c69990",
+            repo_url="https://github.com/louiseightsix/yessir.git",
+            image_uri="runner:latest",
+            gcs_run_uri=f"gs://bucket/results/{experiment}/{run_name}",
+            machine_type="n1-standard-4",
+            accelerator_type="NVIDIA_TESLA_T4",
+            accelerator_count=1,
+            submitted_at="2026-11-18T20:51:00Z",
+        )
+
+    escargot = (Path("a"), _rec("addition", "2026-11-18-7431ada-blessed-escargot", "1"))
+    first_mammal = (
+        Path("b"),
+        _rec("addition", "2026-11-18-7431ada-ultimate-mammal", "2"),
+    )
+    other_mammal = (
+        Path("c"),
+        _rec("sir_yes_sir", "2026-11-12-1eb53a1-ultimate-mammal", "3"),
+    )
+    runs = [escargot, first_mammal, other_mammal]
+
+    assert find_runs(runs, "2026-11-18-7431ada-blessed-escargot") == [escargot]
+    assert find_runs(runs, "1") == [escargot]
+    assert find_runs(runs, "blessed-escargot") == [escargot]
+    assert find_runs(runs, "7431ada-blessed-escargot") == [escargot]
+    # The suffix must start at a "-", so a partial word matches nothing.
+    with pytest.raises(RunNotFoundError, match="No local Vertex run"):
+        find_runs(runs, "escargo")
+    with pytest.raises(RunNotFoundError, match="more than one run") as excinfo:
+        find_runs(runs, "ultimate-mammal")
+    assert "sir_yes_sir/2026-11-12-1eb53a1-ultimate-mammal" in str(excinfo.value)
