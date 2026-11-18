@@ -2,7 +2,7 @@
 
 The `step_ar` variant (`experiments/addition/variants/step_ar/`) frames [the `addition` task](../task.md) as sequential per-step next-token prediction through `SubspaceLMHead`, driven by the same step-by-step harness as [`cls`](cls.md).
 
-Holding the per-step harness fixed (updating `c_k` and `o_0, ..., o_{k-1}` between columns and discarding transient step tokens), `step_ar` replaces `cls`'s 3-head `ParallelClassificationHead` with 3 sequential next-token predictions through the parameter-free `SubspaceLMHead`.
+Holding the per-step harness fixed (updating `c_k` and `o_0, ..., o_{k-1}` between columns and discarding transient step tokens), `step_ar` replaces `cls`'s 3-head `ParallelClassificationHead` with 3 sequential next-token predictions through the parameter-free `SubspaceLMHead`; when run with `--embedding-mode nope` (matching [`ar`](ar.md)'s `input_ids`-only inputs alongside default `token_type_pe`), it isolates per-step external state rewriting from free-running full-trace generation.
 
 ### Variant parameters
 

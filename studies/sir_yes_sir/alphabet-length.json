@@ -2,7 +2,7 @@
   "title": "Impact of alphabet length B",
   "status": "draft",
   "kind": "sweep",
-  "question": "How do convergence speed, overall step accuracy, and wrap-around accuracy (`splits.id.wrap_around_accuracy` in `eval.jsonl`, measuring `x_k == s_{B-1} -> s_0`) scale as the in-context alphabet size B grows from 2 up to 240, both when the symbol pool is restricted to B symbols (noting small-universe train/eval overlap at tiny B and L) and when drawn from the full 240-byte pool?",
+  "question": "How do convergence speed, overall step accuracy, and wrap-around accuracy (`splits.id.wrap_around_accuracy` in `eval.jsonl`, measuring `x_k == s_{B-1} -> s_0`) scale as the in-context alphabet size B grows from 2 up to 240, both when the symbol pool is restricted to B symbols (noting small-universe train/eval overlap at tiny B and L) and when drawn from the full 240-byte pool? (Note: at the B = 2 lower endpoint, [a, b] and [b, a] define the same cyclic swap a <-> b, testing static memorisation on a 2-symbol pool or unordered 2-symbol partner lookup on the 240-byte pool; order-sensitive lookup starts at B = 3.)",
   "runs": [],
   "conclusion": null
 }

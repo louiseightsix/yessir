@@ -2,7 +2,7 @@
   "title": "External step harness vs. model capacity (d_scratch, n_layers)",
   "status": "draft",
   "kind": "comparison",
-  "question": "Because cls and step_ar offload inter-column state updates (rewriting c_k and stripping transient tokens) to the external harness while ar must track the entire unrolled trace in context, can cls and step_ar solve base-conditioned addition with a smaller working-memory scratchpad (d_scratch) or fewer layers (n_layers) than ar? (Note: in step-harnessed runs under nope or token_type_nope, pass fixed_d_model=False when sweeping d_scratch down to 0 so dropped token-type/position slices do not add 32 or 48 dims back into effective_d_scratch.)",
+  "question": "Because cls and step_ar offload inter-column state updates (rewriting c_k and stripping transient tokens) to the external harness while ar must track the entire unrolled trace in context, can cls and step_ar solve base-conditioned addition with a smaller working-memory scratchpad (d_scratch) or fewer layers (n_layers) than ar? (Notes: (1) cls and step_ar default to token_type_pe while ar is a pure input_ids-only LM (nope), so run cls and step_ar with --embedding-mode nope alongside default token_type_pe to isolate external state rewriting from 1-hop sinusoidal column alignment; (2) under nope or token_type_nope, pass fixed_d_model=False when sweeping d_scratch down to 0 so dropped token-type/position slices do not add 32 or 48 dims back into effective_d_scratch.)",
   "runs": [],
   "conclusion": null
 }
