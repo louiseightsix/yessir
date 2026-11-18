@@ -60,5 +60,5 @@ git checkout --quiet FETCH_HEAD
 echo "checked out $(git rev-parse HEAD) ($(git show -s --format=%cs HEAD))"
 
 # Sync any newly added dependencies against the pre-populated /opt/venv, then run.
-uv sync --frozen --no-install-project --no-dev
+uv sync --frozen --no-install-project --no-dev --no-cache
 uv run --no-sync --no-dev python -m experiments "$@"
