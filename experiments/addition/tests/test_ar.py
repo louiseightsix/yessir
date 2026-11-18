@@ -625,3 +625,61 @@ def test_evaluate_and_rollout_ar_with_real_transformer_and_validation():
         )
     with pytest.raises(ValueError, match="SubspaceLMHead"):
         rollout_ar(cls_model, b"01", b"0", b"1")
+
+
+def test_partially_trained_ar_transformer_exact_match_matches_rollout():
+    from yessir.training import train
+
+    seed_everything(7)
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=16,
+    )
+    train(
+        model,
+        AdditionArDataset(
+            bases=(2, 3),
+            min_length=1,
+            max_length=1,
+            p_prior=1.0,
+            step_order=StepOrder.CARRY_FIRST,
+            seed=7,
+        ),
+        max_steps=90,
+        batch_size=8,
+        lr=8e-4,
+    )
+    problems = list(
+        itertools.islice(
+            iter_problems(
+                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+            ),
+            30,
+        )
+    )
+    metrics = evaluate_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=7,
+        step_order=StepOrder.CARRY_FIRST,
+    )
+    assert 0.0 < metrics.exact_match < 1.0
+
+    rollout_matches = sum(
+        rollout_ar(model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST)
+        == [
+            *build_ar_trace_tokens(
+                reference_add(p.alphabet, p.a, p.b),
+                step_order=StepOrder.CARRY_FIRST,
+            ),
+            int(SpecialToken.EOS),
+        ]
+        for p in problems
+    )
+    assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

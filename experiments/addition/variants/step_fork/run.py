@@ -44,7 +44,7 @@ def run_addition_step_fork(
         head_type=HeadType.SUBSPACE_LM,
         train_dataset=train_dataset,
         evaluate_fn=evaluate_fn,
-        train_batch_size=3 * config.batch_size,
+        train_batch_size=AdditionStepForkDataset.BRANCHES_PER_STEP * config.batch_size,
         device=device,
     )
 

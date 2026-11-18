@@ -4,13 +4,14 @@ import argparse
 from collections.abc import Iterator, Sequence
 
 from experiments.addition.inputs import (
+    ADDITION_TOKEN_LABELS,
     StepOrder,
     add_common_dataset_args,
     iter_problems,
     validate_sampling_params,
 )
 from experiments.addition.variants.ar.inputs import build_ar_labelled_example
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSet, resolve_symbol_pool_slice
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import TokenSequence
@@ -100,6 +101,7 @@ def _build_from_args(args: argparse.Namespace) -> AdditionArDataset:
         bases=args.bases,
         min_length=args.min_length,
         max_length=args.max_length,
+        symbols=resolve_symbol_pool_slice(args.symbol_set, args.symbol_pool_size),
         p_prior=args.p_prior,
         permuted_canonical=args.permuted_canonical,
         p_chain=args.p_chain,
@@ -115,6 +117,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         description="Generate, print, or dump addition (ar) training examples.",
         add_dataset_args=_add_cli_args,
         build_dataset=_build_from_args,
+        token_labels=ADDITION_TOKEN_LABELS,
         argv=argv,
     )
 

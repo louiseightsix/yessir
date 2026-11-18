@@ -9,7 +9,7 @@ from experiments.sir_yes_sir.inputs import (
     resolve_symbol_pool,
 )
 from experiments.sir_yes_sir.variants.ar.inputs import build_ar_labelled_example
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSet, resolve_symbol_pool_slice
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import TokenSequence
@@ -58,6 +58,7 @@ def _build_from_args(args: argparse.Namespace) -> SirYesSirArDataset:
     return SirYesSirArDataset(
         alphabet_size=args.alphabet_size,
         x_length=args.x_length,
+        symbols=resolve_symbol_pool_slice(args.symbol_set, args.symbol_pool_size),
         resample_alphabet=args.resample_alphabet,
         seed=args.seed,
     )

@@ -183,14 +183,37 @@ def test_dataset_rejects_invalid_init_args(alphabet_size, x_length, symbols, mat
         SirYesSirClsDataset(
             alphabet_size=alphabet_size, x_length=x_length, symbols=symbols
         )
+    with pytest.raises(ValueError, match=match):
+        SirYesSirArDataset(
+            alphabet_size=alphabet_size, x_length=x_length, symbols=symbols
+        )
 
 
 def test_dataset_cli_main_prints_examples(capsys: pytest.CaptureFixture[str]):
-    main(["-n", "2", "-B", "3", "-L", "2", "--embedding-mode", "nope", "--seed", "9"])
+    main(
+        [
+            "-n",
+            "2",
+            "-B",
+            "3",
+            "-L",
+            "2",
+            "--symbol-set",
+            "decimal",
+            "--symbol-pool-size",
+            "3",
+            "--embedding-mode",
+            "nope",
+            "--seed",
+            "9",
+        ]
+    )
     out = capsys.readouterr().out
     assert "Example 0:" in out
     assert "Example 1:" in out
     assert "token_type_ids" not in out
+    # Decimal[:3] ('0'=0x30, '1'=0x31, '2'=0x32) only emits 0x30..0x32 symbol bytes.
+    assert "0x30" in out
 
 
 def test_ar_dataset_yields_one_labelled_example_per_problem_and_cli(
@@ -214,7 +237,32 @@ def test_ar_dataset_yields_one_labelled_example_per_problem_and_cli(
     assert item.labels[: prefix_len - 1] == (IGNORE_INDEX,) * (prefix_len - 1)
     assert item.labels[prefix_len - 1 :] == expected_targets
 
-    ar_main(["-n", "1", "-B", "3", "-L", "2"])
+    ar_main(
+        [
+            "-n",
+            "1",
+            "-B",
+            "3",
+            "-L",
+            "2",
+            "--symbol-set",
+            "decimal",
+            "--symbol-pool-size",
+            "3",
+        ]
+    )
     out = capsys.readouterr().out
     assert "Example 0:" in out
     assert "[-100]" in out
+    assert "0x30" in out
+
+    # `resample_alphabet=False` keeps fixed canonical prefix `symbols[:alphabet_size]`.
+    fixed_ar = SirYesSirArDataset(
+        alphabet_size=3,
+        x_length=2,
+        symbols=SymbolSet.DECIMAL,
+        resample_alphabet=False,
+        seed=5,
+    )
+    for item_fixed in itertools.islice(fixed_ar, 4):
+        assert item_fixed.example.input_ids[1:4] == tuple(b"012")

@@ -5,29 +5,18 @@ from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
-from yessir.alphabet import SymbolSet
-from yessir.defaults import DEFAULT_LR, default_eval_every
+from yessir.alphabet import SymbolSetName
+from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
+
+SIR_YES_SIR_MIN_EVAL_EVERY = 50
 
 SIR_YES_SIR_DESCRIPTION = "In-context cyclic successor lookup smoke-test experiment."
 CLS_DESCRIPTION = (
     "Parallel classification variant read through ParallelClassificationHead."
 )
 AR_DESCRIPTION = "Autoregressive variant read through SubspaceLMHead."
-
-
-@unique
-class SymbolSetName(StrEnum):
-    """CLI/JSON-friendly names for the symbol pools in `yessir.alphabet.SymbolSet`."""
-
-    ALL = "all"
-    DECIMAL = "decimal"
-    HEX = "hex"
-
-    def resolve(self) -> SymbolSet:
-        """Return the corresponding `SymbolSet` byte pool."""
-        return SymbolSet[self.name]
 
 
 @unique
@@ -89,8 +78,8 @@ class SirYesSirConfig(ExperimentConfig):
     eval_every: int | None = field(
         default=None,
         metadata={
-            "domain": "int >= 0 or None (None = max(2500, max_steps // 20); 0 = final only)",
-            "step": 500,
+            "domain": "int >= 0 or None (None = max(50, max_steps // 20); 0 = final only)",
+            "step": 50,
             "min": 0,
         },
     )
@@ -110,6 +99,11 @@ class SirYesSirConfig(ExperimentConfig):
             raise ValueError(
                 f"symbol_pool_size must be in 2..{len(full_pool)} for "
                 f"symbol_set={self.symbol_set.value!r}, got {self.symbol_pool_size}"
+            )
+        if not self.resample_alphabet and self.symbol_pool_size is not None:
+            raise ValueError(
+                f"symbol_pool_size is unused when resample_alphabet=False "
+                f"(uses symbol_set[:alphabet_size]); leave symbol_pool_size=None, got {self.symbol_pool_size}"
             )
 
         pool_len = len(self.symbol_pool)
@@ -204,7 +198,7 @@ class SirYesSirConfig(ExperimentConfig):
     def effective_eval_every(self) -> int | None:
         """Periodic evaluation interval in steps (`None` when `eval_every == 0` disables mid-run checkpoints)."""
         if self.eval_every is None:
-            return default_eval_every(self.max_steps)
+            return max(SIR_YES_SIR_MIN_EVAL_EVERY, self.max_steps // 20)
         return self.eval_every if self.eval_every > 0 else None
 
     def derived_summary(self) -> str:
@@ -215,7 +209,8 @@ class SirYesSirConfig(ExperimentConfig):
             else "final"
         )
         return (
-            f"d_model={self.d_model}, symbol_pool_size={len(self.symbol_pool)}, "
+            f"d_model={self.d_model} (d_pos={self.effective_d_position}, "
+            f"d_scratch={self.effective_d_scratch}), symbol_pool_size={len(self.symbol_pool)}, "
             f"eval_every={eval_str}"
         )
 
@@ -237,7 +232,7 @@ class SirYesSirClsConfig(SirYesSirConfig):
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
     d_position: int = field(
         default=32,
-        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
+        metadata={"domain": "even int >= 4 (32 unless token_type_pe)", "step": 2},
     )
     d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
     fixed_d_model: bool = True
@@ -250,9 +245,16 @@ class SirYesSirClsConfig(SirYesSirConfig):
             raise ValueError(
                 f"d_position must be a non-negative even int, got {self.d_position}"
             )
-        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
+        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
+            if self.d_position < 4:
+                raise ValueError(
+                    f"d_position must be >= 4 when embedding_mode is 'token_type_pe' "
+                    f"(d_position=2 has single period 2*pi ~ 6.28), got {self.d_position}"
+                )
+        elif self.d_position != 32:
             raise ValueError(
-                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
+                f"d_position is unused when embedding_mode={self.embedding_mode.value!r}; "
+                f"leave d_position=32 (got {self.d_position}) and adjust d_scratch or fixed_d_model instead"
             )
         super().__post_init__()
 

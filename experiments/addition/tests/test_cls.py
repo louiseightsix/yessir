@@ -410,3 +410,62 @@ def test_evaluate_and_rollout_cls_with_real_transformer_and_validation():
         )
     with pytest.raises(ValueError, match="3-head ParallelClassificationHead"):
         rollout_cls(lm_model, b"01", b"0", b"1")
+
+
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_partially_trained_cls_transformer_exact_match_matches_rollout(
+    embedding_mode: EmbeddingMode,
+):
+    from yessir.alphabet import SymbolSet
+    from yessir.training import train
+
+    seed_everything(7)
+    symbols = SymbolSet.DECIMAL[:2]
+    use_tt = embedding_mode != EmbeddingMode.NOPE
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=2,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=8,
+    )
+    train(
+        model,
+        AdditionClsDataset(
+            bases=(2,),
+            min_length=1,
+            max_length=2,
+            symbols=symbols,
+            embedding_mode=embedding_mode,
+            seed=7,
+        ),
+        max_steps=50,
+        batch_size=8,
+        lr=2e-3,
+    )
+    problems = list(
+        itertools.islice(
+            iter_problems(
+                bases=(2,), min_length=1, max_length=2, symbols=symbols, seed=99
+            ),
+            40,
+        )
+    )
+    metrics = evaluate_cls(
+        model, problems, num_problems=40, batch_size=7, embedding_mode=embedding_mode
+    )
+    assert 0.0 < metrics.exact_match < 1.0
+
+    rollout_matches = sum(
+        rollout_cls(model, p.alphabet, p.a, p.b, embedding_mode=embedding_mode)
+        == [
+            (st.sum_digit, st.carry_out, int(st.flag))
+            for st in reference_add(p.alphabet, p.a, p.b)
+        ]
+        for p in problems
+    )
+    assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

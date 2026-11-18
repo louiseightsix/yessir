@@ -3,7 +3,7 @@
 import argparse
 import itertools
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from yessir.dataset import IGNORE_INDEX, IterableDataset, LabelledExample
@@ -11,20 +11,31 @@ from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token
 
 
-def format_token(token: Token) -> str:
-    """Format a byte token as `[SPECIAL_NAME]`, `[-100]` (for `IGNORE_INDEX`), or two-digit hex `0x..`."""
+def format_token(
+    token: Token,
+    *,
+    token_labels: Mapping[int, str] | None = None,
+) -> str:
+    """Format a byte token as `[SPECIAL_NAME]`, custom `token_labels[token]`, `[-100]`, or `0x..`."""
     if token == IGNORE_INDEX:
         return "[-100]"
+    if token_labels is not None and token in token_labels:
+        return token_labels[token]
     try:
         return f"[{SpecialToken(token).name}]"
     except ValueError:
         return f"0x{token:02x}"
 
 
-def format_labelled_example(item: LabelledExample, index: int) -> str:
+def format_labelled_example(
+    item: LabelledExample,
+    index: int,
+    *,
+    token_labels: Mapping[int, str] | None = None,
+) -> str:
     """Format one `LabelledExample` with aligned columns for console inspection."""
     ex = item.example
-    token_strs = [format_token(t) for t in ex.input_ids]
+    token_strs = [format_token(t, token_labels=token_labels) for t in ex.input_ids]
     col_widths = [
         max(
             len(token_strs[i]),
@@ -51,13 +62,15 @@ def format_labelled_example(item: LabelledExample, index: int) -> str:
         lines.append(f"  position_ids:   {pos_row}")
     if isinstance(item.labels[0], tuple):
         formatted_labels = ", ".join(
-            f"({', '.join(format_token(t) for t in step)})"
+            f"({', '.join(format_token(t, token_labels=token_labels) for t in step)})"
             for step in item.labels
             if isinstance(step, tuple)
         )
     else:
         formatted_labels = ", ".join(
-            format_token(t) for t in item.labels if isinstance(t, int)
+            format_token(t, token_labels=token_labels)
+            for t in item.labels
+            if isinstance(t, int)
         )
     lines.append(f"  labels:         ({formatted_labels})")
     return "\n".join(lines)
@@ -90,6 +103,7 @@ def inspect_dataset(
     num_examples: int,
     out: Path | None = None,
     print_console: bool = False,
+    token_labels: Mapping[int, str] | None = None,
 ) -> None:
     """Take `num_examples` from `dataset` and print them and/or write them to `out`."""
     if num_examples < 1:
@@ -106,7 +120,7 @@ def inspect_dataset(
 
     if out is None or print_console:
         for idx, item in enumerate(examples):
-            print(format_labelled_example(item, idx))
+            print(format_labelled_example(item, idx, token_labels=token_labels))
             if idx < len(examples) - 1:
                 print()
 
@@ -116,6 +130,7 @@ def run_inspect_cli(
     description: str,
     add_dataset_args: Callable[[argparse.ArgumentParser], None],
     build_dataset: Callable[[argparse.Namespace], IterableDataset],
+    token_labels: Mapping[int, str] | None = None,
     argv: Sequence[str] | None = None,
 ) -> None:
     """Parse shared + experiment CLI flags and run `inspect_dataset`."""
@@ -147,4 +162,5 @@ def run_inspect_cli(
         num_examples=args.num_examples,
         out=args.out,
         print_console=args.print_console,
+        token_labels=token_labels,
     )

@@ -696,8 +696,30 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
     assert m_init.exact_match == 0.0
     assert m_init.address_accuracy == pytest.approx(0.5)
     assert m_init.step_accuracy == pytest.approx(0.5)
-    assert m_init.halt_accuracy == 1.0
+    assert m_init.halt_accuracy == 0.0
     assert m_init.syntax_malformation == 1.0
+
+    # 1-column problem (`q + # = #`) missing initial `[IDX]` also scores `halt_accuracy == 0.0`.
+    prob_1col = AdditionProblem(alphabet=tuple(b"q#7"), a=tuple(b"q"), b=tuple(b"#"))
+    steps_1col = reference_add(prob_1col.alphabet, prob_1col.a, prob_1col.b)
+    assert len(steps_1col) == 1
+    bad_1col_idx = [
+        ord("q"),
+        *build_addressed_ar_trace_tokens(
+            steps_1col,
+            prob_1col.alphabet,
+            step_order=StepOrder.SUM_FIRST,
+            use_query_tokens=False,
+        )[1:],
+        eos,
+    ]
+    m_init_1col = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([prob_1col], [bad_1col_idx]),  # ty: ignore[invalid-argument-type]
+        [prob_1col],
+        num_problems=1,
+    )
+    assert m_init_1col.halt_accuracy == 0.0
+    assert m_init_1col.syntax_malformation == 1.0
 
     bad_cont_idx = list(gold_noq)
     bad_cont_idx[4] = ord("q")
@@ -895,3 +917,90 @@ def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation(
         )
     with pytest.raises(ValueError, match="SubspaceLMHead"):
         rollout_addressed_ar(cls_model, b"01", b"0", b"1")
+
+
+def test_evaluate_addressed_ar_token_budget_subchunking_is_invariant(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import experiments.addition.variants.addressed_ar.evaluation as eval_mod
+
+    seed_everything(0)
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=0,
+    )
+    problems = list(
+        itertools.islice(
+            iter_problems(bases=(2,), min_length=6, max_length=8, seed=3), 5
+        )
+    )
+    baseline = evaluate_addressed_ar(model, problems, num_problems=5, batch_size=1)
+    monkeypatch.setattr(eval_mod, "MAX_EVAL_CHUNK_TOKENS", 100)
+    subchunked = evaluate_addressed_ar(model, problems, num_problems=5, batch_size=256)
+    assert subchunked == baseline
+
+
+def test_partially_trained_addressed_ar_transformer_exact_match_matches_rollout():
+    from yessir.training import train
+
+    seed_everything(7)
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=16,
+    )
+    train(
+        model,
+        AdditionAddressedArDataset(
+            bases=(2, 3),
+            min_length=1,
+            max_length=1,
+            p_prior=1.0,
+            step_order=StepOrder.CARRY_FIRST,
+            seed=7,
+        ),
+        max_steps=90,
+        batch_size=8,
+        lr=8e-4,
+    )
+    problems = list(
+        itertools.islice(
+            iter_problems(
+                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+            ),
+            30,
+        )
+    )
+    metrics = evaluate_addressed_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=7,
+        step_order=StepOrder.CARRY_FIRST,
+    )
+    assert 0.0 < metrics.exact_match < 1.0
+
+    rollout_matches = sum(
+        rollout_addressed_ar(
+            model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST
+        )
+        == [
+            *build_addressed_ar_trace_tokens(
+                reference_add(p.alphabet, p.a, p.b),
+                p.alphabet,
+                step_order=StepOrder.CARRY_FIRST,
+            ),
+            int(SpecialToken.EOS),
+        ]
+        for p in problems
+    )
+    assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

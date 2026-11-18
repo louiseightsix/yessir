@@ -4,6 +4,7 @@ import argparse
 from collections.abc import Iterator, Sequence
 
 from experiments.addition.inputs import (
+    ADDITION_TOKEN_LABELS,
     EmbeddingMode,
     add_common_dataset_args,
     iter_problem_steps,
@@ -12,7 +13,7 @@ from experiments.addition.inputs import (
 from experiments.addition.variants.step_fork.inputs import (
     build_step_fork_step_labelled_examples,
 )
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSet, resolve_symbol_pool_slice
 from yessir.dataset import LabelledExample
 from yessir.inspect_data import run_inspect_cli
 from yessir.vocab import TokenSequence
@@ -21,12 +22,18 @@ from yessir.vocab import TokenSequence
 class AdditionStepForkDataset:
     """Infinite deterministic stream of branched `step_fork` `LabelledExample`s.
 
-    For each sampled column transition `(problem, steps, k)`, yields its 3 parallel
-    query branches (`[S]`, `[C]`, `[F]`) consecutively (`spec/variants/step_fork.md` §3).
-    Collating `3 * batch_size` consecutive items per optimisation step therefore
-    groups `batch_size` column transitions and `3 * batch_size` supervised target
-    tokens into each batch.
+    For each sampled column transition `(problem, steps, k)`, yields its
+    `BRANCHES_PER_STEP = 3` parallel query branches (`[S]`, `[C]`, `[F]`)
+    consecutively (`spec/variants/step_fork.md` §3).
+
+    Batching contract: callers of `train(model, dataset, batch_size=...)` should
+    pass a multiple of `BRANCHES_PER_STEP` (`3 * transitions_per_step`, as
+    `run_addition_step_fork` does via `3 * config.batch_size`) so every column
+    transition's `([S], [C], [F])` triple stays in one mini-batch rather than
+    splitting across optimiser steps when `batch_size % 3 != 0`.
     """
+
+    BRANCHES_PER_STEP: int = 3
 
     def __init__(
         self,
@@ -110,6 +117,7 @@ def _build_from_args(args: argparse.Namespace) -> AdditionStepForkDataset:
         bases=args.bases,
         min_length=args.min_length,
         max_length=args.max_length,
+        symbols=resolve_symbol_pool_slice(args.symbol_set, args.symbol_pool_size),
         p_prior=args.p_prior,
         permuted_canonical=args.permuted_canonical,
         p_chain=args.p_chain,
@@ -126,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         description="Generate, print, or dump addition (step_fork) training examples.",
         add_dataset_args=_add_cli_args,
         build_dataset=_build_from_args,
+        token_labels=ADDITION_TOKEN_LABELS,
         argv=argv,
     )
 

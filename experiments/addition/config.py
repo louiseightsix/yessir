@@ -2,10 +2,9 @@
 
 import math
 from dataclasses import dataclass, field
-from enum import StrEnum, unique
 
 from experiments.addition.inputs import EmbeddingMode, StepOrder
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSet, SymbolSetName
 from yessir.defaults import DEFAULT_LR, default_eval_every
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
@@ -25,19 +24,6 @@ STEP_AR_DESCRIPTION = (
 AR_DESCRIPTION = "Full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
 ADDRESSED_STEP_AR_DESCRIPTION = "Explicitly base-B addressed per-step sequential next-token prediction variant read through SubspaceLMHead."
 ADDRESSED_AR_DESCRIPTION = "Explicitly base-B addressed full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
-
-
-@unique
-class SymbolSetName(StrEnum):
-    """CLI/JSON-friendly names for the symbol pools in `yessir.alphabet.SymbolSet`."""
-
-    ALL = "all"
-    DECIMAL = "decimal"
-    HEX = "hex"
-
-    def resolve(self) -> SymbolSet:
-        """Return the corresponding `SymbolSet` byte pool."""
-        return SymbolSet[self.name]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -153,7 +139,7 @@ class AdditionConfig(ExperimentConfig):
     eval_extrap_max_length: int | None = field(
         default=40, metadata={"domain": "int > max_length or None", "step": 5}
     )
-    eval_permuted_canonical: bool = False
+    eval_permuted_canonical: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbol_set", SymbolSetName(self.symbol_set))
@@ -193,7 +179,7 @@ class AdditionConfig(ExperimentConfig):
 
         pool_len = len(self.symbol_pool)
         max_train_base = max(train_bases)
-        if self.p_prior < 1.0 and max_train_base > pool_len:
+        if max_train_base > pool_len:
             raise ValueError(
                 f"max(bases) ({max_train_base}) exceeds symbol_pool size ({pool_len})"
             )
@@ -201,6 +187,19 @@ class AdditionConfig(ExperimentConfig):
             raise ValueError(
                 f"p_prior > 0 requires bases <= {len(SymbolSet.HEX)} (SymbolSet.HEX), "
                 f"got {max_train_base}"
+            )
+        if (
+            self.p_prior == 1.0
+            and not ood_bases
+            and (
+                self.symbol_set != SymbolSetName.ALL
+                or self.symbol_pool_size is not None
+            )
+        ):
+            raise ValueError(
+                "symbol_set and symbol_pool_size are unused when p_prior == 1.0 and "
+                "no OOD bases are enabled (canonical alphabets draw from SymbolSet.HEX[:B]); "
+                "leave symbol_set='all' and symbol_pool_size=None"
             )
         if self.eval_permuted_canonical and max_train_base > len(SymbolSet.HEX):
             raise ValueError(
@@ -421,7 +420,8 @@ class AdditionConfig(ExperimentConfig):
             else "final"
         )
         return (
-            f"d_model={self.d_model}, symbol_pool={len(self.symbol_pool)}, "
+            f"d_model={self.d_model} (d_pos={self.effective_d_position}, "
+            f"d_scratch={self.effective_d_scratch}), symbol_pool={len(self.symbol_pool)}, "
             f"eval_every={eval_str}, splits=[{split_names}]"
         )
 
@@ -438,7 +438,7 @@ class AdditionStepConfig(AdditionConfig):
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
     d_position: int = field(
         default=32,
-        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
+        metadata={"domain": "even int >= 4 (32 unless token_type_pe)", "step": 2},
     )
     d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
     fixed_d_model: bool = True
@@ -454,13 +454,24 @@ class AdditionStepConfig(AdditionConfig):
             raise ValueError(
                 f"d_position must be a non-negative even int, got {self.d_position}"
             )
-        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
+        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
+            if self.d_position < 4:
+                raise ValueError(
+                    f"d_position must be >= 4 when embedding_mode is 'token_type_pe' "
+                    f"(d_position=2 has single period 2*pi ~ 6.28), got {self.d_position}"
+                )
+        elif self.d_position != 32:
             raise ValueError(
-                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
+                f"d_position is unused when embedding_mode={self.embedding_mode.value!r}; "
+                f"leave d_position=32 (got {self.d_position}) and adjust d_scratch or fixed_d_model instead"
             )
         super().__post_init__()
         if not (0.0 <= self.p_terminal <= 1.0):
             raise ValueError(f"p_terminal must be in 0.0..1.0, got {self.p_terminal}")
+        if self.all_steps and self.p_terminal != 0.2:
+            raise ValueError(
+                f"p_terminal is unused when all_steps=True; leave p_terminal=0.2, got {self.p_terminal}"
+            )
 
     @property
     def use_token_type(self) -> bool:

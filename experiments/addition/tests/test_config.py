@@ -59,10 +59,11 @@ def test_default_configs_and_derived_properties():
     assert cfg.d_model == 256 + 256 == 512
     assert cfg.log_every == 100
     assert cfg.eval_every is None
+    assert cfg.eval_permuted_canonical is True
     assert cfg.effective_eval_every == 5_000
     assert (
         cfg.derived_summary()
-        == "d_model=512, symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len]"
+        == "d_model=512 (d_pos=0, d_scratch=256), symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
     )
     assert AdditionConfig(max_steps=500_000).effective_eval_every == 25_000
     assert AdditionConfig(max_steps=30_000).effective_eval_every == 2_500
@@ -70,7 +71,7 @@ def test_default_configs_and_derived_properties():
     assert AdditionConfig(eval_every=0).effective_eval_every is None
     assert (
         AdditionConfig(eval_every=0).derived_summary()
-        == "d_model=512, symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len]"
+        == "d_model=512 (d_pos=0, d_scratch=256), symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
     )
 
     cls_cfg = AdditionClsConfig()
@@ -174,6 +175,7 @@ def test_eval_splits_construction_and_seed_sweep_invariance():
         bases="2,10",
         eval_ood_bases="",
         eval_extrap_max_length=30,
+        eval_permuted_canonical=False,
         seed=2999,
         eval_seed=999,
     )
@@ -181,12 +183,16 @@ def test_eval_splits_construction_and_seed_sweep_invariance():
     assert cfg_blank_ood.parsed_eval_ood_bases == ()
     assert [s.name for s in cfg_blank_ood.eval_splits()] == ["id", "extrap_len"]
 
-    # The stored value keeps only the OOD bases that get a split.
+    # The stored value keeps only the OOD bases that get a split; `permuted` is enabled by default.
     assert cfg.eval_ood_bases == "12"
     assert cfg.parsed_eval_ood_bases == (12,)
     all_trained = AdditionConfig(bases="2,3,12", eval_ood_bases="3,12")
     assert all_trained.eval_ood_bases is None
-    assert [s.name for s in all_trained.eval_splits()] == ["id", "extrap_len"]
+    assert [s.name for s in all_trained.eval_splits()] == [
+        "id",
+        "extrap_len",
+        "permuted",
+    ]
 
     splits = cfg.eval_splits()
     assert splits == (
@@ -317,6 +323,28 @@ def test_config_validation_rejections():
             symbol_set=SymbolSetName.DECIMAL,
             symbol_pool_size=5,
         )
+    # `max(bases) <= len(symbol_pool)` holds even when `p_prior == 1.0`.
+    with pytest.raises(ValueError, match="exceeds symbol_pool size"):
+        AdditionConfig(
+            bases="2,12",
+            symbol_set=SymbolSetName.DECIMAL,
+            p_prior=1.0,
+        )
+    # `symbol_set` and `symbol_pool_size` are rejected when `p_prior == 1.0` and no OOD bases use `symbol_pool`.
+    with pytest.raises(ValueError, match="symbol_set and symbol_pool_size are unused"):
+        AdditionConfig(
+            bases="2,10",
+            eval_ood_bases=None,
+            symbol_pool_size=12,
+            p_prior=1.0,
+        )
+    with pytest.raises(ValueError, match="symbol_set and symbol_pool_size are unused"):
+        AdditionConfig(
+            bases="2,10",
+            eval_ood_bases=None,
+            symbol_set=SymbolSetName.DECIMAL,
+            p_prior=1.0,
+        )
     with pytest.raises(ValueError, match="eval_ood_bases entry 12 exceeds symbol_pool"):
         AdditionConfig(
             bases="2,8",
@@ -343,8 +371,20 @@ def test_config_validation_rejections():
         AdditionConfig(eval_p_chain=1.5)
     with pytest.raises(ValueError, match="non-negative even int"):
         AdditionStepConfig(d_position=15)
-    with pytest.raises(ValueError, match="d_position must be > 0"):
+    with pytest.raises(ValueError, match="d_position must be >= 4"):
         AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
+    with pytest.raises(ValueError, match="d_position must be >= 4"):
+        AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=2)
+    for non_pe_mode in (EmbeddingMode.NOPE, EmbeddingMode.TOKEN_TYPE_NOPE):
+        for fixed in (True, False):
+            with pytest.raises(ValueError, match="d_position is unused"):
+                AdditionStepConfig(
+                    embedding_mode=non_pe_mode, d_position=0, fixed_d_model=fixed
+                )
+            with pytest.raises(ValueError, match="d_position is unused"):
+                AdditionStepConfig(
+                    embedding_mode=non_pe_mode, d_position=8, fixed_d_model=fixed
+                )
     with pytest.raises(ValueError, match="d_scratch must be >= 0"):
         AdditionConfig(d_scratch=-1)
     with pytest.raises(ValueError, match="n_layers must be > 0"):
@@ -376,6 +416,8 @@ def test_config_validation_rejections():
         AdditionConfig(seed=42, eval_seed=42)
     with pytest.raises(ValueError, match="p_terminal must be in 0.0..1.0"):
         AdditionClsConfig(p_terminal=1.5)
+    with pytest.raises(ValueError, match="p_terminal is unused when all_steps=True"):
+        AdditionClsConfig(all_steps=True, p_terminal=0.5)
     with pytest.raises(ValueError, match="include_alphabet=False requires max_length"):
         AdditionAddressedStepArConfig(
             bases="2,10", max_length=8, eval_ood_bases=None, include_alphabet=False
@@ -404,7 +446,7 @@ def test_json_round_trip():
         symbol_pool_size=12,
         p_prior=0.25,
         p_chain=0.4,
-        embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
+        embedding_mode=EmbeddingMode.TOKEN_TYPE_PE,
         n_layers=2,
         n_heads=4,
         d_ff=64,
@@ -422,9 +464,9 @@ def test_json_round_trip():
         eval_p_chain=0.3,
         eval_ood_bases="3, 8",
         eval_extrap_max_length=None,
-        eval_permuted_canonical=True,
+        eval_permuted_canonical=False,
         p_terminal=0.35,
-        all_steps=True,
+        all_steps=False,
     )
     assert original.bases == "2,5,10"
     assert original.eval_ood_bases == "3,8"
@@ -435,7 +477,7 @@ def test_json_round_trip():
     assert isinstance(restored.embedding_mode, EmbeddingMode)
 
     step_ar = AdditionStepArConfig(
-        step_order=StepOrder.CARRY_FIRST, use_query_tokens=True
+        step_order=StepOrder.CARRY_FIRST, use_query_tokens=True, all_steps=True
     )
     restored_step_ar = AdditionStepArConfig.from_dict(
         json.loads(json.dumps(step_ar.to_dict()))

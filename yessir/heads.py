@@ -99,10 +99,14 @@ class ParallelClassificationHead(nn.Module):
             h_norm = self.norm(hidden_states)
             return tuple(head(h_norm) for head in self.heads)
 
-        batch_size = hidden_states.size(0)
+        batch_size, seq_len = hidden_states.size(0), hidden_states.size(1)
         if lengths.shape != (batch_size,):
             raise ValueError(
                 f"lengths shape {tuple(lengths.shape)} must match batch size ({batch_size},)"
+            )
+        if bool(((lengths < 1) | (lengths > seq_len)).any()):
+            raise ValueError(
+                f"lengths entries must be in 1..{seq_len}, got {lengths.tolist()}"
             )
 
         batch_indices = torch.arange(batch_size, device=hidden_states.device)

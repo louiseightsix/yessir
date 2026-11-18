@@ -51,7 +51,10 @@ def greedy_generate_ar(
         )
         batch = collate([example]).to(device)
         logits = model(batch.input_ids, batch.lengths)
-        assert isinstance(logits, torch.Tensor)
+        if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+            raise ValueError(
+                "greedy_generate_ar requires a Transformer with SubspaceLMHead"
+            )
         next_token = int(logits[0, -1].argmax(dim=-1).item())
         output.append(next_token)
 

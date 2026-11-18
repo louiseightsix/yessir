@@ -11,7 +11,7 @@ from experiments.addition.reference import (
     _validate_inputs,
     reference_add,
 )
-from yessir.alphabet import SymbolSet, create_alphabet
+from yessir.alphabet import SymbolSet, SymbolSetName, create_alphabet
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import Token, TokenSequence, TokenTypeId
@@ -40,6 +40,14 @@ class AdditionToken(IntEnum):
     QUERY_CARRY = 0xF9  # [C]: queries or marks the outgoing carry c_{k+1}
     QUERY_FLAG = 0xFA  # [F]: queries the halting flag flag_k
     IDX = 0xFB  # [IDX]: opens a base-B column-addressed entry [IDX] addr(j) ...
+
+
+ADDITION_TOKEN_LABELS: dict[int, str] = {
+    int(AdditionToken.QUERY_SUM): "[S]",
+    int(AdditionToken.QUERY_CARRY): "[C]",
+    int(AdditionToken.QUERY_FLAG): "[F]",
+    int(AdditionToken.IDX): "[IDX]",
+}
 
 
 @unique
@@ -584,6 +592,19 @@ def add_common_dataset_args(
         type=int,
         default=20,
         help="Maximum operand length (default: 20)",
+    )
+    parser.add_argument(
+        "--symbol-set",
+        type=SymbolSetName,
+        choices=tuple(SymbolSetName),
+        default=SymbolSetName.ALL,
+        help="Named symbol pool to draw alphabets from: all, decimal, or hex (default: all)",
+    )
+    parser.add_argument(
+        "--symbol-pool-size",
+        type=int,
+        default=None,
+        help="Optional slice size in 2..len(symbol_set) for the symbol pool (default: None)",
     )
     parser.add_argument(
         "--p-prior",

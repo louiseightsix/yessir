@@ -86,8 +86,7 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
             "4",
             "--d-ff",
             "32",
-            "--d-position",
-            "8",
+            "--no-fixed-d-model",
             "--d-scratch",
             "0",
         ],
@@ -218,8 +217,7 @@ def test_dispatch_addition_step_fork_smoke_run_writes_artefacts(
             "4",
             "--d-ff",
             "32",
-            "--d-position",
-            "8",
+            "--no-fixed-d-model",
             "--d-scratch",
             "0",
         ],
@@ -232,6 +230,8 @@ def test_dispatch_addition_step_fork_smoke_run_writes_artefacts(
         "ood_base3_step_accuracy",
         "extrap_len_exact_match",
         "extrap_len_step_accuracy",
+        "permuted_exact_match",
+        "permuted_step_accuracy",
     ]
 
     config_payload = json.loads((run_dir / "config.json").read_text())
@@ -284,8 +284,7 @@ def test_dispatch_addition_step_ar_smoke_run_writes_artefacts(
             "4",
             "--d-ff",
             "32",
-            "--d-position",
-            "8",
+            "--no-fixed-d-model",
             "--d-scratch",
             "0",
         ],
@@ -403,8 +402,7 @@ def test_dispatch_addition_addressed_step_ar_zero_preamble_smoke_run(
             "4",
             "--d-ff",
             "32",
-            "--d-position",
-            "8",
+            "--no-fixed-d-model",
             "--d-scratch",
             "0",
         ],
@@ -573,12 +571,16 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
         "ood_base3_step_accuracy",
         "extrap_len_exact_match",
         "extrap_len_step_accuracy",
+        "permuted_exact_match",
+        "permuted_step_accuracy",
     ]
     for row in eval_rows:
         assert isinstance(row["elapsed_sec"], float)
         for key in headline_keys:
             assert 0.0 <= row[key] <= 1.0
-        assert {"id", "ood_base3", "extrap_len"}.issubset(row["splits"].keys())
+        assert {"id", "ood_base3", "extrap_len", "permuted"}.issubset(
+            row["splits"].keys()
+        )
         assert any(k in row["splits"] for k in ("id_base2", "id_base4"))
         assert any(k in row["splits"] for k in ("extrap_len_base2", "extrap_len_base4"))
         assert row["splits"]["id"]["exact_match"] == row["exact_match"]

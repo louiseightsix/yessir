@@ -105,6 +105,23 @@ def test_parallel_classification_head_rejects_mismatched_lengths_shape(bad_lengt
         head(h, bad_lengths)
 
 
+@pytest.mark.parametrize(
+    "out_of_bounds_lengths",
+    [
+        torch.tensor([0, 3], dtype=torch.long),
+        torch.tensor([-1, 2], dtype=torch.long),
+        torch.tensor([2, 6], dtype=torch.long),
+    ],
+)
+def test_parallel_classification_head_rejects_out_of_bounds_lengths(
+    out_of_bounds_lengths: torch.Tensor,
+):
+    head = ParallelClassificationHead(d_model=8, num_classes=(4,))
+    h = torch.randn(2, 5, 8)
+    with pytest.raises(ValueError, match=r"lengths entries must be in 1\.\.5"):
+        head(h, out_of_bounds_lengths)
+
+
 def test_subspace_lm_head_is_parameter_free_and_slices_symbol_subspace():
     head = SubspaceLMHead(d_model=288)
     assert list(head.parameters()) == []

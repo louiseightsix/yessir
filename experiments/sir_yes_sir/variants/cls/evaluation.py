@@ -20,15 +20,18 @@ def _validate_cls_item(item: LabelledExample) -> list[tuple[int, int]]:
         raise ValueError(
             f"expected per-position labels ({len(item.example)}), got {len(item.labels)}"
         )
-    if not isinstance(item.labels[0], tuple) or len(item.labels[0]) != 2:
-        raise ValueError(
-            "expected per-position 2-tuple labels (o_k, flag_k) for cls evaluation"
-        )
-    target_steps: list[tuple[int, int]] = [
-        (step[0], step[1])
-        for step in item.labels
-        if isinstance(step, tuple) and step[0] != IGNORE_INDEX
-    ]
+    target_steps: list[tuple[int, int]] = []
+    for pos, step in enumerate(item.labels):
+        if not isinstance(step, tuple) or len(step) != 2:
+            raise ValueError(
+                "expected per-position 2-tuple labels (o_k, flag_k) for cls evaluation"
+            )
+        if (step[0] == IGNORE_INDEX) != (step[1] == IGNORE_INDEX):
+            raise ValueError(
+                f"cls step labels at position {pos} must both be IGNORE_INDEX or both supervised, got {step!r}"
+            )
+        if step[0] != IGNORE_INDEX:
+            target_steps.append((step[0], step[1]))
     if not target_steps:
         raise ValueError("expected at least 1 non-ignored step in cls LabelledExample")
     if target_steps[-1][1] != SpecialToken.FLAG_FINISHED:

@@ -1,8 +1,8 @@
 {
-  "title": "Impact of explicit query tokens ([S], [C], [F])",
+  "title": "Impact of explicit query tokens ([S], [C], and step [F])",
   "status": "draft",
   "kind": "ablation",
-  "question": "In step_ar, ar, addressed_step_ar, and addressed_ar, does inserting explicit query tokens ([S], [C], [F] via use_query_tokens=True) improve convergence or NoPE disambiguation compared to emitting sum and carry tokens directly (use_query_tokens=False)?",
+  "question": "Across `step_ar`, `addressed_step_ar`, `ar`, and `addressed_ar`, does `use_query_tokens=True`—where the step harness inserts masked `([S], [C], [F])` prompt markers in `step_ar` / `addressed_step_ar`, while pure-LM `ar` / `addressed_ar` emit and supervise `([S], [C])` in the trace (halting via `[EOS]` without `[F]`)—improve convergence or `nope` slot disambiguation compared to emitting sum and carry tokens directly (`use_query_tokens=False`)?",
   "runs": [],
   "conclusion": null
 }

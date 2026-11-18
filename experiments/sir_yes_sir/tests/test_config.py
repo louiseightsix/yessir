@@ -33,9 +33,10 @@ def test_default_config_is_valid():
     assert ar_cfg.effective_d_scratch == 256
     assert ar_cfg.d_model == 256 + 256 == 512
     assert ar_cfg.eval_every is None
-    assert ar_cfg.effective_eval_every == 2_500
+    assert ar_cfg.effective_eval_every == 50
     assert (
-        ar_cfg.derived_summary() == "d_model=512, symbol_pool_size=240, eval_every=2500"
+        ar_cfg.derived_summary()
+        == "d_model=512 (d_pos=0, d_scratch=256), symbol_pool_size=240, eval_every=50"
     )
 
     cls_cfg = SirYesSirClsConfig()
@@ -45,13 +46,15 @@ def test_default_config_is_valid():
     assert cls_cfg.effective_d_position == 32
     assert cls_cfg.effective_d_scratch == 208
     assert cls_cfg.d_model == 256 + 16 + 32 + 208 == 512
+    assert SirYesSirConfig(max_steps=200).effective_eval_every == 50
+    assert SirYesSirConfig(max_steps=2_000).effective_eval_every == 100
     assert SirYesSirConfig(max_steps=100_000).effective_eval_every == 5_000
     assert SirYesSirConfig(max_steps=500_000).effective_eval_every == 25_000
     assert SirYesSirConfig(eval_every=200).effective_eval_every == 200
     assert SirYesSirConfig(eval_every=0).effective_eval_every is None
     assert (
         SirYesSirConfig(eval_every=0).derived_summary()
-        == "d_model=512, symbol_pool_size=240, eval_every=final"
+        == "d_model=512 (d_pos=0, d_scratch=256), symbol_pool_size=240, eval_every=final"
     )
 
 
@@ -86,9 +89,23 @@ def test_embedding_mode_and_d_position_combinations():
     assert cfg_nope_shrink.effective_d_scratch == 208
     assert cfg_nope_shrink.d_model == 256 + 0 + 0 + 208 == 464
 
-    # TOKEN_TYPE_PE rejects d_position == 0.
-    with pytest.raises(ValueError, match="d_position must be > 0"):
+    # TOKEN_TYPE_PE rejects d_position < 4 (including d_position == 2 single-wavelength trap).
+    with pytest.raises(ValueError, match="d_position must be >= 4"):
         SirYesSirClsConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
+    with pytest.raises(ValueError, match="d_position must be >= 4"):
+        SirYesSirClsConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=2)
+
+    # Non-PE modes reject non-default d_position != 32 under both fixed_d_model=True and False.
+    for non_pe_mode in (EmbeddingMode.NOPE, EmbeddingMode.TOKEN_TYPE_NOPE):
+        for fixed in (True, False):
+            with pytest.raises(ValueError, match="d_position is unused"):
+                SirYesSirClsConfig(
+                    embedding_mode=non_pe_mode, d_position=0, fixed_d_model=fixed
+                )
+            with pytest.raises(ValueError, match="d_position is unused"):
+                SirYesSirClsConfig(
+                    embedding_mode=non_pe_mode, d_position=8, fixed_d_model=fixed
+                )
 
     # Odd or negative d_position is rejected.
     with pytest.raises(ValueError, match="non-negative even int"):
@@ -117,11 +134,19 @@ def test_symbol_pool_and_alphabet_size_validation():
     with pytest.raises(ValueError, match="alphabet_size must be in 2.."):
         SirYesSirConfig(alphabet_size=1)
 
-    # symbol_pool_size itself must be in 2..len(symbol_set).
+    # symbol_pool_size itself must be in 2..len(symbol_set), and None when resample_alphabet=False.
     with pytest.raises(ValueError, match="symbol_pool_size must be in 2..10"):
         SirYesSirConfig(symbol_set=SymbolSetName.DECIMAL, symbol_pool_size=1)
     with pytest.raises(ValueError, match="symbol_pool_size must be in 2..10"):
         SirYesSirConfig(symbol_set=SymbolSetName.DECIMAL, symbol_pool_size=11)
+    with pytest.raises(
+        ValueError, match="symbol_pool_size is unused when resample_alphabet=False"
+    ):
+        SirYesSirConfig(
+            symbol_set=SymbolSetName.DECIMAL,
+            symbol_pool_size=6,
+            resample_alphabet=False,
+        )
 
 
 def test_model_and_training_bounds():
@@ -162,8 +187,8 @@ def test_json_round_trip():
         x_length=4,
         symbol_set=SymbolSetName.HEX,
         symbol_pool_size=6,
-        resample_alphabet=False,
-        embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
+        resample_alphabet=True,
+        embedding_mode=EmbeddingMode.TOKEN_TYPE_PE,
         n_layers=2,
         n_heads=4,
         d_ff=64,
@@ -185,6 +210,14 @@ def test_json_round_trip():
     assert isinstance(restored.symbol_set, SymbolSetName)
     assert isinstance(restored.embedding_mode, EmbeddingMode)
     assert isinstance(restored.supervision, ClsSupervision)
+
+    ar_fixed = SirYesSirArConfig(
+        symbol_set=SymbolSetName.DECIMAL, resample_alphabet=False
+    )
+    assert (
+        SirYesSirArConfig.from_dict(json.loads(json.dumps(ar_fixed.to_dict())))
+        == ar_fixed
+    )
 
 
 def test_config_import_does_not_load_torch():

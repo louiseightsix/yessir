@@ -81,6 +81,9 @@ def test_format_token_special_and_hex():
     assert format_token(IGNORE_INDEX) == "[-100]"
     assert format_token(0x06) == "0x06"
     assert format_token(0xBD) == "0xbd"
+    assert format_token(0xF8) == "0xf8"
+    assert format_token(0xF8, token_labels={0xF8: "[S]", 0xFB: "[IDX]"}) == "[S]"
+    assert format_token(0xFB, token_labels={0xF8: "[S]", 0xFB: "[IDX]"}) == "[IDX]"
     ex = Example(input_ids=(1, 2))
     item = LabelledExample(example=ex, labels=(IGNORE_INDEX, 5))
     assert item.labels == (IGNORE_INDEX, 5)
