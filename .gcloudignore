@@ -1,0 +1,11 @@
+# Files `gcloud builds submit` uploads for `./yessir.sh vertex build-image`.
+# Ignore everything by default; only upload what `cloud/vertex/Dockerfile` needs
+# (the same files `.dockerignore` lets into the Docker build context).
+*
+!/.dockerignore
+!/pyproject.toml
+!/uv.lock
+!/cloud/
+!/cloud/vertex/
+!/cloud/vertex/Dockerfile
+!/cloud/vertex/entrypoint.sh
