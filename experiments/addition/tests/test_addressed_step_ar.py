@@ -543,6 +543,11 @@ def test_addition_addressed_step_ar_dataset_and_cli(
     assert len(dump_path.read_text().splitlines()) == 3
     out = capsys.readouterr().out
     assert "Example 0:" in out
+    assert "[IDX]" in out
+    assert "[S]" in out
+    assert "[C]" in out
+    assert "[F]" in out
+    assert "0xfb" not in out
 
 
 def test_rollout_addressed_step_ar_unpacks_step_order_and_handles_zero_preamble():

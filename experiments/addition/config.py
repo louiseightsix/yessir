@@ -2,10 +2,9 @@
 
 import math
 from dataclasses import dataclass, field
-from enum import StrEnum, unique
 
 from experiments.addition.inputs import EmbeddingMode, StepOrder
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSet, SymbolSetName
 from yessir.defaults import DEFAULT_LR, default_eval_every
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
@@ -25,19 +24,6 @@ STEP_AR_DESCRIPTION = (
 AR_DESCRIPTION = "Full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
 ADDRESSED_STEP_AR_DESCRIPTION = "Explicitly base-B addressed per-step sequential next-token prediction variant read through SubspaceLMHead."
 ADDRESSED_AR_DESCRIPTION = "Explicitly base-B addressed full-trace autoregressive next-token prediction variant read through SubspaceLMHead."
-
-
-@unique
-class SymbolSetName(StrEnum):
-    """CLI/JSON-friendly names for the symbol pools in `yessir.alphabet.SymbolSet`."""
-
-    ALL = "all"
-    DECIMAL = "decimal"
-    HEX = "hex"
-
-    def resolve(self) -> SymbolSet:
-        """Return the corresponding `SymbolSet` byte pool."""
-        return SymbolSet[self.name]
 
 
 @dataclass(frozen=True, kw_only=True)

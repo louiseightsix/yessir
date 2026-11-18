@@ -6,7 +6,7 @@ value i.
 """
 
 import random
-from enum import Enum
+from enum import Enum, StrEnum, unique
 
 from yessir.vocab import SYMBOL_RANGE, TokenSequence
 
@@ -17,6 +17,36 @@ class SymbolSet(bytes, Enum):
     ALL = bytes(SYMBOL_RANGE)
     DECIMAL = b"0123456789"
     HEX = b"0123456789ABCDEF"
+
+
+@unique
+class SymbolSetName(StrEnum):
+    """CLI/JSON-friendly names for the symbol pools in `SymbolSet`."""
+
+    ALL = "all"
+    DECIMAL = "decimal"
+    HEX = "hex"
+
+    def resolve(self) -> SymbolSet:
+        """Return the corresponding `SymbolSet` byte pool."""
+        return SymbolSet[self.name]
+
+
+def resolve_symbol_pool_slice(
+    symbol_set: SymbolSetName | str = SymbolSetName.ALL,
+    symbol_pool_size: int | None = None,
+) -> bytes:
+    """Validate `(symbol_set, symbol_pool_size)` and return the sliced byte pool."""
+    name = SymbolSetName(symbol_set)
+    pool = bytes(name.resolve())
+    if symbol_pool_size is not None:
+        if not (2 <= symbol_pool_size <= len(pool)):
+            raise ValueError(
+                f"symbol_pool_size must be in 2..{len(pool)} for "
+                f"symbol_set={name.value!r}, got {symbol_pool_size}"
+            )
+        return pool[:symbol_pool_size]
+    return pool
 
 
 def create_alphabet(

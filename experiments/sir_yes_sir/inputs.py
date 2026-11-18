@@ -5,7 +5,7 @@ import random
 from collections.abc import Iterator
 from enum import IntEnum, StrEnum, unique
 
-from yessir.alphabet import SymbolSet, create_alphabet
+from yessir.alphabet import SymbolSet, SymbolSetName, create_alphabet
 from yessir.example import Example
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import TokenSequence
@@ -179,7 +179,7 @@ def add_common_dataset_args(
     *,
     include_embedding_mode: bool = True,
 ) -> None:
-    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--resample-alphabet`, optional `--embedding-mode`, and `--seed` flags."""
+    """Attach `-B`/`--alphabet-size`, `-L`/`--x-length`, `--symbol-set`, `--symbol-pool-size`, `--resample-alphabet`, optional `--embedding-mode`, and `--seed` flags."""
     parser.add_argument(
         "-B",
         "--alphabet-size",
@@ -193,6 +193,19 @@ def add_common_dataset_args(
         type=int,
         default=3,
         help="Length L of input sequence x (default: 3)",
+    )
+    parser.add_argument(
+        "--symbol-set",
+        type=SymbolSetName,
+        choices=tuple(SymbolSetName),
+        default=SymbolSetName.ALL,
+        help="Named symbol pool to draw alphabets from: all, decimal, or hex (default: all)",
+    )
+    parser.add_argument(
+        "--symbol-pool-size",
+        type=int,
+        default=None,
+        help="Optional slice size in 2..len(symbol_set) for the symbol pool (default: None)",
     )
     parser.add_argument(
         "--resample-alphabet",

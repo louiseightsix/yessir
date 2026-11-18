@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSetName
 from yessir.defaults import DEFAULT_LR
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
@@ -17,19 +17,6 @@ CLS_DESCRIPTION = (
     "Parallel classification variant read through ParallelClassificationHead."
 )
 AR_DESCRIPTION = "Autoregressive variant read through SubspaceLMHead."
-
-
-@unique
-class SymbolSetName(StrEnum):
-    """CLI/JSON-friendly names for the symbol pools in `yessir.alphabet.SymbolSet`."""
-
-    ALL = "all"
-    DECIMAL = "decimal"
-    HEX = "hex"
-
-    def resolve(self) -> SymbolSet:
-        """Return the corresponding `SymbolSet` byte pool."""
-        return SymbolSet[self.name]
 
 
 @unique
