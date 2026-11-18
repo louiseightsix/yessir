@@ -1,0 +1,33 @@
+{
+  "experiment": "sir_yes_sir",
+  "variant": "cls",
+  "device": "mps",
+  "started_at": "2026-11-18T05:54:54.545132Z",
+  "git_commit_sha": "99e81721a408f0c3ff9f6b6538f0ac46fb3b6c3c",
+  "git_short_sha": "99e8172",
+  "git_commit_date": "2026-11-17",
+  "git_dirty": false,
+  "config": {
+    "alphabet_size": 4,
+    "x_length": 3,
+    "symbol_set": "all",
+    "symbol_pool_size": null,
+    "resample_alphabet": true,
+    "n_layers": 6,
+    "n_heads": 8,
+    "d_ff": 1376,
+    "d_scratch": 208,
+    "max_steps": 1000,
+    "batch_size": 64,
+    "lr": 0.0003,
+    "seed": 42,
+    "eval_every": null,
+    "num_eval_problems": 100,
+    "eval_batch_size": 64,
+    "eval_seed": 999,
+    "embedding_mode": "nope",
+    "d_position": 32,
+    "fixed_d_model": false,
+    "supervision": "single_pass"
+  }
+}
