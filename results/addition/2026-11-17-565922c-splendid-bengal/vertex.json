@@ -1,0 +1,18 @@
+{
+  "job_name": "projects/295887947850/locations/us-east4/customJobs/1472951268862328832",
+  "job_id": "1472951268862328832",
+  "display_name": "addition-2026-11-17-565922c-splendid-bengal",
+  "project": "north-shore-software-ca",
+  "region": "us-east4",
+  "experiment": "addition",
+  "variant": "ar",
+  "run_name": "2026-11-17-565922c-splendid-bengal",
+  "git_commit_sha": "565922c7c5c891e182f956bd5aa9b8f2b76b9ff5",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-east4-docker.pkg.dev/north-shore-software-ca/yessir/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/addition/2026-11-17-565922c-splendid-bengal",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T06:16:13.714893Z"
+}
