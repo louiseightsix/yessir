@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./yessir.sh run [experiment] [args]  # run a live experiment (or list experiments)
-#   ./yessir.sh vertex <subcommand>      # submit, list, pull, quota, or build-image for Vertex AI jobs
+#   ./yessir.sh vertex <subcommand>      # submit, list, pull, logs, clean, quota, or build-image for Vertex AI jobs
 #   ./yessir.sh browser [astro args]     # open the results browser & config builder (astro dev)
 #   ./yessir.sh test [pytest args]       # run the live experiments' tests
 #   ./yessir.sh check                    # lint and typecheck live code (ruff check + ty check)

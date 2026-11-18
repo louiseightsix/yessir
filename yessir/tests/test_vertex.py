@@ -16,13 +16,17 @@ from yessir.vertex import (
     VertexSettings,
     build_custom_job_spec,
     cmd_build_image,
+    cmd_clean,
     cmd_list,
+    cmd_logs,
     cmd_pull,
     cmd_submit,
     find_local_vertex_runs,
+    format_job_log,
     gpu_quota_by_region,
     is_commit_pushed_to_remote,
     load_vertex_settings,
+    never_started,
     read_vertex_json,
     run_vertex_cli,
     write_vertex_json,
@@ -690,3 +694,221 @@ def test_gpu_quota_by_region_keeps_only_non_zero_custom_training_gpu_quotas():
         "europe-west4": {"T4": -1},
         "asia-south1": {"T4": -1},
     }
+
+
+def test_never_started_only_for_stockouts():
+    stockout = {
+        "state": "JOB_STATE_FAILED",
+        # Trimmed from a real us-central1 stockout: startTime is set regardless.
+        "startTime": "2026-11-18T18:59:19.745450Z",
+        "error": {
+            "code": 14,
+            "message": "Resources are insufficient in region: us-central1. Try a different region.",
+        },
+    }
+    assert never_started(stockout)
+    # Started, then crashed: its logs matter, so keep it.
+    assert not never_started(
+        {"state": "JOB_STATE_FAILED", "error": {"code": 3, "message": "exit 1"}}
+    )
+    # Still waiting: may yet start.
+    assert not never_started({"state": "JOB_STATE_PENDING"})
+
+
+def _fail_if_asked(prompt: str) -> str:
+    raise AssertionError("cmd_clean asked despite --yes")
+
+
+def test_cmd_clean_prints_errors_and_deletes_only_once_confirmed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    settings = _sample_settings()
+
+    def _write_run(run_name: str, job_id: str) -> Path:
+        run_dir = tmp_path / "addition" / run_name
+        write_vertex_json(
+            run_dir,
+            VertexJobRecord(
+                job_name=f"projects/123/locations/us-east4/customJobs/{job_id}",
+                job_id=job_id,
+                display_name=f"addition-{run_name}",
+                project=settings.project,
+                region="us-east4",
+                experiment="addition",
+                variant="cls",
+                run_name=run_name,
+                git_commit_sha="b8e3e7b438bb03b66ccde3709d0792e5dc49f008",
+                repo_url=settings.repo_url,
+                image_uri=settings.image_uri,
+                gcs_run_uri=f"gs://test-yessir-bucket/results/addition/{run_name}",
+                machine_type="g2-standard-4",
+                accelerator_type="NVIDIA_L4",
+                accelerator_count=1,
+                submitted_at="2026-11-18T19:14:00Z",
+            ),
+        )
+        return run_dir
+
+    stocked_out = _write_run("2026-11-18-b8e3e7b-stocked-out", "1")
+    crashed = _write_run("2026-11-18-b8e3e7b-crashed", "2")
+    pending = _write_run("2026-11-18-b8e3e7b-pending", "3")
+
+    jobs = [
+        {
+            "name": "projects/123/locations/us-east4/customJobs/1",
+            "state": "JOB_STATE_FAILED",
+            "startTime": "2026-11-18T19:14:00Z",
+            "error": {"code": 14, "message": "Resources are insufficient in region"},
+        },
+        {
+            "name": "projects/123/locations/us-east4/customJobs/2",
+            "state": "JOB_STATE_FAILED",
+            "startTime": "2026-11-18T19:20:00Z",
+            "error": {"code": 3, "message": "The replica workerpool0-0 exited"},
+        },
+        {
+            "name": "projects/123/locations/us-east4/customJobs/3",
+            "state": "JOB_STATE_PENDING",
+        },
+    ]
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert cmd[:4] == ["gcloud", "ai", "custom-jobs", "list"]
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(jobs), stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    # Without --yes and not in a terminal: prints the run and its error, deletes nothing.
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    assert cmd_clean(settings, results_root=tmp_path) == []
+    out = capsys.readouterr().out
+    assert "addition/2026-11-18-b8e3e7b-stocked-out" in out
+    assert "Resources are insufficient in region" in out
+    assert "crashed" not in out
+    assert stocked_out.is_dir()
+
+    # In a terminal it asks; anything but "y" keeps the runs.
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    assert cmd_clean(settings, results_root=tmp_path) == []
+    assert stocked_out.is_dir()
+
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert cmd_clean(settings, results_root=tmp_path) == [stocked_out]
+    assert not stocked_out.exists()
+    assert crashed.is_dir()
+    assert pending.is_dir()
+
+    # --yes deletes without asking.
+    stocked_out = _write_run("2026-11-18-b8e3e7b-stocked-out", "1")
+    monkeypatch.setattr("builtins.input", _fail_if_asked)
+    assert cmd_clean(settings, yes=True, results_root=tmp_path) == [stocked_out]
+    assert not stocked_out.exists()
+    assert crashed.is_dir()
+    assert pending.is_dir()
+
+
+def test_format_job_log_puts_status_first_and_reads_both_payload_kinds():
+    job = {
+        "name": "projects/123/locations/us-east4/customJobs/2",
+        "state": "JOB_STATE_FAILED",
+        "error": {"code": 3, "message": "The replica workerpool0-0 exited"},
+    }
+    entries = [
+        {"timestamp": "2026-11-18T19:20:01Z", "textPayload": "checked out b8e3e7b\n"},
+        {
+            "timestamp": "2026-11-18T19:25:00Z",
+            "jsonPayload": {"message": "Tearing down training program."},
+        },
+    ]
+    assert format_job_log(job, entries) == (
+        "job: projects/123/locations/us-east4/customJobs/2\n"
+        "state: FAILED\n"
+        "error: 3 The replica workerpool0-0 exited\n"
+        "\n"
+        "2026-11-18T19:20:01Z  checked out b8e3e7b\n"
+        "2026-11-18T19:25:00Z  Tearing down training program.\n"
+    )
+
+
+def test_cmd_logs_for_one_run_and_for_failed_runs_without_logs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    settings = _sample_settings()
+
+    def _write_run(run_name: str, job_id: str) -> Path:
+        run_dir = tmp_path / "addition" / run_name
+        write_vertex_json(
+            run_dir,
+            VertexJobRecord(
+                job_name=f"projects/123/locations/us-east4/customJobs/{job_id}",
+                job_id=job_id,
+                display_name=f"addition-{run_name}",
+                project=settings.project,
+                region="us-east4",
+                experiment="addition",
+                variant="cls",
+                run_name=run_name,
+                git_commit_sha="b8e3e7b438bb03b66ccde3709d0792e5dc49f008",
+                repo_url=settings.repo_url,
+                image_uri=settings.image_uri,
+                gcs_run_uri=f"gs://test-yessir-bucket/results/addition/{run_name}",
+                machine_type="g2-standard-4",
+                accelerator_type="NVIDIA_L4",
+                accelerator_count=1,
+                submitted_at="2026-11-18T19:14:00Z",
+            ),
+        )
+        return run_dir
+
+    crashed = _write_run("2026-11-18-b8e3e7b-crashed", "2")
+    pending = _write_run("2026-11-18-b8e3e7b-pending", "3")
+    jobs = {
+        "2": {
+            "name": "projects/123/locations/us-east4/customJobs/2",
+            "state": "JOB_STATE_FAILED",
+            "error": {"code": 3, "message": "The replica workerpool0-0 exited"},
+        },
+        "3": {
+            "name": "projects/123/locations/us-east4/customJobs/3",
+            "state": "JOB_STATE_PENDING",
+        },
+    }
+    logging_reads: list[str] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[:4] == ["gcloud", "ai", "custom-jobs", "list"]:
+            out = json.dumps(list(jobs.values()))
+        elif cmd[:4] == ["gcloud", "ai", "custom-jobs", "describe"]:
+            out = json.dumps(jobs[cmd[4].rsplit("/", 1)[-1]])
+        elif cmd[:3] == ["gcloud", "logging", "read"]:
+            logging_reads.append(cmd[3])
+            out = json.dumps(
+                [{"timestamp": "2026-11-18T19:20:01Z", "textPayload": "boom"}]
+            )
+        else:
+            raise AssertionError(f"unexpected command: {cmd}")
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    # --failed fetches only the failed run, then skips it once it has a vertex.log.
+    assert cmd_logs(settings, failed=True, results_root=tmp_path) == [
+        crashed / "vertex.log"
+    ]
+    assert logging_reads == ['resource.type="ml_job" AND resource.labels.job_id="2"']
+    assert "state: FAILED" in (crashed / "vertex.log").read_text(encoding="utf-8")
+    assert "boom" in (crashed / "vertex.log").read_text(encoding="utf-8")
+    assert not (pending / "vertex.log").exists()
+    assert cmd_logs(settings, failed=True, results_root=tmp_path) == []
+
+    # A named run is fetched whatever its state.
+    assert cmd_logs(
+        settings, run_filter="2026-11-18-b8e3e7b-pending", results_root=tmp_path
+    ) == [pending / "vertex.log"]
+    assert "state: PENDING" in (pending / "vertex.log").read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError, match="either a run or --failed"):
+        cmd_logs(settings, results_root=tmp_path)

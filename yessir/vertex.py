@@ -1,4 +1,4 @@
-"""Vertex AI Custom Job submission, listing, result syncing, and image building (`./yessir.sh vertex`)."""
+"""Vertex AI Custom Job submission, listing, result syncing, logs, cleanup, and image building (`./yessir.sh vertex`)."""
 
 import argparse
 import dataclasses
@@ -567,6 +567,24 @@ def cmd_submit(
     return record
 
 
+def _list_custom_jobs(project: str, region: str) -> list[dict[str, Any]]:
+    """Return every Vertex AI Custom Job in `region`, as parsed `gcloud` JSON."""
+    stdout = _run_checked(
+        [
+            "gcloud",
+            "ai",
+            "custom-jobs",
+            "list",
+            "--project",
+            project,
+            "--region",
+            region,
+            "--format=json",
+        ]
+    )
+    return json.loads(stdout) if stdout.strip() else []
+
+
 def cmd_list(
     settings: VertexSettings,
     *,
@@ -594,20 +612,7 @@ def cmd_list(
     remote_jobs: list[dict[str, Any]] = []
     rows: list[tuple[str, str, str, str, str, str, str]] = []
     for reg in regions_to_query:
-        stdout = _run_checked(
-            [
-                "gcloud",
-                "ai",
-                "custom-jobs",
-                "list",
-                "--project",
-                settings.project,
-                "--region",
-                reg,
-                "--format=json",
-            ]
-        )
-        reg_jobs: list[dict[str, Any]] = json.loads(stdout) if stdout.strip() else []
+        reg_jobs = _list_custom_jobs(settings.project, reg)
         remote_jobs.extend(reg_jobs)
         for job in reg_jobs:
             name = str(job.get("name", ""))
@@ -647,6 +652,69 @@ def cmd_list(
     for row in rows:
         print(fmt.format(*row))
     return remote_jobs
+
+
+def never_started(job: dict[str, Any]) -> bool:
+    """Return True if a Vertex AI job failed because no machine was available.
+
+    Vertex sets `startTime` as soon as it begins looking for a machine, so it
+    can't tell a stockout from a crash. A stockout fails with code 14
+    (UNAVAILABLE) and a "Resources are insufficient in region" message.
+    """
+    error = job.get("error", {})
+    return (
+        job.get("state") == "JOB_STATE_FAILED"
+        and error.get("code") == 14
+        and str(error.get("message", "")).startswith("Resources are insufficient")
+    )
+
+
+def cmd_clean(
+    settings: VertexSettings,
+    *,
+    yes: bool = False,
+    results_root: Path | None = None,
+) -> list[Path]:
+    """Delete local run directories whose Vertex AI job never started.
+
+    Prints each job's error first, since it is the only record of why the job
+    failed. Without `yes`, asks before deleting when run in a terminal, and
+    otherwise only prints what would be deleted.
+    """
+    local_runs = find_local_vertex_runs(results_root)
+    regions = sorted({rec.region for _, rec in local_runs if rec.region})
+    jobs_by_name: dict[str, dict[str, Any]] = {}
+    for reg in regions:
+        for job in _list_custom_jobs(settings.project, reg):
+            jobs_by_name[str(job.get("name", ""))] = job
+
+    targets: list[Path] = []
+    for run_dir, rec in local_runs:
+        job = jobs_by_name.get(rec.job_name)
+        if job is None or not never_started(job):
+            continue
+        state = str(job.get("state", "")).removeprefix("JOB_STATE_")
+        error = job.get("error", {}).get("message", "(no error message)")
+        print(f"{run_dir.parent.name}/{run_dir.name}  {rec.region}  {state}")
+        print(f"  {error}")
+        targets.append(run_dir)
+
+    if not targets:
+        print("No local runs whose Vertex AI job never started.")
+        return []
+    print(f"\n{len(targets)} run(s) never started.")
+    if not yes:
+        if not sys.stdin.isatty():
+            print("Re-run with --yes to delete them.")
+            return []
+        answer = input("Delete them? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Nothing deleted.")
+            return []
+    for run_dir in targets:
+        shutil.rmtree(run_dir)
+    print(f"Deleted {len(targets)} run directories.")
+    return targets
 
 
 _GPU_QUOTA_PREFIX = "aiplatform.googleapis.com/custom_model_training_nvidia_"
@@ -714,6 +782,16 @@ def cmd_quota(settings: VertexSettings) -> dict[str, dict[str, int]]:
     return quotas
 
 
+def _run_matches(rec: VertexJobRecord, run_filter: str) -> bool:
+    """Return True if `run_filter` names this run (run name, display name, job ID, or <experiment>/<run_name>)."""
+    return run_filter in (
+        rec.run_name,
+        rec.display_name,
+        rec.job_id,
+        f"{rec.experiment}/{rec.run_name}",
+    )
+
+
 def cmd_pull(
     *,
     run_filter: str | None = None,
@@ -725,12 +803,7 @@ def cmd_pull(
     targets: list[tuple[Path, VertexJobRecord]] = []
     for run_dir, rec in local_runs:
         if run_filter is not None:
-            if run_filter not in (
-                rec.run_name,
-                rec.display_name,
-                rec.job_id,
-                f"{rec.experiment}/{rec.run_name}",
-            ):
+            if not _run_matches(rec, run_filter):
                 continue
         elif not force and (run_dir / "eval.json").is_file():
             continue
@@ -757,6 +830,114 @@ def cmd_pull(
     if not targets:
         print("All local Vertex runs already have eval.json (pass --force to re-pull).")
     return pulled_dirs
+
+
+def format_job_log(job: dict[str, Any], log_entries: Sequence[dict[str, Any]]) -> str:
+    """Render a job's final status and its Cloud Logging entries as plain text for `vertex.log`.
+
+    The status comes first because a job that never got a machine has no log
+    entries: its error is the only record of what happened.
+    """
+    lines = [
+        f"job: {job.get('name', '')}",
+        f"state: {str(job.get('state', 'UNKNOWN')).removeprefix('JOB_STATE_')}",
+    ]
+    error = job.get("error")
+    if error:
+        lines.append(f"error: {error.get('code', '')} {error.get('message', '')}")
+    lines.append("")
+    for entry in log_entries:
+        # Vertex writes container output as plain text, and its own messages as JSON.
+        text = entry.get("textPayload") or entry.get("jsonPayload", {}).get(
+            "message", ""
+        )
+        lines.append(f"{entry.get('timestamp', '')}  {str(text).rstrip()}")
+    return "\n".join(lines) + "\n"
+
+
+def _read_job_logs(project: str, job_id: str) -> list[dict[str, Any]]:
+    """Return a job's Cloud Logging entries, oldest first."""
+    stdout = _run_checked(
+        [
+            "gcloud",
+            "logging",
+            "read",
+            f'resource.type="ml_job" AND resource.labels.job_id="{job_id}"',
+            "--project",
+            project,
+            "--order=asc",
+            # Without this, gcloud only looks at the last day. 30 days is Cloud Logging's default retention.
+            "--freshness=30d",
+            "--format=json",
+        ]
+    )
+    return json.loads(stdout) if stdout.strip() else []
+
+
+def cmd_logs(
+    settings: VertexSettings,
+    *,
+    run_filter: str | None = None,
+    failed: bool = False,
+    results_root: Path | None = None,
+) -> list[Path]:
+    """Write each job's status and logs to `vertex.log` in its local run directory.
+
+    Fetches one run (`run_filter`, always re-fetched), or every run whose job
+    failed and that has no `vertex.log` yet (`failed`).
+    """
+    if (run_filter is None) == (not failed):
+        raise ValueError("pass either a run or --failed")
+    local_runs = find_local_vertex_runs(results_root)
+
+    targets: list[tuple[Path, VertexJobRecord, dict[str, Any]]] = []
+    if run_filter is not None:
+        matches = [(d, r) for d, r in local_runs if _run_matches(r, run_filter)]
+        if not matches:
+            raise ValueError(
+                f"No local Vertex run matching {run_filter!r} found under results/"
+            )
+        for run_dir, rec in matches:
+            stdout = _run_checked(
+                [
+                    "gcloud",
+                    "ai",
+                    "custom-jobs",
+                    "describe",
+                    rec.job_name,
+                    "--region",
+                    rec.region,
+                    "--format=json",
+                ]
+            )
+            targets.append((run_dir, rec, json.loads(stdout)))
+    else:
+        regions = sorted({rec.region for _, rec in local_runs if rec.region})
+        jobs_by_name: dict[str, dict[str, Any]] = {}
+        for reg in regions:
+            for job in _list_custom_jobs(settings.project, reg):
+                jobs_by_name[str(job.get("name", ""))] = job
+        for run_dir, rec in local_runs:
+            job = jobs_by_name.get(rec.job_name)
+            if job is None or job.get("state") != "JOB_STATE_FAILED":
+                continue
+            if (run_dir / "vertex.log").is_file():
+                continue
+            targets.append((run_dir, rec, job))
+
+    if not targets:
+        print("No failed runs without a vertex.log.")
+        return []
+    written: list[Path] = []
+    for run_dir, rec, job in targets:
+        log_path = run_dir / "vertex.log"
+        entries = _read_job_logs(settings.project, rec.job_id)
+        log_path.write_text(format_job_log(job, entries), encoding="utf-8")
+        print(
+            f"{run_dir.parent.name}/{run_dir.name}: {len(entries)} log entries -> {log_path}"
+        )
+        written.append(log_path)
+    return written
 
 
 def run_vertex_cli(
@@ -802,9 +983,35 @@ def run_vertex_cli(
         help="Optional region to list jobs from (default: vertex.toml region plus any region in local vertex.json files)",
     )
 
+    p_clean = sub.add_parser(
+        "clean",
+        help="Delete local run directories whose Vertex AI job failed because no GPU was available",
+    )
+    p_clean.add_argument(
+        "--yes",
+        action="store_true",
+        help="Delete without asking (default: list each run and its job's error, then ask)",
+    )
+
     sub.add_parser(
         "quota",
         help="List regions with non-zero Vertex AI custom-training quota for any GPU type",
+    )
+
+    p_logs = sub.add_parser(
+        "logs",
+        help="Write a job's status and logs to vertex.log in its local run directory",
+    )
+    p_logs.add_argument(
+        "run",
+        nargs="?",
+        default=None,
+        help="Run name, job ID, or <experiment>/<run_name> to fetch logs for",
+    )
+    p_logs.add_argument(
+        "--failed",
+        action="store_true",
+        help="Fetch logs for every failed run that has no vertex.log yet",
     )
 
     p_pull = sub.add_parser(
@@ -853,6 +1060,17 @@ def run_vertex_cli(
         cmd_build_image(settings, local_docker=parsed.local_docker)
     elif parsed.subcommand == "list":
         cmd_list(settings, region=parsed.region, results_root=results_root)
+    elif parsed.subcommand == "logs":
+        if (parsed.run is None) == (not parsed.failed):
+            parser.error("logs: pass either a run or --failed")
+        cmd_logs(
+            settings,
+            run_filter=parsed.run,
+            failed=parsed.failed,
+            results_root=results_root,
+        )
+    elif parsed.subcommand == "clean":
+        cmd_clean(settings, yes=parsed.yes, results_root=results_root)
     elif parsed.subcommand == "quota":
         cmd_quota(settings)
 
