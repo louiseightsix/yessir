@@ -177,9 +177,19 @@ def _parse_addressed_ar_rollout(
 
         has_full_entry = len(seg_tokens) >= 1 + body_len
         if k < last_k:
-            halt_ok = has_full_entry and (k + 1 < num_segments) and segments[k + 1][0]
+            halt_ok = (
+                starts_with_idx
+                and has_full_entry
+                and (k + 1 < num_segments)
+                and segments[k + 1][0]
+            )
         elif k == last_k:
-            halt_ok = has_full_entry and (num_segments == num_steps) and ended_with_eos
+            halt_ok = (
+                starts_with_idx
+                and has_full_entry
+                and (num_segments == num_steps)
+                and ended_with_eos
+            )
         else:
             halt_ok = False
 
