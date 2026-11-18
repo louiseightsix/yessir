@@ -278,7 +278,7 @@ def test_addition_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=1150, batch_size=20, lr=6e-4)
+    train(model, train_dataset, max_steps=1500, batch_size=24, lr=5e-4)
 
     metrics = evaluate_ar(model, eval_problems, num_problems=100, step_order=step_order)
     assert metrics.exact_match >= 0.98
@@ -337,7 +337,7 @@ def test_addition_addressed_step_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=1300, batch_size=24, lr=6e-4)
+    train(model, train_dataset, max_steps=2000, batch_size=32, lr=3e-4)
 
     metrics = evaluate_addressed_step_ar(
         model,
@@ -411,7 +411,7 @@ def test_addition_addressed_ar_cpu_convergence():
         seed=999,
     )
 
-    train(model, train_dataset, max_steps=1300, batch_size=24, lr=6e-4)
+    train(model, train_dataset, max_steps=900, batch_size=24, lr=5e-4)
 
     metrics = evaluate_addressed_ar(
         model, eval_problems, num_problems=100, step_order=step_order
