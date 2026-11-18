@@ -159,6 +159,10 @@ def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
         "--device",
         "auto",
     ]
+    assert spec["scheduling"] == {
+        "strategy": "FLEX_START",
+        "maxWaitDuration": "86400s",
+    }
 
 
 def test_get_git_info_ignores_untracked_files_in_results(tmp_path: Path):

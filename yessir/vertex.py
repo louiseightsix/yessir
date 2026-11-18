@@ -200,7 +200,11 @@ def build_custom_job_spec(
                     ],
                 },
             }
-        ]
+        ],
+        "scheduling": {
+            "strategy": "FLEX_START",
+            "maxWaitDuration": "86400s",
+        },
     }
 
 
