@@ -7,6 +7,7 @@ import Shell from "../../../../layouts/Shell.astro";
 import { argMin } from "../../../../lib/chart";
 import { getExperiment, getSiteData, variantDefaults } from "../../../../lib/data";
 import { formatDuration, formatLoss, formatMetric, formatValue, splitRunName } from "../../../../lib/format";
+import { topLevelSplits } from "../../../../lib/splits";
 
 export function getStaticPaths() {
   return getSiteData().experiments.flatMap((e) =>
@@ -40,6 +41,28 @@ const secondsLeft =
 // Metric tiles: the run's own metrics, or the experiment's metric names as
 // "pending" placeholders while it's still training.
 const metricNames = run.evalMetrics ? Object.keys(run.evalMetrics) : exp.metricNames;
+
+// Diagnostics table: every metric for every split at the end of the run, from
+// eval_splits.json (addition). Without it (sir_yes_sir, or a run still in
+// progress) fall back to the latest eval.jsonl checkpoint.
+const lastCheckpoint = run.evalPoints.at(-1);
+const diagSplits = run.evalSplits ?? lastCheckpoint?.splits ?? null;
+const diagSource = run.evalSplits
+  ? "eval_splits.json"
+  : lastCheckpoint
+    ? `eval.jsonl · step ${lastCheckpoint.step}`
+    : null;
+const diagNames = diagSplits ? Object.keys(diagSplits) : [];
+const diagParents = topLevelSplits(diagNames);
+// Per-base slices (`id_base2`, ...) fold under their parent split's row.
+const slicesOf = (parent: string) =>
+  diagNames.filter((name) => !diagParents.includes(name) && name.startsWith(`${parent}_base`));
+// Columns: metric names in first-seen order (the `EvalMetrics` field order).
+const diagMetrics = [...new Set(Object.values(diagSplits ?? {}).flatMap((m) => Object.keys(m)))];
+const diagValue = (split: string, metric: string) => {
+  const v = diagSplits?.[split]?.[metric];
+  return typeof v === "number" ? formatMetric(v) : "n/a";
+};
 
 // Config split: changed settings first, the rest folded away.
 const defaults = variantDefaults(exp.schema, run.variant);
@@ -175,6 +198,69 @@ const configCount = Object.keys(run.config).length;
         )
       }
 
+      {
+        diagSplits && (
+          <section class="panel diag-panel" aria-labelledby="diag-heading">
+            <h2 id="diag-heading" class="section-heading">
+              Diagnostics by split <span class="eyebrow-file">{diagSource}</span>
+            </h2>
+            <p class="muted small-text">
+              Per-base rows fold under their split. <code>n/a</code>: the metric is undefined here (for example{" "}
+              <code>address_accuracy</code> outside <code>addressed_ar</code>).
+            </p>
+            <div class="table-scroll">
+              <table class="data-table diag-table">
+                <thead>
+                  <tr>
+                    <th scope="col">split</th>
+                    {diagMetrics.map((m) => (
+                      <th scope="col" class="num">
+                        {m}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {diagParents.map((parent) => {
+                    const slices = slicesOf(parent);
+                    return (
+                      <Fragment>
+                        <tr>
+                          <th scope="row" class="diag-split">
+                            {slices.length > 0 ? (
+                              <button type="button" class="slice-toggle" aria-expanded="false" data-split={parent}>
+                                <span class="slice-caret" aria-hidden="true">▸</span>
+                                {parent}
+                                <span class="muted"> · {slices.length} bases</span>
+                              </button>
+                            ) : (
+                              parent
+                            )}
+                          </th>
+                          {diagMetrics.map((m) => (
+                            <td class="num mono">{diagValue(parent, m)}</td>
+                          ))}
+                        </tr>
+                        {slices.map((slice) => (
+                          <tr class="slice-row" data-parent={parent} hidden>
+                            <th scope="row" class="diag-split diag-slice">
+                              {slice}
+                            </th>
+                            {diagMetrics.map((m) => (
+                              <td class="num mono">{diagValue(slice, m)}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )
+      }
+
       <section class="panel training-panel" aria-label="Training">
         <LossChart
           client:load
@@ -305,9 +391,65 @@ const configCount = Object.keys(run.config).length;
     }
     setTimeout(() => (button.textContent = original), 1500);
   });
+
+  // Diagnostics table: a split's button shows or hides its per-base rows.
+  for (const toggle of document.querySelectorAll<HTMLButtonElement>(".slice-toggle")) {
+    toggle.addEventListener("click", () => {
+      const open = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(open));
+      for (const row of document.querySelectorAll<HTMLTableRowElement>(
+        `.slice-row[data-parent="${toggle.dataset.split}"]`,
+      )) {
+        row.hidden = !open;
+      }
+    });
+  }
 </script>
 
 <style>
+  .diag-panel {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .diag-table th[scope="row"] {
+    text-align: left;
+    font: 500 var(--fs-small) var(--font-mono);
+    white-space: nowrap;
+  }
+  .diag-table th[scope="col"] {
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+  .diag-table td {
+    padding: 8px;
+  }
+  .diag-slice {
+    padding-left: 28px;
+    color: var(--c-ink-3);
+  }
+  .slice-row {
+    background: var(--c-field);
+  }
+  .slice-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--c-accent-strong);
+    cursor: pointer;
+  }
+  .slice-caret {
+    display: inline-block;
+    transition: transform 0.15s;
+  }
+  .slice-toggle[aria-expanded="true"] .slice-caret {
+    transform: rotate(90deg);
+  }
   .run-header {
     display: flex;
     flex-wrap: wrap;

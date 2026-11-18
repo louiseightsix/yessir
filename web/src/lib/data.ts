@@ -85,6 +85,11 @@ export interface RunData {
   trainPoints: TrainPoint[];
   /** Periodic checkpoints from `eval.jsonl`, oldest first (empty for runs that predate it). */
   evalPoints: EvalPoint[];
+  /**
+   * Final-step metrics per split from `eval_splits.json` (`addition` only; written
+   * at `max_steps`), or null when the file is absent.
+   */
+  evalSplits: Record<string, Record<string, number | null>> | null;
   readmeBody: string | null;
   flawedReason: string | null;
   /** Reason from an `OUTDATED:` first line: sound under an earlier spec, not the current one. */
@@ -202,6 +207,9 @@ export function loadRun(
   const evalMetrics = readJsonIfExists<Record<string, number>>(resolve(runDir, "eval.json"));
   const trainPoints = readTrainJsonl(resolve(runDir, "train.jsonl"));
   const evalPoints = readEvalJsonl(resolve(runDir, "eval.jsonl"));
+  const evalSplits = readJsonIfExists<Record<string, Record<string, number | null>>>(
+    resolve(runDir, "eval_splits.json"),
+  );
   const readmePath = resolve(runDir, "README.md");
   const rawReadme = existsSync(readmePath) ? readFileSync(readmePath, "utf8").trim() : null;
   const lines = rawReadme ? rawReadme.split("\n") : [];
@@ -228,6 +236,7 @@ export function loadRun(
     evalMetrics,
     trainPoints,
     evalPoints,
+    evalSplits,
     readmeBody,
     flawedReason,
     outdatedReason,
