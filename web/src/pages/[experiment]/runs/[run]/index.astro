@@ -1,7 +1,7 @@
 ---
 // Run detail: one page per run directory under results/<experiment>/.
 import { DirtyTag, FlawedBanner, OutdatedBanner, RunName, RunStatusBadge, StudyChip } from "../../../../components/badges";
-import { LossChart } from "../../../../components/charts";
+import { EvalChart, LossChart } from "../../../../components/charts";
 import { ProgressBar } from "../../../../components/controls";
 import Shell from "../../../../layouts/Shell.astro";
 import { argMin } from "../../../../lib/chart";
@@ -160,6 +160,20 @@ const configCount = Object.keys(run.config).length;
           )
         }
       </section>
+
+      {
+        run.evalPoints.length > 0 && (
+          <section class="panel training-panel" aria-label="Evaluation over training">
+            <EvalChart
+              client:load
+              title="Evaluation over training"
+              titleNote="eval.jsonl"
+              checkpoints={run.evalPoints.map((p) => ({ step: p.step, splits: p.splits }))}
+              totalSteps={run.totalSteps}
+            />
+          </section>
+        )
+      }
 
       <section class="panel training-panel" aria-label="Training">
         <LossChart

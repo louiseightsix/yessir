@@ -37,6 +37,18 @@ export interface TrainPoint {
   loss: number;
 }
 
+/**
+ * One checkpoint in `eval.jsonl`. `splits` maps a split name (`id`, `ood_base3`,
+ * ..., plus per-base slices such as `id_base2` in `addition`) to its metrics;
+ * a metric is `null` where it is undefined (e.g. `address_accuracy` outside
+ * `addressed_ar`). The top level also repeats the headline pairs from `eval.json`.
+ */
+export interface EvalPoint {
+  step: number;
+  elapsed_sec: number;
+  splits: Record<string, Record<string, number | null>>;
+}
+
 // Keep in sync with `Study` / `StudyRun` in `yessir/artefacts.py`.
 interface StudyRunEntry {
   run_name: string;
@@ -71,6 +83,8 @@ export interface RunData {
   meta: ConfigFile | null;
   evalMetrics: Record<string, number> | null;
   trainPoints: TrainPoint[];
+  /** Periodic checkpoints from `eval.jsonl`, oldest first (empty for runs that predate it). */
+  evalPoints: EvalPoint[];
   readmeBody: string | null;
   flawedReason: string | null;
   /** Reason from an `OUTDATED:` first line: sound under an earlier spec, not the current one. */
@@ -132,19 +146,31 @@ function readJsonIfExists<T>(path: string): T | null {
   }
 }
 
-export function readTrainJsonl(path: string): TrainPoint[] {
+/** One JSON object per line; missing file → `[]`. */
+function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return [];
-  const points: TrainPoint[] = [];
+  const rows: T[] = [];
   for (const line of readFileSync(path, "utf8").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      points.push(JSON.parse(trimmed) as TrainPoint);
+      rows.push(JSON.parse(trimmed) as T);
     } catch {
       // Ignore a trailing half-written line while a run is in progress.
     }
   }
-  return points;
+  return rows;
+}
+
+export function readTrainJsonl(path: string): TrainPoint[] {
+  return readJsonl<TrainPoint>(path);
+}
+
+/** Checkpoints without a `splits` object (malformed or foreign rows) are skipped. */
+export function readEvalJsonl(path: string): EvalPoint[] {
+  return readJsonl<EvalPoint>(path).filter(
+    (p) => typeof p.step === "number" && p.splits !== null && typeof p.splits === "object",
+  );
 }
 
 function listSubdirs(dir: string): string[] {
@@ -175,6 +201,7 @@ export function loadRun(
   const meta = readJsonIfExists<ConfigFile>(resolve(runDir, "config.json"));
   const evalMetrics = readJsonIfExists<Record<string, number>>(resolve(runDir, "eval.json"));
   const trainPoints = readTrainJsonl(resolve(runDir, "train.jsonl"));
+  const evalPoints = readEvalJsonl(resolve(runDir, "eval.jsonl"));
   const readmePath = resolve(runDir, "README.md");
   const rawReadme = existsSync(readmePath) ? readFileSync(readmePath, "utf8").trim() : null;
   const lines = rawReadme ? rawReadme.split("\n") : [];
@@ -200,6 +227,7 @@ export function loadRun(
     meta,
     evalMetrics,
     trainPoints,
+    evalPoints,
     readmeBody,
     flawedReason,
     outdatedReason,
