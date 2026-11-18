@@ -63,7 +63,7 @@ def test_default_configs_and_derived_properties():
     assert cfg.effective_eval_every == 5_000
     assert (
         cfg.derived_summary()
-        == "d_model=512, symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
+        == "d_model=512 (d_pos=0, d_scratch=256), symbol_pool=240, eval_every=5000, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
     )
     assert AdditionConfig(max_steps=500_000).effective_eval_every == 25_000
     assert AdditionConfig(max_steps=30_000).effective_eval_every == 2_500
@@ -71,7 +71,7 @@ def test_default_configs_and_derived_properties():
     assert AdditionConfig(eval_every=0).effective_eval_every is None
     assert (
         AdditionConfig(eval_every=0).derived_summary()
-        == "d_model=512, symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
+        == "d_model=512 (d_pos=0, d_scratch=256), symbol_pool=240, eval_every=final, splits=[id,ood_base3,ood_base12,extrap_len,permuted]"
     )
 
     cls_cfg = AdditionClsConfig()
@@ -349,8 +349,20 @@ def test_config_validation_rejections():
         AdditionConfig(eval_p_chain=1.5)
     with pytest.raises(ValueError, match="non-negative even int"):
         AdditionStepConfig(d_position=15)
-    with pytest.raises(ValueError, match="d_position must be > 0"):
+    with pytest.raises(ValueError, match="d_position must be >= 4"):
         AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=0)
+    with pytest.raises(ValueError, match="d_position must be >= 4"):
+        AdditionStepConfig(embedding_mode=EmbeddingMode.TOKEN_TYPE_PE, d_position=2)
+    for non_pe_mode in (EmbeddingMode.NOPE, EmbeddingMode.TOKEN_TYPE_NOPE):
+        for fixed in (True, False):
+            with pytest.raises(ValueError, match="d_position is unused"):
+                AdditionStepConfig(
+                    embedding_mode=non_pe_mode, d_position=0, fixed_d_model=fixed
+                )
+            with pytest.raises(ValueError, match="d_position is unused"):
+                AdditionStepConfig(
+                    embedding_mode=non_pe_mode, d_position=8, fixed_d_model=fixed
+                )
     with pytest.raises(ValueError, match="d_scratch must be >= 0"):
         AdditionConfig(d_scratch=-1)
     with pytest.raises(ValueError, match="n_layers must be > 0"):
@@ -410,7 +422,7 @@ def test_json_round_trip():
         symbol_pool_size=12,
         p_prior=0.25,
         p_chain=0.4,
-        embedding_mode=EmbeddingMode.TOKEN_TYPE_NOPE,
+        embedding_mode=EmbeddingMode.TOKEN_TYPE_PE,
         n_layers=2,
         n_heads=4,
         d_ff=64,

@@ -421,7 +421,8 @@ class AdditionConfig(ExperimentConfig):
             else "final"
         )
         return (
-            f"d_model={self.d_model}, symbol_pool={len(self.symbol_pool)}, "
+            f"d_model={self.d_model} (d_pos={self.effective_d_position}, "
+            f"d_scratch={self.effective_d_scratch}), symbol_pool={len(self.symbol_pool)}, "
             f"eval_every={eval_str}, splits=[{split_names}]"
         )
 
@@ -438,7 +439,7 @@ class AdditionStepConfig(AdditionConfig):
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE
     d_position: int = field(
         default=32,
-        metadata={"domain": "even int >= 0 (>0 if token_type_pe)", "step": 2},
+        metadata={"domain": "even int >= 4 (32 unless token_type_pe)", "step": 2},
     )
     d_scratch: int = field(default=208, metadata={"domain": "int >= 0", "step": 16})
     fixed_d_model: bool = True
@@ -454,9 +455,16 @@ class AdditionStepConfig(AdditionConfig):
             raise ValueError(
                 f"d_position must be a non-negative even int, got {self.d_position}"
             )
-        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE and self.d_position == 0:
+        if self.embedding_mode == EmbeddingMode.TOKEN_TYPE_PE:
+            if self.d_position < 4:
+                raise ValueError(
+                    f"d_position must be >= 4 when embedding_mode is 'token_type_pe' "
+                    f"(d_position=2 has single period 2*pi ~ 6.28), got {self.d_position}"
+                )
+        elif self.d_position != 32:
             raise ValueError(
-                "d_position must be > 0 when embedding_mode is 'token_type_pe'"
+                f"d_position is unused when embedding_mode={self.embedding_mode.value!r}; "
+                f"leave d_position=32 (got {self.d_position}) and adjust d_scratch or fixed_d_model instead"
             )
         super().__post_init__()
         if not (0.0 <= self.p_terminal <= 1.0):
