@@ -29,7 +29,7 @@ A natural circuit for this task combines positional indexing (attending to `x_k`
 
 ### Alphabets (`yessir.alphabet`)
 
-If every problem uses the same fixed alphabet (e.g. `'0', '1', '2', '3'`), a model can ignore the prompt's alphabet section altogether and memorise static token-to-token transitions (`'0' -> '1'`, `'1' -> '2'`, ...) in its weights. Randomising the alphabet order from problem to problem makes static memorisation impossible and forces the model to look up `x_k` in context.
+If every problem uses the same fixed alphabet (e.g. `'0', '1', '2', '3'`), a model can ignore the prompt's alphabet section altogether and memorise static token-to-token transitions (`'0' -> '1'`, `'1' -> '2'`, ...) in its weights. Randomising the alphabet order from problem to problem makes static memorisation impossible for `B >= 3` and forces the model to look up `x_k` in context (at the `B = 2` boundary, `[a, b]` and `[b, a]` define the same swap `a <-> b`, so a restricted 2-symbol pool still permits static swap memorisation while sampling from the 240-byte pool tests unordered 2-symbol partner lookup rather than alphabet order).
 
 Alphabets are constructed with `create_alphabet(symbols, *, sample_size=None, rng=None)` from `SymbolSet` and controlled in `SirYesSirConfig` by `symbol_set`, `symbol_pool_size`, and `resample_alphabet`:
 - **Random symbols** (`symbol_set=all`, `symbol_pool_size=None`, `resample_alphabet=True`): `create_alphabet(SymbolSet.ALL, sample_size=B, rng=rng)` — `B` distinct bytes sampled uniformly without replacement in random order from the 240-byte symbol pool (`0x00`–`0xEF`). Prevents both transition memorisation and overfitting to a small fixed set of token embeddings.

@@ -829,18 +829,41 @@ def test_partially_trained_cls_transformer_exact_match_matches_rollout(
     )
     metrics = evaluate_cls(model, eval_items, num_problems=40, batch_size=7)
     assert 0.0 < metrics.exact_match < 1.0
+    assert metrics == evaluate_cls(model, eval_items, num_problems=40, batch_size=1)
+
+    from experiments.sir_yes_sir.variants.cls.evaluation import (
+        _rollout_cls_chunk,
+        _slice_prefix_example,
+        _validate_cls_item,
+    )
 
     rollout_matches = 0
-    for item in eval_items:
-        alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
-        expected = [
-            s for s in item.labels if isinstance(s, tuple) and s[0] != IGNORE_INDEX
+    for start in range(0, len(eval_items), 7):
+        chunk = eval_items[start : start + 7]
+        targets = [_validate_cls_item(it) for it in chunk]
+        prefixes = [
+            _slice_prefix_example(it.example, len(it.example) - len(tgt) + 1)
+            for it, tgt in zip(chunk, targets, strict=True)
         ]
-        if (
-            greedy_generate_cls(model, alphabet, x, embedding_mode=embedding_mode)
-            == expected
+        batched_rollouts = _rollout_cls_chunk(
+            model,
+            prefixes,
+            [len(tgt) for tgt in targets],
+            device=model.device,
+        )
+        for item, expected, batched in zip(
+            chunk, targets, batched_rollouts, strict=True
         ):
-            rollout_matches += 1
+            alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
+            single_rollout = greedy_generate_cls(
+                model, alphabet, x, embedding_mode=embedding_mode
+            )
+            assert batched == single_rollout
+            single_metrics = evaluate_cls(model, [item], num_problems=1, batch_size=1)
+            is_match = single_rollout == expected
+            assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+            if is_match:
+                rollout_matches += 1
     assert rollout_matches / len(eval_items) == pytest.approx(metrics.exact_match)
 
 
@@ -874,13 +897,39 @@ def test_partially_trained_ar_transformer_exact_match_matches_rollout():
     )
     metrics = evaluate_ar(model, eval_items, num_problems=40, batch_size=7)
     assert 0.0 < metrics.exact_match < 1.0
+    assert metrics == evaluate_ar(model, eval_items, num_problems=40, batch_size=1)
+
+    from experiments.sir_yes_sir.variants.ar.evaluation import (
+        _rollout_ar_chunk,
+        _validate_ar_item,
+    )
+    from experiments.sir_yes_sir.variants.ar.evaluation import (
+        _slice_prefix_example as _slice_ar_prefix,
+    )
 
     rollout_matches = 0
-    for item in eval_items:
-        alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
-        expected = [
-            tok for tok in item.labels if isinstance(tok, int) and tok != IGNORE_INDEX
+    for start in range(0, len(eval_items), 7):
+        chunk = eval_items[start : start + 7]
+        targets = [_validate_ar_item(it) for it in chunk]
+        prefixes = [
+            _slice_ar_prefix(it.example, len(it.example) - len(tgt) + 1)
+            for it, tgt in zip(chunk, targets, strict=True)
         ]
-        if greedy_generate_ar(model, alphabet, x) == expected:
-            rollout_matches += 1
+        batched_rollouts = _rollout_ar_chunk(
+            model,
+            prefixes,
+            [len(tgt) for tgt in targets],
+            device=model.device,
+        )
+        for item, expected, batched in zip(
+            chunk, targets, batched_rollouts, strict=True
+        ):
+            alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
+            single_rollout = greedy_generate_ar(model, alphabet, x)
+            assert batched == single_rollout
+            single_metrics = evaluate_ar(model, [item], num_problems=1, batch_size=1)
+            is_match = single_rollout == expected
+            assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+            if is_match:
+                rollout_matches += 1
     assert rollout_matches / len(eval_items) == pytest.approx(metrics.exact_match)

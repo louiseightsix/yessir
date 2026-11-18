@@ -175,7 +175,35 @@ def _parse_addressed_ar_rollout(
             # column `k`; trim trailing overrun tokens (`halt_ok` is already `False`).
             seg_tokens = seg_tokens[: len(expected_addr) + body_len]
 
-        has_full_entry = len(seg_tokens) >= 1 + body_len
+        valid_header_premature_eos = (
+            is_last_seg
+            and ended_with_eos
+            and starts_with_idx
+            and expected_addr is not None
+            and len(expected_addr) <= len(seg_tokens) < len(expected_addr) + body_len
+            and tuple(seg_tokens[: len(expected_addr)]) == expected_addr
+        )
+        first_query_idx = next(
+            (
+                i
+                for i, tok in enumerate(seg_tokens)
+                if i >= 1 and tok in (int(q_0), int(q_1))
+            ),
+            None,
+        )
+        truncated_query_body_eos = (
+            use_query_tokens
+            and is_last_seg
+            and ended_with_eos
+            and starts_with_idx
+            and first_query_idx is not None
+            and (len(seg_tokens) - first_query_idx) < body_len
+        )
+        has_full_entry = (
+            len(seg_tokens) >= 1 + body_len
+            and not valid_header_premature_eos
+            and not truncated_query_body_eos
+        )
         if k < last_k:
             halt_ok = (
                 starts_with_idx
@@ -209,14 +237,8 @@ def _parse_addressed_ar_rollout(
                 queries_ok = True
             syntax_ok = address_ok and queries_ok
             pred_o, pred_c = unpack_step_order(pred_t0, pred_t1, step_order)
-        elif (
-            is_last_seg
-            and ended_with_eos
-            and starts_with_idx
-            and expected_addr is not None
-            and len(seg_tokens) >= len(expected_addr)
-            and tuple(seg_tokens[: len(expected_addr)]) == expected_addr
-        ):
+        elif valid_header_premature_eos:
+            assert expected_addr is not None
             # Valid `[IDX] + addr(k)` header followed by premature `[EOS]` inside body.
             address_ok = True
             rem = seg_tokens[len(expected_addr) :]

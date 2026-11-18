@@ -486,7 +486,7 @@ def test_partially_trained_step_fork_transformer_exact_match_matches_rollout(
     problems = list(
         itertools.islice(
             iter_problems(
-                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+                bases=(2, 3), min_length=1, max_length=2, p_prior=1.0, seed=99
             ),
             30,
         )
@@ -495,13 +495,24 @@ def test_partially_trained_step_fork_transformer_exact_match_matches_rollout(
         model, problems, num_problems=30, batch_size=7, embedding_mode=embedding_mode
     )
     assert 0.0 < metrics.exact_match < 1.0
+    assert metrics == evaluate_step_fork(
+        model, problems, num_problems=30, batch_size=1, embedding_mode=embedding_mode
+    )
 
-    rollout_matches = sum(
-        rollout_step_fork(model, p.alphabet, p.a, p.b, embedding_mode=embedding_mode)
-        == [
+    rollout_matches = 0
+    for p in problems:
+        expected = [
             (st.sum_digit, st.carry_out, int(st.flag))
             for st in reference_add(p.alphabet, p.a, p.b)
         ]
-        for p in problems
-    )
+        single_rollout = rollout_step_fork(
+            model, p.alphabet, p.a, p.b, embedding_mode=embedding_mode
+        )
+        single_metrics = evaluate_step_fork(
+            model, [p], num_problems=1, batch_size=1, embedding_mode=embedding_mode
+        )
+        is_match = single_rollout == expected
+        assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+        if is_match:
+            rollout_matches += 1
     assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

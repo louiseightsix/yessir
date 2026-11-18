@@ -2,7 +2,7 @@
   "title": "Minimum model capacity (layers, heads, FFN width, scratchpad)",
   "status": "draft",
   "kind": "sweep",
-  "question": "What is the smallest transformer (in n_layers, n_heads, d_ff, and d_scratch) that can solve in-context successor lookup with random alphabets, and does the induction-head lookup require a hard minimum of n_layers >= 2?",
+  "question": "What is the smallest transformer (in n_layers, n_heads, d_ff, and d_scratch) that can solve in-context successor lookup with random alphabets, and does the induction-head lookup require a hard minimum of n_layers >= 2? (Note: ParallelClassificationHead in cls adds d_model * (1 + 2 * 256) untied head parameters—+262,656 at d_model = 512 and >= 131,328 at d_model >= 256, including 254 untargeted classes on the 256-way flag head—versus 0 head parameters in SubspaceLMHead.)",
   "runs": [],
   "conclusion": null
 }

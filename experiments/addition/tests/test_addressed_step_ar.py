@@ -834,24 +834,28 @@ def test_partially_trained_addressed_step_ar_transformer_exact_match_matches_rol
         AdditionAddressedStepArDataset(
             bases=(2, 3),
             min_length=1,
-            max_length=1,
+            max_length=2,
             p_prior=1.0,
             step_order=StepOrder.CARRY_FIRST,
             use_query_tokens=True,
             embedding_mode=embedding_mode,
             seed=7,
         ),
-        max_steps=90,
+        max_steps=110,
         batch_size=8,
         lr=8e-4,
     )
     problems = list(
         itertools.islice(
             iter_problems(
-                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+                bases=(2, 3), min_length=1, max_length=3, p_prior=1.0, seed=99
             ),
             30,
         )
+    )
+    # Ensure multi-digit column addresses (`k >= B`) are exercised during rollout.
+    assert any(
+        len(reference_add(p.alphabet, p.a, p.b)) > len(p.alphabet) for p in problems
     )
     metrics = evaluate_addressed_step_ar(
         model,
@@ -863,9 +867,23 @@ def test_partially_trained_addressed_step_ar_transformer_exact_match_matches_rol
         embedding_mode=embedding_mode,
     )
     assert 0.0 < metrics.exact_match < 1.0
+    assert metrics == evaluate_addressed_step_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=1,
+        step_order=StepOrder.CARRY_FIRST,
+        use_query_tokens=True,
+        embedding_mode=embedding_mode,
+    )
 
-    rollout_matches = sum(
-        rollout_addressed_step_ar(
+    rollout_matches = 0
+    for p in problems:
+        expected = [
+            (st.sum_digit, st.carry_out, int(st.flag))
+            for st in reference_add(p.alphabet, p.a, p.b)
+        ]
+        single_rollout = rollout_addressed_step_ar(
             model,
             p.alphabet,
             p.a,
@@ -874,10 +892,17 @@ def test_partially_trained_addressed_step_ar_transformer_exact_match_matches_rol
             use_query_tokens=True,
             embedding_mode=embedding_mode,
         )
-        == [
-            (st.sum_digit, st.carry_out, int(st.flag))
-            for st in reference_add(p.alphabet, p.a, p.b)
-        ]
-        for p in problems
-    )
+        single_metrics = evaluate_addressed_step_ar(
+            model,
+            [p],
+            num_problems=1,
+            batch_size=1,
+            step_order=StepOrder.CARRY_FIRST,
+            use_query_tokens=True,
+            embedding_mode=embedding_mode,
+        )
+        is_match = single_rollout == expected
+        assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+        if is_match:
+            rollout_matches += 1
     assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

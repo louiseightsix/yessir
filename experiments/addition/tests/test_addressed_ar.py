@@ -783,9 +783,46 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
         assert m_ord.procedural_error == expected_proc
         assert m_ord.out_of_alphabet == expected_ooa
 
+    # Wrong-width address on a non-final segment (`k = 2` followed by `[IDX]` on a
+    # 4-step binary problem `111_2 + 100_2 = 1011_2`) and on a final segment where
+    # the wrong 1-bit address (`'1'`) + `sum_2` (`'1'`) does not spell `addr(2) = b"01"`.
+    bin_4step = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"111"), b=tuple(b"001"))
+    steps_4 = reference_add(bin_4step.alphabet, bin_4step.a, bin_4step.b)
+    assert len(steps_4) == 4
+    wrong_width_nonfinal = [
+        idx,
+        ord("0"),
+        steps_4[0].sum_digit,
+        steps_4[0].carry_out,
+        idx,
+        ord("1"),
+        steps_4[1].sum_digit,
+        steps_4[1].carry_out,
+        idx,
+        ord("0"),  # 1-bit address instead of `b"01"`, followed by `[IDX]`
+        steps_4[2].sum_digit,
+        steps_4[2].carry_out,
+        idx,
+        ord("1"),
+        ord("1"),
+        steps_4[3].sum_digit,
+        steps_4[3].carry_out,
+        eos,
+    ]
+    m_width_mid = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([bin_4step], [wrong_width_nonfinal]),  # ty: ignore[invalid-argument-type]
+        [bin_4step],
+        num_problems=1,
+    )
+    assert m_width_mid.exact_match == 0.0
+    assert m_width_mid.address_accuracy == pytest.approx(0.75)
+    assert m_width_mid.step_accuracy == pytest.approx(0.75)
+    assert m_width_mid.halt_accuracy == 1.0
+    assert m_width_mid.syntax_malformation == 1.0
+
     bin_prob = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"101"), b=tuple(b"010"))
     bin_steps = reference_add(bin_prob.alphabet, bin_prob.a, bin_prob.b)
-    wrong_width_rollout = [
+    wrong_width_final = [
         idx,
         ord("0"),
         bin_steps[0].sum_digit,
@@ -795,20 +832,171 @@ def test_evaluate_addressed_ar_address_idx_eos_and_step_order_taxonomy():
         bin_steps[1].sum_digit,
         bin_steps[1].carry_out,
         idx,
-        ord("0"),
+        ord("1"),  # 1-bit `'1'` (`('1', sum_2='1') != addr(2) = ('0', '1')`)
         bin_steps[2].sum_digit,
         bin_steps[2].carry_out,
         eos,
     ]
     m_width = evaluate_addressed_ar(
-        _ScriptedEvalAddressedArModel([bin_prob], [wrong_width_rollout]),  # ty: ignore[invalid-argument-type]
+        _ScriptedEvalAddressedArModel([bin_prob], [wrong_width_final]),  # ty: ignore[invalid-argument-type]
         [bin_prob],
         num_problems=1,
     )
     assert m_width.exact_match == 0.0
     assert m_width.address_accuracy == pytest.approx(2 / 3)
     assert m_width.step_accuracy == pytest.approx(2 / 3)
+    assert m_width.halt_accuracy == 1.0
     assert m_width.syntax_malformation == 1.0
+
+    # Causal-LM prefix collision at `k = 2` (`addr(2) = b"01"`): `[IDX, '0', '1', '0', EOS]`
+    # starts with `[IDX] + addr(2)` and stops 1 token early (`o_2 = '0' != '1'`, missing `c_3`).
+    prefix_collision = [*wrong_width_final[:-4], ord("0"), ord("1"), ord("0"), eos]
+    m_coll = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([bin_prob], [prefix_collision]),  # ty: ignore[invalid-argument-type]
+        [bin_prob],
+        num_problems=1,
+    )
+    assert m_coll.exact_match == 0.0
+    assert m_coll.address_accuracy == 1.0
+    assert m_coll.halt_accuracy == 0.0
+    assert m_coll.procedural_error == 1.0
+
+
+def test_evaluate_addressed_ar_multidigit_premature_body_eos():
+    """Verify multi-digit (`k >= B`) mid-body `[EOS]` handling across triggers 1–3 and query modes."""
+    idx = int(AdditionToken.IDX)
+    eos = int(SpecialToken.EOS)
+    q_s = int(AdditionToken.QUERY_SUM)
+    q_c = int(AdditionToken.QUERY_CARRY)
+
+    # Triggers 1 & 2: `b"111" + b"1"` (`4` steps `k = 0..3`, `addr(3) = b"11"`).
+    prob4 = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"111"), b=tuple(b"1"))
+    steps4 = reference_add(prob4.alphabet, prob4.a, prob4.b)
+    assert len(steps4) == 4
+
+    # Trigger 1 (`use_query_tokens=False`): `[IDX, '1', '1', o_3, EOS]` (missing `c_4`).
+    prefix_0_to_2_noq = list(
+        build_addressed_ar_trace_tokens(
+            steps4[:3], prob4.alphabet, use_query_tokens=False
+        )
+    )
+    trig1 = [*prefix_0_to_2_noq, idx, ord("1"), ord("1"), steps4[3].sum_digit, eos]
+    m1 = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([prob4], [trig1]),  # ty: ignore[invalid-argument-type]
+        [prob4],
+        num_problems=1,
+        use_query_tokens=False,
+    )
+    assert m1.exact_match == 0.0
+    assert m1.halt_accuracy == 0.0
+    assert m1.address_accuracy == 1.0
+    assert m1.digit_accuracy == 1.0
+    assert m1.step_accuracy == pytest.approx(0.75)
+    assert m1.out_of_alphabet == 1.0
+    assert m1.syntax_malformation == 0.0
+
+    # Trigger 2 (`use_query_tokens=True`): `[IDX, '1', '1', [S], o_3, [C], EOS]` (missing `c_4`).
+    prefix_0_to_2_q = list(
+        build_addressed_ar_trace_tokens(
+            steps4[:3], prob4.alphabet, use_query_tokens=True
+        )
+    )
+    trig2 = [
+        *prefix_0_to_2_q,
+        idx,
+        ord("1"),
+        ord("1"),
+        q_s,
+        steps4[3].sum_digit,
+        q_c,
+        eos,
+    ]
+    m2 = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([prob4], [trig2]),  # ty: ignore[invalid-argument-type]
+        [prob4],
+        num_problems=1,
+        use_query_tokens=True,
+    )
+    assert m2.exact_match == 0.0
+    assert m2.halt_accuracy == 0.0
+    assert m2.address_accuracy == 1.0
+    assert m2.digit_accuracy == 1.0
+    assert m2.step_accuracy == pytest.approx(0.75)
+    assert m2.out_of_alphabet == 1.0
+    assert m2.syntax_malformation == 0.0
+
+    # Wrong multi-digit address + mid-body `[EOS]` under `use_query_tokens=True`:
+    # `[IDX, '0', '1', [S], o_3, [C], EOS]` must still report `halt_accuracy == 0.0`.
+    wrong_addr_trunc_q = [
+        *prefix_0_to_2_q,
+        idx,
+        ord("0"),
+        ord("1"),
+        q_s,
+        steps4[3].sum_digit,
+        q_c,
+        eos,
+    ]
+    m_wrong_trunc = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([prob4], [wrong_addr_trunc_q]),  # ty: ignore[invalid-argument-type]
+        [prob4],
+        num_problems=1,
+        use_query_tokens=True,
+    )
+    assert m_wrong_trunc.exact_match == 0.0
+    assert m_wrong_trunc.halt_accuracy == 0.0
+    assert m_wrong_trunc.address_accuracy == pytest.approx(0.75)
+    assert m_wrong_trunc.digit_accuracy == pytest.approx(0.75)
+    assert m_wrong_trunc.syntax_malformation == 1.0
+
+    # Swapped query tokens in a full 4-token body (`[IDX, '1', '1', [C], o_3, [S], c_4, EOS]`)
+    # still count as a full segment (`halt_accuracy == 1.0`, `address_accuracy == 1.0`).
+    swapped_queries_full = [
+        *prefix_0_to_2_q,
+        idx,
+        ord("1"),
+        ord("1"),
+        q_c,
+        steps4[3].sum_digit,
+        q_s,
+        steps4[3].carry_out,
+        eos,
+    ]
+    m_swapped = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([prob4], [swapped_queries_full]),  # ty: ignore[invalid-argument-type]
+        [prob4],
+        num_problems=1,
+        use_query_tokens=True,
+    )
+    assert m_swapped.exact_match == 0.0
+    assert m_swapped.halt_accuracy == 1.0
+    assert m_swapped.address_accuracy == 1.0
+    assert m_swapped.syntax_malformation == 1.0
+
+    # Trigger 3 (`b"1111" + b"1"`, `5` steps `k = 0..4`, `addr(4) = b"001"`, zero body tokens):
+    # `[IDX, '0', '0', '1', EOS]` must report `halt_accuracy == 0.0` and `address_accuracy == 1.0`.
+    prob5 = AdditionProblem(alphabet=tuple(b"01"), a=tuple(b"1111"), b=tuple(b"1"))
+    steps5 = reference_add(prob5.alphabet, prob5.a, prob5.b)
+    assert len(steps5) == 5
+    prefix_0_to_3_noq = list(
+        build_addressed_ar_trace_tokens(
+            steps5[:4], prob5.alphabet, use_query_tokens=False
+        )
+    )
+    trig3 = [*prefix_0_to_3_noq, idx, ord("0"), ord("0"), ord("1"), eos]
+    m3 = evaluate_addressed_ar(
+        _ScriptedEvalAddressedArModel([prob5], [trig3]),  # ty: ignore[invalid-argument-type]
+        [prob5],
+        num_problems=1,
+        use_query_tokens=False,
+    )
+    assert m3.exact_match == 0.0
+    assert m3.halt_accuracy == 0.0
+    assert m3.address_accuracy == 1.0
+    assert m3.digit_accuracy == pytest.approx(0.80)
+    assert m3.step_accuracy == pytest.approx(0.80)
+    assert m3.out_of_alphabet == 1.0
+    assert m3.syntax_malformation == 0.0
 
 
 def test_evaluate_and_rollout_addressed_ar_with_real_transformer_and_validation():
@@ -975,10 +1163,14 @@ def test_partially_trained_addressed_ar_transformer_exact_match_matches_rollout(
     problems = list(
         itertools.islice(
             iter_problems(
-                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+                bases=(2, 3), min_length=1, max_length=3, p_prior=1.0, seed=99
             ),
             30,
         )
+    )
+    # Ensure multi-digit column addresses (`k >= B`) are exercised during rollout.
+    assert any(
+        len(reference_add(p.alphabet, p.a, p.b)) > len(p.alphabet) for p in problems
     )
     metrics = evaluate_addressed_ar(
         model,
@@ -988,19 +1180,58 @@ def test_partially_trained_addressed_ar_transformer_exact_match_matches_rollout(
         step_order=StepOrder.CARRY_FIRST,
     )
     assert 0.0 < metrics.exact_match < 1.0
-
-    rollout_matches = sum(
-        rollout_addressed_ar(
-            model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST
-        )
-        == [
-            *build_addressed_ar_trace_tokens(
-                reference_add(p.alphabet, p.a, p.b),
-                p.alphabet,
-                step_order=StepOrder.CARRY_FIRST,
-            ),
-            int(SpecialToken.EOS),
-        ]
-        for p in problems
+    assert metrics == evaluate_addressed_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=1,
+        step_order=StepOrder.CARRY_FIRST,
     )
+
+    from experiments.addition.variants.addressed_ar.evaluation import (
+        _rollout_addressed_ar_chunk,
+    )
+
+    rollout_matches = 0
+    for start in range(0, len(problems), 7):
+        chunk = problems[start : start + 7]
+        max_tokens_chunk = [
+            sum(
+                1 + len(encode_address(k, p.alphabet)) + 2
+                for k in range(max(len(p.a), len(p.b)) + 1)
+            )
+            + 1
+            for p in chunk
+        ]
+        batched_rollouts = _rollout_addressed_ar_chunk(
+            model,
+            chunk,
+            max_tokens_chunk,
+            include_alphabet=True,
+            device=model.device,
+        )
+        for p, batched in zip(chunk, batched_rollouts, strict=True):
+            expected = [
+                *build_addressed_ar_trace_tokens(
+                    reference_add(p.alphabet, p.a, p.b),
+                    p.alphabet,
+                    step_order=StepOrder.CARRY_FIRST,
+                ),
+                int(SpecialToken.EOS),
+            ]
+            single_rollout = rollout_addressed_ar(
+                model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST
+            )
+            assert batched == single_rollout
+            single_metrics = evaluate_addressed_ar(
+                model,
+                [p],
+                num_problems=1,
+                batch_size=1,
+                step_order=StepOrder.CARRY_FIRST,
+            )
+            is_match = single_rollout == expected
+            assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+            if is_match:
+                rollout_matches += 1
     assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

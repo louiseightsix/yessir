@@ -657,7 +657,7 @@ def test_partially_trained_ar_transformer_exact_match_matches_rollout():
     problems = list(
         itertools.islice(
             iter_problems(
-                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+                bases=(2, 3), min_length=1, max_length=2, p_prior=1.0, seed=99
             ),
             30,
         )
@@ -670,16 +670,44 @@ def test_partially_trained_ar_transformer_exact_match_matches_rollout():
         step_order=StepOrder.CARRY_FIRST,
     )
     assert 0.0 < metrics.exact_match < 1.0
-
-    rollout_matches = sum(
-        rollout_ar(model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST)
-        == [
-            *build_ar_trace_tokens(
-                reference_add(p.alphabet, p.a, p.b),
-                step_order=StepOrder.CARRY_FIRST,
-            ),
-            int(SpecialToken.EOS),
-        ]
-        for p in problems
+    assert metrics == evaluate_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=1,
+        step_order=StepOrder.CARRY_FIRST,
     )
+
+    from experiments.addition.variants.ar.evaluation import _rollout_ar_chunk
+
+    rollout_matches = 0
+    for start in range(0, len(problems), 7):
+        chunk = problems[start : start + 7]
+        max_tokens_chunk = [2 * (max(len(p.a), len(p.b)) + 1) + 1 for p in chunk]
+        batched_rollouts = _rollout_ar_chunk(
+            model, chunk, max_tokens_chunk, device=model.device
+        )
+        for p, batched in zip(chunk, batched_rollouts, strict=True):
+            expected = [
+                *build_ar_trace_tokens(
+                    reference_add(p.alphabet, p.a, p.b),
+                    step_order=StepOrder.CARRY_FIRST,
+                ),
+                int(SpecialToken.EOS),
+            ]
+            single_rollout = rollout_ar(
+                model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST
+            )
+            assert batched == single_rollout
+            single_metrics = evaluate_ar(
+                model,
+                [p],
+                num_problems=1,
+                batch_size=1,
+                step_order=StepOrder.CARRY_FIRST,
+            )
+            is_match = single_rollout == expected
+            assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+            if is_match:
+                rollout_matches += 1
     assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)
