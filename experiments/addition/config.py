@@ -193,7 +193,7 @@ class AdditionConfig(ExperimentConfig):
 
         pool_len = len(self.symbol_pool)
         max_train_base = max(train_bases)
-        if self.p_prior < 1.0 and max_train_base > pool_len:
+        if max_train_base > pool_len:
             raise ValueError(
                 f"max(bases) ({max_train_base}) exceeds symbol_pool size ({pool_len})"
             )
@@ -201,6 +201,19 @@ class AdditionConfig(ExperimentConfig):
             raise ValueError(
                 f"p_prior > 0 requires bases <= {len(SymbolSet.HEX)} (SymbolSet.HEX), "
                 f"got {max_train_base}"
+            )
+        if (
+            self.p_prior == 1.0
+            and not ood_bases
+            and (
+                self.symbol_set != SymbolSetName.ALL
+                or self.symbol_pool_size is not None
+            )
+        ):
+            raise ValueError(
+                "symbol_set and symbol_pool_size are unused when p_prior == 1.0 and "
+                "no OOD bases are enabled (canonical alphabets draw from SymbolSet.HEX[:B]); "
+                "leave symbol_set='all' and symbol_pool_size=None"
             )
         if self.eval_permuted_canonical and max_train_base > len(SymbolSet.HEX):
             raise ValueError(
@@ -469,6 +482,10 @@ class AdditionStepConfig(AdditionConfig):
         super().__post_init__()
         if not (0.0 <= self.p_terminal <= 1.0):
             raise ValueError(f"p_terminal must be in 0.0..1.0, got {self.p_terminal}")
+        if self.all_steps and self.p_terminal != 0.2:
+            raise ValueError(
+                f"p_terminal is unused when all_steps=True; leave p_terminal=0.2, got {self.p_terminal}"
+            )
 
     @property
     def use_token_type(self) -> bool:

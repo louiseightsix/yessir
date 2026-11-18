@@ -323,6 +323,28 @@ def test_config_validation_rejections():
             symbol_set=SymbolSetName.DECIMAL,
             symbol_pool_size=5,
         )
+    # `max(bases) <= len(symbol_pool)` holds even when `p_prior == 1.0`.
+    with pytest.raises(ValueError, match="exceeds symbol_pool size"):
+        AdditionConfig(
+            bases="2,12",
+            symbol_set=SymbolSetName.DECIMAL,
+            p_prior=1.0,
+        )
+    # `symbol_set` and `symbol_pool_size` are rejected when `p_prior == 1.0` and no OOD bases use `symbol_pool`.
+    with pytest.raises(ValueError, match="symbol_set and symbol_pool_size are unused"):
+        AdditionConfig(
+            bases="2,10",
+            eval_ood_bases=None,
+            symbol_pool_size=12,
+            p_prior=1.0,
+        )
+    with pytest.raises(ValueError, match="symbol_set and symbol_pool_size are unused"):
+        AdditionConfig(
+            bases="2,10",
+            eval_ood_bases=None,
+            symbol_set=SymbolSetName.DECIMAL,
+            p_prior=1.0,
+        )
     with pytest.raises(ValueError, match="eval_ood_bases entry 12 exceeds symbol_pool"):
         AdditionConfig(
             bases="2,8",
@@ -394,6 +416,8 @@ def test_config_validation_rejections():
         AdditionConfig(seed=42, eval_seed=42)
     with pytest.raises(ValueError, match="p_terminal must be in 0.0..1.0"):
         AdditionClsConfig(p_terminal=1.5)
+    with pytest.raises(ValueError, match="p_terminal is unused when all_steps=True"):
+        AdditionClsConfig(all_steps=True, p_terminal=0.5)
     with pytest.raises(ValueError, match="include_alphabet=False requires max_length"):
         AdditionAddressedStepArConfig(
             bases="2,10", max_length=8, eval_ood_bases=None, include_alphabet=False
@@ -442,7 +466,7 @@ def test_json_round_trip():
         eval_extrap_max_length=None,
         eval_permuted_canonical=False,
         p_terminal=0.35,
-        all_steps=True,
+        all_steps=False,
     )
     assert original.bases == "2,5,10"
     assert original.eval_ood_bases == "3,8"
@@ -453,7 +477,7 @@ def test_json_round_trip():
     assert isinstance(restored.embedding_mode, EmbeddingMode)
 
     step_ar = AdditionStepArConfig(
-        step_order=StepOrder.CARRY_FIRST, use_query_tokens=True
+        step_order=StepOrder.CARRY_FIRST, use_query_tokens=True, all_steps=True
     )
     restored_step_ar = AdditionStepArConfig.from_dict(
         json.loads(json.dumps(step_ar.to_dict()))

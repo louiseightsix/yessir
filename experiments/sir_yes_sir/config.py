@@ -113,6 +113,11 @@ class SirYesSirConfig(ExperimentConfig):
                 f"symbol_pool_size must be in 2..{len(full_pool)} for "
                 f"symbol_set={self.symbol_set.value!r}, got {self.symbol_pool_size}"
             )
+        if not self.resample_alphabet and self.symbol_pool_size is not None:
+            raise ValueError(
+                f"symbol_pool_size is unused when resample_alphabet=False "
+                f"(uses symbol_set[:alphabet_size]); leave symbol_pool_size=None, got {self.symbol_pool_size}"
+            )
 
         pool_len = len(self.symbol_pool)
         if not (2 <= self.alphabet_size <= pool_len):

@@ -134,11 +134,19 @@ def test_symbol_pool_and_alphabet_size_validation():
     with pytest.raises(ValueError, match="alphabet_size must be in 2.."):
         SirYesSirConfig(alphabet_size=1)
 
-    # symbol_pool_size itself must be in 2..len(symbol_set).
+    # symbol_pool_size itself must be in 2..len(symbol_set), and None when resample_alphabet=False.
     with pytest.raises(ValueError, match="symbol_pool_size must be in 2..10"):
         SirYesSirConfig(symbol_set=SymbolSetName.DECIMAL, symbol_pool_size=1)
     with pytest.raises(ValueError, match="symbol_pool_size must be in 2..10"):
         SirYesSirConfig(symbol_set=SymbolSetName.DECIMAL, symbol_pool_size=11)
+    with pytest.raises(
+        ValueError, match="symbol_pool_size is unused when resample_alphabet=False"
+    ):
+        SirYesSirConfig(
+            symbol_set=SymbolSetName.DECIMAL,
+            symbol_pool_size=6,
+            resample_alphabet=False,
+        )
 
 
 def test_model_and_training_bounds():
@@ -179,7 +187,7 @@ def test_json_round_trip():
         x_length=4,
         symbol_set=SymbolSetName.HEX,
         symbol_pool_size=6,
-        resample_alphabet=False,
+        resample_alphabet=True,
         embedding_mode=EmbeddingMode.TOKEN_TYPE_PE,
         n_layers=2,
         n_heads=4,
@@ -202,6 +210,14 @@ def test_json_round_trip():
     assert isinstance(restored.symbol_set, SymbolSetName)
     assert isinstance(restored.embedding_mode, EmbeddingMode)
     assert isinstance(restored.supervision, ClsSupervision)
+
+    ar_fixed = SirYesSirArConfig(
+        symbol_set=SymbolSetName.DECIMAL, resample_alphabet=False
+    )
+    assert (
+        SirYesSirArConfig.from_dict(json.loads(json.dumps(ar_fixed.to_dict())))
+        == ar_fixed
+    )
 
 
 def test_config_import_does_not_load_torch():
