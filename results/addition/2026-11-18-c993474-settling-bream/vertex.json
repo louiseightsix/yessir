@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/asia-southeast1/customJobs/603748157003661312",
+  "job_id": "603748157003661312",
+  "display_name": "addition-2026-11-18-c993474-settling-bream",
+  "project": "north-shore-software-ca",
+  "region": "asia-southeast1",
+  "experiment": "addition",
+  "variant": "addressed_ar",
+  "run_name": "2026-11-18-c993474-settling-bream",
+  "git_commit_sha": "c9934747fcd1a9a65f4237bdfe89ec1fcee24adb",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://yessir-results-us/results/addition/2026-11-18-c993474-settling-bream",
+  "machine_type": "a2-highgpu-1g",
+  "accelerator_type": "NVIDIA_TESLA_A100",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T23:23:25.192388Z",
+  "scheduling": "standard"
+}
