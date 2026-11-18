@@ -1,0 +1,2 @@
+{"step": 1, "elapsed_sec": 2.483, "loss": 5.707172393798828, "tokens_seen": 192}
+{"step": 50, "elapsed_sec": 147.033, "loss": 3.774674415588379, "tokens_seen": 9600}
