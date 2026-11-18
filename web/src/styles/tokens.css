@@ -42,6 +42,18 @@
   --c-ramp-3: #4F75D6;
   --c-ramp-4: #2F5BD3;
   --c-ramp-5: #1B3A8F;
+  /* Categorical slots for unordered series (e.g. eval splits), assigned in this
+     fixed order, never cycled. Checked with the dataviz palette validator: CVD
+     and normal-vision separation pass; slots 3, 4 and 5 are below 3:1 against
+     the panel, so charts using them must label lines directly or offer a table. */
+  --c-series-1: #2A78D6; /* blue */
+  --c-series-2: #EB6834; /* orange */
+  --c-series-3: #1BAF7A; /* aqua */
+  --c-series-4: #EDA100; /* yellow */
+  --c-series-5: #E87BA4; /* magenta */
+  --c-series-6: #008300; /* green */
+  --c-series-7: #6250D6; /* violet */
+  --c-series-8: #E34948; /* red */
 
   /* Settings changed from default */
   --c-diff-bg: #EEF0FF;

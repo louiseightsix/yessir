@@ -22,6 +22,8 @@ export interface ConfigFile {
   experiment?: string;
   variant?: string;
   device?: string;
+  /** When the run started, as UTC ISO 8601 (written by `write_config_json` in `yessir/artefacts.py`). */
+  started_at?: string;
   git_commit_sha?: string;
   git_short_sha?: string;
   git_commit_date?: string;
@@ -33,6 +35,18 @@ export interface TrainPoint {
   step: number;
   elapsed_sec: number;
   loss: number;
+}
+
+/**
+ * One checkpoint in `eval.jsonl`. `splits` maps a split name (`id`, `ood_base3`,
+ * ..., plus per-base slices such as `id_base2` in `addition`) to its metrics;
+ * a metric is `null` where it is undefined (e.g. `address_accuracy` outside
+ * `addressed_ar`). The top level also repeats the headline pairs from `eval.json`.
+ */
+export interface EvalPoint {
+  step: number;
+  elapsed_sec: number;
+  splits: Record<string, Record<string, number | null>>;
 }
 
 // Keep in sync with `Study` / `StudyRun` in `yessir/artefacts.py`.
@@ -69,6 +83,13 @@ export interface RunData {
   meta: ConfigFile | null;
   evalMetrics: Record<string, number> | null;
   trainPoints: TrainPoint[];
+  /** Periodic checkpoints from `eval.jsonl`, oldest first (empty for runs that predate it). */
+  evalPoints: EvalPoint[];
+  /**
+   * Final-step metrics per split from `eval_splits.json` (`addition` only; written
+   * at `max_steps`), or null when the file is absent.
+   */
+  evalSplits: Record<string, Record<string, number | null>> | null;
   readmeBody: string | null;
   flawedReason: string | null;
   /** Reason from an `OUTDATED:` first line: sound under an earlier spec, not the current one. */
@@ -80,7 +101,7 @@ export interface RunData {
   changed: ChangedSetting[];
   /** `config.max_steps` (or legacy `config.steps`), if the run recorded it. */
   totalSteps: number | null;
-  /** When `config.json` was written (ms since epoch), to order runs from the same day. */
+  /** When the run started (ms since epoch), to order runs from the same day: see `runStartMs`. */
   startedAtMs: number;
 }
 
@@ -130,19 +151,31 @@ function readJsonIfExists<T>(path: string): T | null {
   }
 }
 
-export function readTrainJsonl(path: string): TrainPoint[] {
+/** One JSON object per line; missing file → `[]`. */
+function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return [];
-  const points: TrainPoint[] = [];
+  const rows: T[] = [];
   for (const line of readFileSync(path, "utf8").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      points.push(JSON.parse(trimmed) as TrainPoint);
+      rows.push(JSON.parse(trimmed) as T);
     } catch {
       // Ignore a trailing half-written line while a run is in progress.
     }
   }
-  return points;
+  return rows;
+}
+
+export function readTrainJsonl(path: string): TrainPoint[] {
+  return readJsonl<TrainPoint>(path);
+}
+
+/** Checkpoints without a `splits` object (malformed or foreign rows) are skipped. */
+export function readEvalJsonl(path: string): EvalPoint[] {
+  return readJsonl<EvalPoint>(path).filter(
+    (p) => typeof p.step === "number" && p.splits !== null && typeof p.splits === "object",
+  );
 }
 
 function listSubdirs(dir: string): string[] {
@@ -173,6 +206,10 @@ export function loadRun(
   const meta = readJsonIfExists<ConfigFile>(resolve(runDir, "config.json"));
   const evalMetrics = readJsonIfExists<Record<string, number>>(resolve(runDir, "eval.json"));
   const trainPoints = readTrainJsonl(resolve(runDir, "train.jsonl"));
+  const evalPoints = readEvalJsonl(resolve(runDir, "eval.jsonl"));
+  const evalSplits = readJsonIfExists<Record<string, Record<string, number | null>>>(
+    resolve(runDir, "eval_splits.json"),
+  );
   const readmePath = resolve(runDir, "README.md");
   const rawReadme = existsSync(readmePath) ? readFileSync(readmePath, "utf8").trim() : null;
   const lines = rawReadme ? rawReadme.split("\n") : [];
@@ -198,6 +235,8 @@ export function loadRun(
     meta,
     evalMetrics,
     trainPoints,
+    evalPoints,
+    evalSplits,
     readmeBody,
     flawedReason,
     outdatedReason,
@@ -211,8 +250,18 @@ export function loadRun(
         : typeof config.steps === "number"
           ? config.steps
           : null,
-    startedAtMs: fileMtimeMs(resolve(runDir, "config.json")),
+    startedAtMs: runStartMs(meta, resolve(runDir, "config.json")),
   };
+}
+
+/**
+ * The run's start time, from `started_at` in `config.json`. Runs written before
+ * that field existed fall back to the file's modification time, which a
+ * `git checkout` resets, so their order among same-day runs may be wrong.
+ */
+function runStartMs(meta: ConfigFile | null, configPath: string): number {
+  const parsed = meta?.started_at ? Date.parse(meta.started_at) : Number.NaN;
+  return Number.isNaN(parsed) ? fileMtimeMs(configPath) : parsed;
 }
 
 /** YYYY-MM-DD in local time, matching the dates in run names. */

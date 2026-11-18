@@ -1,5 +1,5 @@
-// Numbers and SVG charts: MetricCell, Sparkline, LossChart.
-import { useState } from "react";
+// Numbers and SVG charts: MetricCell, Sparkline, LossChart, EvalChart, SweepChart.
+import { type KeyboardEvent, type PointerEvent, useState } from "react";
 import {
   argMin,
   downsample,
@@ -10,6 +10,7 @@ import {
   type Point,
 } from "../lib/chart";
 import { formatLoss, formatMetric } from "../lib/format";
+import { topLevelSplits } from "../lib/splits";
 import { SegmentedControl } from "./controls";
 
 // ---------------------------------------------------------------------------
@@ -307,6 +308,233 @@ export function LossChart({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EvalChart
+// ---------------------------------------------------------------------------
+
+/** One `eval.jsonl` checkpoint, as passed from the page (plain data only). */
+export interface EvalCheckpoint {
+  step: number;
+  splits: Record<string, Record<string, number | null>>;
+}
+
+/** Number of `--c-series-N` slots in tokens.css. Extra splits are not drawn. */
+const SERIES_SLOTS = 8;
+
+/** Names in first-seen order across a list of objects. */
+function unionKeys(objects: Array<Record<string, unknown> | undefined>): string[] {
+  const seen = new Set<string>();
+  for (const obj of objects) for (const key of Object.keys(obj ?? {})) seen.add(key);
+  return [...seen];
+}
+
+/**
+ * One eval metric against step, one line per top-level split, from `eval.jsonl`.
+ * A select picks the metric (`exact_match` by default). The y axis is fixed at
+ * 0–1 because every eval metric is a fraction. Lines are labelled at their ends,
+ * and the readout below lists every split's value at the hovered checkpoint (the
+ * latest one otherwise), which doubles as the legend and as the text fallback for
+ * the low-contrast colour slots.
+ */
+export function EvalChart({
+  checkpoints,
+  totalSteps,
+  title,
+  titleNote,
+  width = 720,
+  height = 250,
+}: {
+  checkpoints: EvalCheckpoint[];
+  /** x axis runs to this, so an in-progress run stops part-way across. */
+  totalSteps?: number | null;
+  title?: string;
+  titleNote?: string;
+  width?: number;
+  height?: number;
+}) {
+  const splitNames = topLevelSplits(unionKeys(checkpoints.map((c) => c.splits)));
+  const metricNames = unionKeys(checkpoints.flatMap((c) => splitNames.map((s) => c.splits[s])));
+  const [metric, setMetric] = useState(
+    metricNames.includes("exact_match") ? "exact_match" : (metricNames[0] ?? ""),
+  );
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const header = (
+    <div className="chart-header">
+      <h2 className="chart-title">
+        {title}
+        {titleNote && <span className="chart-title-note"> {titleNote}</span>}
+      </h2>
+      {metricNames.length > 0 && (
+        <label className="chart-select">
+          <span>metric</span>
+          <select value={metric} onChange={(e) => setMetric(e.target.value)}>
+            {metricNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+
+  if (checkpoints.length === 0 || splitNames.length === 0) {
+    return (
+      <div className="loss-chart">
+        {header}
+        <p className="muted">No evaluation checkpoints recorded.</p>
+      </div>
+    );
+  }
+
+  const drawn = splitNames.slice(0, SERIES_SLOTS);
+  const notDrawn = splitNames.length - drawn.length;
+  const series = drawn.map((name, i) => ({
+    name,
+    colour: `var(--c-series-${i + 1})`,
+    points: checkpoints.flatMap((c) => {
+      const v = c.splits[name]?.[metric];
+      return typeof v === "number" ? [{ step: c.step, value: Math.min(1, Math.max(0, v)) }] : [];
+    }),
+  }));
+
+  // Plot area; the right margin holds the end-of-line labels.
+  const left = 48;
+  const right = width - 120;
+  const top = 12;
+  const bottom = height - 34;
+  const lastStep = checkpoints[checkpoints.length - 1].step;
+  const xMax = Math.max(totalSteps ?? 0, lastStep, 1);
+  const xOf = (step: number) => round1(left + (step / xMax) * (right - left));
+  const yOf = (v: number) => round1(bottom - v * (bottom - top));
+  const xTicks = linearTicks(xMax, 4);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+
+  // End labels: at each line's last value, pushed apart so they never overlap.
+  const LABEL_GAP = 13;
+  const labels = series
+    .filter((s) => s.points.length > 0)
+    .map((s) => ({ name: s.name, colour: s.colour, y: yOf(s.points[s.points.length - 1].value) }))
+    .sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) {
+    labels[i].y = Math.max(labels[i].y, labels[i - 1].y + LABEL_GAP);
+  }
+  // If the stack runs off the bottom, shift it up as a whole.
+  const overflow = labels.length > 0 ? labels[labels.length - 1].y - (bottom + 4) : 0;
+  if (overflow > 0) for (const l of labels) l.y -= overflow;
+
+  const activeIdx = hoverIdx ?? checkpoints.length - 1;
+  const active = checkpoints[activeIdx];
+  const valueAt = (name: string) => active.splits[name]?.[metric];
+
+  // Pointer x (in viewBox units) → nearest checkpoint.
+  const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * width;
+    let best = 0;
+    for (let i = 1; i < checkpoints.length; i++) {
+      if (Math.abs(xOf(checkpoints[i].step) - px) < Math.abs(xOf(checkpoints[best].step) - px)) best = i;
+    }
+    setHoverIdx(best);
+  };
+  const onKeyDown = (e: KeyboardEvent<SVGSVGElement>) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const delta = e.key === "ArrowLeft" ? -1 : 1;
+    setHoverIdx(Math.min(checkpoints.length - 1, Math.max(0, activeIdx + delta)));
+  };
+
+  const ariaLabel = `${metric} by split at ${checkpoints.length} checkpoints up to step ${lastStep}; at step ${
+    active.step
+  }: ${drawn.map((name) => `${name} ${formatMetric(valueAt(name))}`).join(", ")}. Use left and right arrow keys to move between checkpoints.`;
+
+  return (
+    <div className="loss-chart">
+      {header}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={ariaLabel}
+        tabIndex={0}
+        onPointerMove={onPointerMove}
+        onPointerLeave={() => setHoverIdx(null)}
+        onKeyDown={onKeyDown}
+        onBlur={() => setHoverIdx(null)}
+      >
+        {yTicks.map((t) => (
+          <g key={`y${t}`}>
+            <line x1={left} x2={right} y1={yOf(t)} y2={yOf(t)} stroke="#EEEEEA" />
+            <text x={left - 8} y={yOf(t) + 4} textAnchor="end" className="chart-tick">
+              {t}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((t) => (
+          <g key={`x${t}`}>
+            <line x1={xOf(t)} x2={xOf(t)} y1={bottom} y2={bottom + 5} stroke="#C4C4C0" />
+            <text x={xOf(t)} y={bottom + 18} textAnchor="middle" className="chart-tick">
+              {t}
+            </text>
+          </g>
+        ))}
+        <line x1={left} x2={right} y1={bottom} y2={bottom} stroke="#C4C4C0" />
+        {hoverIdx !== null && (
+          <line x1={xOf(active.step)} x2={xOf(active.step)} y1={top} y2={bottom} stroke="#C4C4C0" />
+        )}
+        {series.map((s) =>
+          s.points.length > 1 ? (
+            <polyline
+              key={`l${s.name}`}
+              points={s.points.map((p) => `${xOf(p.step)},${yOf(p.value)}`).join(" ")}
+              fill="none"
+              stroke={s.colour}
+              strokeWidth={2}
+              strokeLinejoin="round"
+            />
+          ) : null,
+        )}
+        {series.map((s) =>
+          s.points.map((p) => (
+            // A 2px panel-coloured ring keeps overlapping markers apart.
+            <circle
+              key={`m${s.name}${p.step}`}
+              cx={xOf(p.step)}
+              cy={yOf(p.value)}
+              r={4}
+              fill={s.colour}
+              stroke="var(--c-panel)"
+              strokeWidth={2}
+            />
+          )),
+        )}
+        {labels.map((l) => (
+          <g key={`t${l.name}`}>
+            <line x1={right + 6} x2={right + 18} y1={l.y} y2={l.y} stroke={l.colour} strokeWidth={2} />
+            <text x={right + 22} y={l.y + 4} className="chart-tick chart-ink">
+              {l.name}
+            </text>
+          </g>
+        ))}
+        <text x={(left + right) / 2} y={height - 1} textAnchor="middle" className="chart-axis-label">
+          step
+        </text>
+      </svg>
+      <div className="chart-legend eval-readout" aria-live="polite">
+        <span className="eval-readout-step">step {active.step}</span>
+        {series.map((s) => (
+          <span key={s.name}>
+            <span className="legend-swatch" style={{ background: s.colour }} aria-hidden="true" />
+            {s.name} <strong>{formatMetric(valueAt(s.name))}</strong>
+          </span>
+        ))}
+        {notDrawn > 0 && <span className="muted">+{notDrawn} more splits not drawn</span>}
+      </div>
     </div>
   );
 }
