@@ -16,6 +16,13 @@ For any non-negative column index `j >= 0` and ordered alphabet `alphabet = [s_0
   - For `0 <= j < B`, `addr(j, alphabet) = (s_j,)` (a single symbol).
   - For `B <= j < B^2`, `addr(j, alphabet) = (s_{j % B}, s_{j // B})` (e.g. column `24` in base 10 has `addr(24) = ('4', '2')`; column `5` in base 2 has `addr(5) = (s_1, s_0, s_1)`).
 
+**Length-extrapolation (`extrap_len`) address-slot coverage**: when trained at default `max_length = 20` (operand addresses `0..19`, plus overflow address `20` on `K = 20`) and evaluated on `extrap_len` (`L = 21..40`), every default base `B` in `{2, 4, 8, 10, 12}` encounters previously unseen address widths or MSD digit slots (`eval_splits.json` records `extrap_len_base{b}` and `address_accuracy` to separate them):
+- `B = 2`: introduces 6-bit addresses on `32..40` (training reaches at most 5-bit `16..20`, where the `2^3` bit inside 5-bit addresses only ever saw `s_0`).
+- `B = 4`: training reaches 3-digit base-4 addresses only on `16..20` (`100_4 .. 110_4`), where the `4^2` MSD slot only ever saw `s_1` and the `4^1` middle slot only saw `{s_0, s_1}`; `extrap_len` introduces `{s_2, s_3}` in `4^1` (`24..31`) and `s_2` in `4^2` (`32..40`).
+- `B = 8`: 2-digit addresses on `24..40` (`30_8 .. 50_8`) introduce unseen `8^1` MSD symbols `s_3, s_4, s_5`.
+- `B = 10`: `20` (`s_2` in `10^1`) is seen during training only on overflow column `k = 20` (never on operand digits), while `30..40` introduce completely unseen MSDs `s_3, s_4`.
+- `B = 12` *(when included in `bases`)*: `24..40` introduce completely unseen `12^1` MSDs `s_2, s_3`.
+
 ### Variant parameters
 
 1. **`step_order: StepOrder`** (`StepOrder.SUM_FIRST` default, or `StepOrder.CARRY_FIRST`):
@@ -26,7 +33,7 @@ For any non-negative column index `j >= 0` and ordered alphabet `alphabet = [s_0
    - `True`: each value token in the trace is preceded by its query token (`[S]` for `o_k`, `[C]` for `c_{k+1}`): `[IDX] addr(k) [S] o_k [C] c_{k+1}` under `sum_first`, or `[IDX] addr(k) [C] c_{k+1} [S] o_k` under `carry_first`.
 3. **`include_alphabet: bool`** (`True` default):
    - `True`: includes the explicit `s_0 ... s_{B-1} [SEP]` alphabet section after `[BOS]`.
-   - `False` *(zero-preamble mode)*: omits `s_0 ... s_{B-1} [SEP]` from the prompt and requires operand lengths `L_a, L_b >= B` so every symbol `s_0, ..., s_{B-1}` appears in ascending order as the single-digit column addresses `addr(0) .. addr(B - 1)` of the operands.
+   - `False` *(zero-preamble mode)*: omits `s_0 ... s_{B-1} [SEP]` from the prompt and clamps each sampled problem's minimum operand length to `eff_min = max(min_length, B)` so every symbol `s_0, ..., s_{B-1}` appears in ascending order as the single-digit column addresses `addr(0) .. addr(B - 1)` of the operands (for length-matched comparisons against `include_alphabet=True`, set `min_length >= max_base` and `max_length > max_base`).
 
 After column `K`, the trace terminates with `[EOS]`.
 

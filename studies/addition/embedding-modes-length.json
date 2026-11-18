@@ -2,7 +2,7 @@
   "title": "Embedding modes, explicit base-B addressing, and length extrapolation",
   "status": "draft",
   "kind": "ablation",
-  "question": "Across the step-harnessed variants (`cls`, `step_fork`, `step_ar`, `addressed_step_ar`) and pure-LM `ar` / `addressed_ar` (`input_ids` only), how do section-coupled sinusoidal `position_ids` (`token_type_pe`), `token_type_ids` alone (`token_type_nope`), causal masking alone (`nope`), and explicit base-B column addresses (`addressed_step_ar`, `addressed_ar`, both defaulting to `nope`) compare on in-domain convergence speed vs. zero-shot extrapolation to longer operands (`L = 21..40`)?",
+  "question": "Across the step-harnessed variants (`cls`, `step_fork`, `step_ar`, `addressed_step_ar`) and pure-LM `ar` / `addressed_ar` (`input_ids` only), how do section-coupled sinusoidal `position_ids` (`token_type_pe`), `token_type_ids` alone (`token_type_nope`), causal masking alone (`nope`), and explicit base-B column addresses (`addressed_step_ar`, `addressed_ar`, both defaulting to `nope`) compare on in-domain convergence speed vs. zero-shot extrapolation to longer operands (`L = 21..40`)? (Note: after `max_length = 20` training—addresses `0..19` plus overflow `20`—every base on `extrap_len` introduces unseen address widths or MSD slots: 6-bit `32..40` and `2^3 = 1` in `B = 2`; `4^1` in `{s_2, s_3}` and `4^2 = s_2` in `B = 4`; `8^1` in `{s_3..s_5}` in `B = 8`; `10^1` in `{s_3, s_4}` and operand `s_2` in `B = 10`; and `12^1` in `{s_2, s_3}` in `B = 12`—compare `extrap_len_base{b}` and `address_accuracy` in `eval_splits.json`.)",
   "runs": [],
   "conclusion": null
 }

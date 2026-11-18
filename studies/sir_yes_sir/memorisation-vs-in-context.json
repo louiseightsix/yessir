@@ -2,7 +2,7 @@
   "title": "Memorisation vs. in-context lookup (canonical vs. random order)",
   "status": "draft",
   "kind": "comparison",
-  "question": "How do in-distribution sample efficiency and minimum required depth compare across a fixed canonical alphabet (`resample_alphabet=False`, where static weight memorisation is possible and the `B^L` problem universe overlaps between train and eval at small B, L), per-problem shuffled canonical glyphs (`symbol_pool_size=B, resample_alphabet=True`), and random 240-byte alphabets? (Zero-shot transfer to OOD permuted canonical alphabets after canonical exposure is tested in `addition/prior-override`.)",
+  "question": "How do in-distribution sample efficiency and minimum required depth compare across a fixed canonical alphabet (`symbol_set=decimal` or `hex`, `resample_alphabet=False`, `symbol_pool_size=None`, where static weight memorisation is possible and the `B^L` problem universe overlaps between train and eval at small B, L), per-problem shuffled canonical glyphs (`symbol_set=decimal` or `hex`, `symbol_pool_size=B`, `resample_alphabet=True`—setting `symbol_pool_size=B` explicitly so `B < len(symbol_set)` keeps the exact same `B`-glyph vocabulary rather than widening to 10 or 16 glyphs), and random 240-byte alphabets? (Zero-shot transfer to OOD permuted canonical alphabets after canonical exposure is tested in `addition/prior-override`.)",
   "runs": [],
   "conclusion": null
 }

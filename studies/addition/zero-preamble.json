@@ -2,7 +2,7 @@
   "title": "Zero-preamble alphabet inference (include_alphabet=False)",
   "status": "draft",
   "kind": "comparison",
-  "question": "In `addressed_step_ar` (at its default `embedding_mode=nope`, or `token_type_nope`, so sinusoidal `position_ids` do not leak rank `j`) and pure-LM `addressed_ar` (`input_ids` only), when the explicit alphabet section is omitted from the prompt (`include_alphabet=False`) and operand lengths satisfy `L_a, L_b >= B`, can the model infer the base B and digit ordering purely from the single-digit column addresses `0 .. B - 1` of the operands?",
+  "question": "In `addressed_step_ar` (at its default `embedding_mode=nope`, or `token_type_nope`, so sinusoidal `position_ids` do not leak rank `j`) and pure-LM `addressed_ar` (`input_ids` only), when the explicit alphabet section is omitted from the prompt (`include_alphabet=False`) and operand lengths satisfy `L_a, L_b >= B`, can the model infer the base B and digit ordering purely from the single-digit column addresses `0 .. B - 1` of the operands? (Because `include_alphabet=False` clamps `eff_min = max(min_length, B)` per problem—shifting `ood_base12` onto `12..20` at `min_length=1` and collapsing to fixed `L = B` if `max_length == B`—set `min_length >= max_base`, e.g. `min_length=12` with `max_length=20`, on both `include_alphabet=True` and `False` runs for length-matched splits.)",
   "runs": [],
   "conclusion": null
 }
