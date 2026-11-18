@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/asia-northeast3/customJobs/6863895400193982464",
+  "job_id": "6863895400193982464",
+  "display_name": "sir_yes_sir-2026-11-18-d9a137a-destined-cougar",
+  "project": "north-shore-software-ca",
+  "region": "asia-northeast3",
+  "experiment": "sir_yes_sir",
+  "variant": "cls",
+  "run_name": "2026-11-18-d9a137a-destined-cougar",
+  "git_commit_sha": "d9a137aabf09500415387c302be2b5c8ab3ce7cf",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/sir_yes_sir/2026-11-18-d9a137a-destined-cougar",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T19:00:12.443181Z",
+  "scheduling": "standard"
+}

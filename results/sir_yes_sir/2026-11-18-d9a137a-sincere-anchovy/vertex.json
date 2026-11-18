@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/asia-southeast1/customJobs/8495884291505389568",
+  "job_id": "8495884291505389568",
+  "display_name": "sir_yes_sir-2026-11-18-d9a137a-sincere-anchovy",
+  "project": "north-shore-software-ca",
+  "region": "asia-southeast1",
+  "experiment": "sir_yes_sir",
+  "variant": "cls",
+  "run_name": "2026-11-18-d9a137a-sincere-anchovy",
+  "git_commit_sha": "d9a137aabf09500415387c302be2b5c8ab3ce7cf",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/sir_yes_sir/2026-11-18-d9a137a-sincere-anchovy",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T19:00:04.978115Z",
+  "scheduling": "standard"
+}
