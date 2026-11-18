@@ -1,0 +1,18 @@
+{
+  "job_name": "projects/295887947850/locations/us-east4/customJobs/4318100333453639680",
+  "job_id": "4318100333453639680",
+  "display_name": "addition-2026-11-18-b8e3e7b-integral-porpoise",
+  "project": "north-shore-software-ca",
+  "region": "us-east4",
+  "experiment": "addition",
+  "variant": "cls",
+  "run_name": "2026-11-18-b8e3e7b-integral-porpoise",
+  "git_commit_sha": "b8e3e7b438bb03b66ccde3709d0792e5dc49f008",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-east4-docker.pkg.dev/north-shore-software-ca/yessir/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/addition/2026-11-18-b8e3e7b-integral-porpoise",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T07:28:05.352499Z"
+}
