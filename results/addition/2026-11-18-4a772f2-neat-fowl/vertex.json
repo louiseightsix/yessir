@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/us-central1/customJobs/7769616806494339072",
+  "job_id": "7769616806494339072",
+  "display_name": "addition-2026-11-18-4a772f2-neat-fowl",
+  "project": "north-shore-software-ca",
+  "region": "us-central1",
+  "experiment": "addition",
+  "variant": "addressed_step_ar",
+  "run_name": "2026-11-18-4a772f2-neat-fowl",
+  "git_commit_sha": "4a772f2cf77de966e393a0b744b3c01d789a2b9d",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/addition/2026-11-18-4a772f2-neat-fowl",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T18:17:20.268311Z",
+  "scheduling": "standard"
+}
