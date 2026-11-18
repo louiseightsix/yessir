@@ -1,8 +1,8 @@
 # Vertex AI jobs
 
-## Open: results buckets per region
+## Results buckets
 
-Right now `vertex.toml` has a single `bucket` setting. `yessir/vertex.py` builds every job's results path from it (`/gcs/<bucket>/results/...` in the job spec, `gs://<bucket>/results/...` when submitting), whatever region the job runs in.
+`vertex.toml` has one `bucket` setting. `yessir/vertex.py` builds each job's results path from it (`/gcs/<bucket>/results/...` in the job spec, `gs://<bucket>/results/...` when submitting), whatever region the job runs in. `./yessir.sh vertex submit --bucket <name>` overrides it for one submission.
 
 Louis has created three multi-region buckets, one per continent where the project has L4 training quota:
 
@@ -12,9 +12,6 @@ Louis has created three multi-region buckets, one per continent where the projec
 | `yessir-results-europe` | `EU` | europe-west2, europe-west4 |
 | `yessir-results-asia` | `ASIA` | asia-south1, asia-southeast1, asia-northeast3 |
 
-What to do, smallest first:
+Since 2026-11-18, `vertex.toml` uses `yessir-results-us`. Jobs in Europe or Asia can pass `--bucket yessir-results-europe` or `--bucket yessir-results-asia`, but a job's outputs are small, so writing across continents costs little. Picking the bucket automatically from the region hasn't been needed.
 
-1. **At minimum**, switch `bucket` in `vertex.toml` to `yessir-results-us`. That covers every US region with L4 quota. `vertex.toml` is gitignored, so this is Louis's local change.
-2. **Better**, pick the bucket from the job's region, so a job in Europe or Asia writes to the bucket on its own continent. The shape of the config (e.g. a region-to-bucket map in `vertex.toml`) is Louis's call. Discuss it before writing code.
-
-Existing jobs keep working through the switch. `pull` reads each run's `gcs_run_uri` from its `vertex.json`, not from the current `bucket` setting, so runs already submitted to `north-shore-software-ca-vertex-staging` can still be pulled from there.
+Each run's `vertex.json` records its full results path (`gcs_run_uri`), and `pull` reads that rather than the current `bucket` setting. Runs submitted before the switch still pull from `north-shore-software-ca-vertex-staging`.

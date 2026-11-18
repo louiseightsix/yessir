@@ -301,6 +301,8 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
         [
             "--region",
             "us-east4",
+            "--bucket",
+            "gs://yessir-results-asia/",
             "--scheduling",
             "flex_start",
             "sir_yes_sir",
@@ -320,6 +322,13 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     assert record is not None
     assert record.job_id == "987654321"
     assert record.region == "us-east4"
+    # --bucket overrides vertex.toml for this run only, and is recorded in vertex.json.
+    assert record.gcs_run_uri == (
+        f"gs://yessir-results-asia/results/sir_yes_sir/{record.run_name}"
+    )
+    assert "/gcs/yessir-results-asia/results/sir_yes_sir/" in json.dumps(
+        submitted_specs[0]
+    )
     assert record.scheduling == "flex_start"
     assert submitted_specs[0]["scheduling"] == {
         "strategy": "FLEX_START",

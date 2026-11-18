@@ -398,6 +398,7 @@ def cmd_submit(
     """Resolve experiment config, upload config to GCS, submit a Vertex Custom Job, and record local run files."""
     wrapper = argparse.ArgumentParser(add_help=False)
     wrapper.add_argument("--region", default=None)
+    wrapper.add_argument("--bucket", default=None)
     wrapper.add_argument("--machine-type", default=None)
     wrapper.add_argument("--accelerator-type", default=None)
     wrapper.add_argument("--accelerator-count", type=int, default=None)
@@ -423,6 +424,7 @@ def cmd_submit(
     effective_settings = dataclasses.replace(
         settings,
         region=vertex_args.region or settings.region,
+        bucket=vertex_args.bucket or settings.bucket,
         machine_type=vertex_args.machine_type or settings.machine_type,
         accelerator_type=(
             vertex_args.accelerator_type

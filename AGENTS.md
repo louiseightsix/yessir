@@ -50,7 +50,7 @@ web/                     static web interface (Astro, pnpm) for browsing results
 
 - [`.agents/addition.md`](.agents/addition.md): working on the addition experiment.
 - [`.agents/results.md`](.agents/results.md): what may go in `results/`, and how to mark a flawed run.
-- [`.agents/vertex.md`](.agents/vertex.md): running jobs on Vertex AI, and open work on results buckets.
+- [`.agents/vertex.md`](.agents/vertex.md): running jobs on Vertex AI, and which results bucket jobs write to.
 
 ## Working with Louis
 
