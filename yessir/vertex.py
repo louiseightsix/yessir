@@ -649,6 +649,71 @@ def cmd_list(
     return remote_jobs
 
 
+_GPU_QUOTA_PREFIX = "aiplatform.googleapis.com/custom_model_training_nvidia_"
+_GPU_QUOTA_SUFFIX = "_gpus"
+
+
+def gpu_quota_by_region(
+    quota_infos: Sequence[dict[str, Any]],
+) -> dict[str, dict[str, int]]:
+    """Return `{region: {gpu_type: limit}}` for every non-zero custom-training GPU quota.
+
+    `quota_infos` is the parsed JSON from `gcloud beta quotas info list`. Each GPU type has
+    its own metric (e.g. `custom_model_training_nvidia_l4_gpus`). A metric's limits come as a
+    list of entries, each applying to the regions in its `applicableLocations`. An entry with
+    no `value` is a limit of 0. A value of -1 means unlimited and is kept as -1.
+    """
+    quotas: dict[str, dict[str, int]] = {}
+    for info in quota_infos:
+        metric = info.get("metric", "")
+        if not (
+            metric.startswith(_GPU_QUOTA_PREFIX) and metric.endswith(_GPU_QUOTA_SUFFIX)
+        ):
+            continue
+        gpu_type = (
+            metric.removeprefix(_GPU_QUOTA_PREFIX)
+            .removesuffix(_GPU_QUOTA_SUFFIX)
+            .upper()
+        )
+        for entry in info.get("dimensionsInfos", []):
+            limit = int(entry.get("details", {}).get("value", 0))
+            if limit == 0:
+                continue
+            for region in entry.get("applicableLocations", []):
+                quotas.setdefault(region, {})[gpu_type] = limit
+    return quotas
+
+
+def cmd_quota(settings: VertexSettings) -> dict[str, dict[str, int]]:
+    """Print every region with non-zero Vertex AI custom-training quota for any GPU type."""
+    stdout = _run_checked(
+        [
+            "gcloud",
+            "beta",
+            "quotas",
+            "info",
+            "list",
+            "--service=aiplatform.googleapis.com",
+            f"--project={settings.project}",
+            "--format=json",
+        ]
+    )
+    quotas = gpu_quota_by_region(json.loads(stdout or "[]"))
+    if not quotas:
+        print("No region has custom-training GPU quota.")
+        return quotas
+
+    width = max(len(region) for region in quotas)
+    print(f"{'REGION':<{width}}  GPUS")
+    for region in sorted(quotas):
+        gpus = ", ".join(
+            f"{gpu}={'unlimited' if limit == -1 else limit}"
+            for gpu, limit in sorted(quotas[region].items())
+        )
+        print(f"{region:<{width}}  {gpus}")
+    return quotas
+
+
 def cmd_pull(
     *,
     run_filter: str | None = None,
@@ -737,6 +802,11 @@ def run_vertex_cli(
         help="Optional region to list jobs from (default: vertex.toml region plus any region in local vertex.json files)",
     )
 
+    sub.add_parser(
+        "quota",
+        help="List regions with non-zero Vertex AI custom-training quota for any GPU type",
+    )
+
     p_pull = sub.add_parser(
         "pull",
         aliases=["pull-results"],
@@ -783,6 +853,8 @@ def run_vertex_cli(
         cmd_build_image(settings, local_docker=parsed.local_docker)
     elif parsed.subcommand == "list":
         cmd_list(settings, region=parsed.region, results_root=results_root)
+    elif parsed.subcommand == "quota":
+        cmd_quota(settings)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -20,6 +20,7 @@ from yessir.vertex import (
     cmd_pull,
     cmd_submit,
     find_local_vertex_runs,
+    gpu_quota_by_region,
     is_commit_pushed_to_remote,
     load_vertex_settings,
     read_vertex_json,
@@ -648,3 +649,44 @@ image_uri = "us-central1-docker.pkg.dev/test-gcp-project/yessir/runner:latest"
         results_root=tmp_path,
     )
     assert recorded[-1][:3] == ["gcloud", "builds", "submit"]
+
+
+def test_gpu_quota_by_region_keeps_only_non_zero_custom_training_gpu_quotas():
+    # Trimmed from real `gcloud beta quotas info list` output.
+    quota_infos = [
+        {
+            "metric": "aiplatform.googleapis.com/custom_model_training_nvidia_l4_gpus",
+            "dimensionsInfos": [
+                {"applicableLocations": ["us-east1"], "details": {"value": "28"}},
+                {"applicableLocations": ["us-west2"], "details": {}},
+                # The default entry covers several regions at once.
+                {
+                    "applicableLocations": ["asia-east1", "europe-west1"],
+                    "details": {"value": "0"},
+                },
+            ],
+        },
+        {
+            "metric": "aiplatform.googleapis.com/custom_model_training_nvidia_t4_gpus",
+            "dimensionsInfos": [
+                {"applicableLocations": ["us-east1"], "details": {"value": "2"}},
+                {
+                    "applicableLocations": ["europe-west4", "asia-south1"],
+                    "details": {"value": "-1"},
+                },
+            ],
+        },
+        # Not a custom-training GPU quota: ignored even though it is non-zero.
+        {
+            "metric": "aiplatform.googleapis.com/restricted_image_training_nvidia_l4_gpus",
+            "dimensionsInfos": [
+                {"applicableLocations": ["us-west2"], "details": {"value": "28"}}
+            ],
+        },
+    ]
+
+    assert gpu_quota_by_region(quota_infos) == {
+        "us-east1": {"L4": 28, "T4": 2},
+        "europe-west4": {"T4": -1},
+        "asia-south1": {"T4": -1},
+    }
