@@ -1163,10 +1163,14 @@ def test_partially_trained_addressed_ar_transformer_exact_match_matches_rollout(
     problems = list(
         itertools.islice(
             iter_problems(
-                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+                bases=(2, 3), min_length=1, max_length=3, p_prior=1.0, seed=99
             ),
             30,
         )
+    )
+    # Ensure multi-digit column addresses (`k >= B`) are exercised during rollout.
+    assert any(
+        len(reference_add(p.alphabet, p.a, p.b)) > len(p.alphabet) for p in problems
     )
     metrics = evaluate_addressed_ar(
         model,
@@ -1176,19 +1180,58 @@ def test_partially_trained_addressed_ar_transformer_exact_match_matches_rollout(
         step_order=StepOrder.CARRY_FIRST,
     )
     assert 0.0 < metrics.exact_match < 1.0
-
-    rollout_matches = sum(
-        rollout_addressed_ar(
-            model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST
-        )
-        == [
-            *build_addressed_ar_trace_tokens(
-                reference_add(p.alphabet, p.a, p.b),
-                p.alphabet,
-                step_order=StepOrder.CARRY_FIRST,
-            ),
-            int(SpecialToken.EOS),
-        ]
-        for p in problems
+    assert metrics == evaluate_addressed_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=1,
+        step_order=StepOrder.CARRY_FIRST,
     )
+
+    from experiments.addition.variants.addressed_ar.evaluation import (
+        _rollout_addressed_ar_chunk,
+    )
+
+    rollout_matches = 0
+    for start in range(0, len(problems), 7):
+        chunk = problems[start : start + 7]
+        max_tokens_chunk = [
+            sum(
+                1 + len(encode_address(k, p.alphabet)) + 2
+                for k in range(max(len(p.a), len(p.b)) + 1)
+            )
+            + 1
+            for p in chunk
+        ]
+        batched_rollouts = _rollout_addressed_ar_chunk(
+            model,
+            chunk,
+            max_tokens_chunk,
+            include_alphabet=True,
+            device=model.device,
+        )
+        for p, batched in zip(chunk, batched_rollouts, strict=True):
+            expected = [
+                *build_addressed_ar_trace_tokens(
+                    reference_add(p.alphabet, p.a, p.b),
+                    p.alphabet,
+                    step_order=StepOrder.CARRY_FIRST,
+                ),
+                int(SpecialToken.EOS),
+            ]
+            single_rollout = rollout_addressed_ar(
+                model, p.alphabet, p.a, p.b, step_order=StepOrder.CARRY_FIRST
+            )
+            assert batched == single_rollout
+            single_metrics = evaluate_addressed_ar(
+                model,
+                [p],
+                num_problems=1,
+                batch_size=1,
+                step_order=StepOrder.CARRY_FIRST,
+            )
+            is_match = single_rollout == expected
+            assert single_metrics.exact_match == (1.0 if is_match else 0.0)
+            if is_match:
+                rollout_matches += 1
     assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)
