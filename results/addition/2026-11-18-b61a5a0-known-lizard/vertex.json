@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/asia-northeast3/customJobs/2542832295220346880",
+  "job_id": "2542832295220346880",
+  "display_name": "addition-2026-11-18-b61a5a0-known-lizard",
+  "project": "north-shore-software-ca",
+  "region": "asia-northeast3",
+  "experiment": "addition",
+  "variant": "ar",
+  "run_name": "2026-11-18-b61a5a0-known-lizard",
+  "git_commit_sha": "b61a5a051bd807a6a40eae569c3bc36a40a9c5dd",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://yessir-results-asia/results/addition/2026-11-18-b61a5a0-known-lizard",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T21:41:42.952758Z",
+  "scheduling": "standard"
+}
