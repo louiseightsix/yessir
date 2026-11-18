@@ -1,0 +1,18 @@
+{
+  "job_name": "projects/295887947850/locations/us-east4/customJobs/790655925315698688",
+  "job_id": "790655925315698688",
+  "display_name": "addition-2026-11-17-ca44142-flexible-gorilla",
+  "project": "north-shore-software-ca",
+  "region": "us-east4",
+  "experiment": "addition",
+  "variant": "cls",
+  "run_name": "2026-11-17-ca44142-flexible-gorilla",
+  "git_commit_sha": "ca4414229e4817f8fd14dceaf88c703560423ce3",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-east4-docker.pkg.dev/north-shore-software-ca/yessir/runner:latest",
+  "gcs_run_uri": "gs://north-shore-software-ca-vertex-staging/results/addition/2026-11-17-ca44142-flexible-gorilla",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-18T06:51:54.813696Z"
+}
