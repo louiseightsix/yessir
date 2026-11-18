@@ -183,6 +183,10 @@ def test_dataset_rejects_invalid_init_args(alphabet_size, x_length, symbols, mat
         SirYesSirClsDataset(
             alphabet_size=alphabet_size, x_length=x_length, symbols=symbols
         )
+    with pytest.raises(ValueError, match=match):
+        SirYesSirArDataset(
+            alphabet_size=alphabet_size, x_length=x_length, symbols=symbols
+        )
 
 
 def test_dataset_cli_main_prints_examples(capsys: pytest.CaptureFixture[str]):
@@ -251,3 +255,14 @@ def test_ar_dataset_yields_one_labelled_example_per_problem_and_cli(
     assert "Example 0:" in out
     assert "[-100]" in out
     assert "0x30" in out
+
+    # `resample_alphabet=False` keeps fixed canonical prefix `symbols[:alphabet_size]`.
+    fixed_ar = SirYesSirArDataset(
+        alphabet_size=3,
+        x_length=2,
+        symbols=SymbolSet.DECIMAL,
+        resample_alphabet=False,
+        seed=5,
+    )
+    for item_fixed in itertools.islice(fixed_ar, 4):
+        assert item_fixed.example.input_ids[1:4] == tuple(b"012")

@@ -456,6 +456,34 @@ def test_evaluate_cls_validation_errors():
             num_problems=1,
         )
 
+    # Mismatched IGNORE_INDEX within a 2-tuple step label
+    for unpaired in (
+        (ord("1"), IGNORE_INDEX),
+        (IGNORE_INDEX, int(SpecialToken.FLAG_FINISHED)),
+    ):
+        bad_pair_labels = ((IGNORE_INDEX, IGNORE_INDEX),) * (len(ex) - 1) + (unpaired,)
+        with pytest.raises(
+            ValueError, match="must both be IGNORE_INDEX or both supervised"
+        ):
+            evaluate_cls(
+                model,
+                [LabelledExample(example=ex, labels=bad_pair_labels)],
+                num_problems=1,
+            )
+
+    lm_model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    with pytest.raises(ValueError, match="2-head ParallelClassificationHead"):
+        evaluate_cls(lm_model, dataset, num_problems=1)
+    with pytest.raises(ValueError, match="2-head ParallelClassificationHead"):
+        greedy_generate_cls(lm_model, b"01", b"0")
+
 
 class _ScriptedArModel:
     """Fake per-position model returning scripted next-token argmax predictions."""
@@ -682,3 +710,177 @@ def test_evaluate_ar_metrics_and_validation():
         evaluate_ar(model, dataset, num_problems=1, batch_size=0)
     with pytest.raises(ValueError, match="dataset exhausted early"):
         evaluate_ar(model, [], num_problems=1)
+
+    # `_validate_ar_item` error branches + wrong head type rejection
+    ex_ar = build_example(b"01", b"01", b"1", embedding_mode=EmbeddingMode.NOPE)
+    with pytest.raises(ValueError, match="expected per-position labels"):
+        evaluate_ar(
+            model,
+            [LabelledExample(example=ex_ar, labels=(ord("1"), int(SpecialToken.EOS)))],
+            num_problems=1,
+        )
+    with pytest.raises(ValueError, match="expected non-ignored AR target length >= 2"):
+        evaluate_ar(
+            model,
+            [
+                LabelledExample(
+                    example=ex_ar,
+                    labels=(IGNORE_INDEX,) * (len(ex_ar) - 1)
+                    + (int(SpecialToken.EOS),),
+                )
+            ],
+            num_problems=1,
+        )
+    with pytest.raises(ValueError, match="expected final AR target token to be EOS"):
+        evaluate_ar(
+            model,
+            [
+                LabelledExample(
+                    example=ex_ar,
+                    labels=(IGNORE_INDEX,) * (len(ex_ar) - 2) + (ord("1"), ord("0")),
+                )
+            ],
+            num_problems=1,
+        )
+    with pytest.raises(ValueError, match="unexpected EOS at non-final target step"):
+        evaluate_ar(
+            model,
+            [
+                LabelledExample(
+                    example=ex_ar,
+                    labels=(IGNORE_INDEX,) * (len(ex_ar) - 2)
+                    + (int(SpecialToken.EOS), int(SpecialToken.EOS)),
+                )
+            ],
+            num_problems=1,
+        )
+
+    cls_model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=24,
+    )
+    with pytest.raises(ValueError, match="SubspaceLMHead"):
+        evaluate_ar(cls_model, dataset, num_problems=1)
+    with pytest.raises(ValueError, match="SubspaceLMHead"):
+        greedy_generate_ar(cls_model, b"01", b"0")
+
+    # Mixed-length `ar` items (`L = 1, 2, 4`) collated in a single batch match `batch_size=1`
+    mixed_ar = [
+        next(iter(SirYesSirArDataset(alphabet_size=3, x_length=1, seed=1))),
+        next(iter(SirYesSirArDataset(alphabet_size=4, x_length=2, seed=2))),
+        next(iter(SirYesSirArDataset(alphabet_size=5, x_length=4, seed=3))),
+    ]
+    assert evaluate_ar(model, mixed_ar, num_problems=3, batch_size=1) == evaluate_ar(
+        model, mixed_ar, num_problems=3, batch_size=3
+    )
+
+
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_partially_trained_cls_transformer_exact_match_matches_rollout(
+    embedding_mode: EmbeddingMode,
+):
+    from yessir.alphabet import SymbolSet
+    from yessir.training import train
+
+    seed_everything(7)
+    symbols = SymbolSet.DECIMAL[:3]
+    use_tt = embedding_mode != EmbeddingMode.NOPE
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=2,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=8,
+    )
+    train(
+        model,
+        SirYesSirClsDataset(
+            alphabet_size=3,
+            x_length=2,
+            symbols=symbols,
+            embedding_mode=embedding_mode,
+            seed=7,
+        ),
+        max_steps=35,
+        batch_size=8,
+        lr=2e-3,
+    )
+    eval_items = list(
+        itertools.islice(
+            SirYesSirClsDataset(
+                alphabet_size=3,
+                x_length=2,
+                symbols=symbols,
+                embedding_mode=embedding_mode,
+                seed=99,
+            ),
+            40,
+        )
+    )
+    metrics = evaluate_cls(model, eval_items, num_problems=40, batch_size=7)
+    assert 0.0 < metrics.exact_match < 1.0
+
+    rollout_matches = 0
+    for item in eval_items:
+        alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
+        expected = [
+            s for s in item.labels if isinstance(s, tuple) and s[0] != IGNORE_INDEX
+        ]
+        if (
+            greedy_generate_cls(model, alphabet, x, embedding_mode=embedding_mode)
+            == expected
+        ):
+            rollout_matches += 1
+    assert rollout_matches / len(eval_items) == pytest.approx(metrics.exact_match)
+
+
+def test_partially_trained_ar_transformer_exact_match_matches_rollout():
+    from yessir.alphabet import SymbolSet
+    from yessir.training import train
+
+    seed_everything(7)
+    symbols = SymbolSet.DECIMAL[:3]
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=2,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=16,
+    )
+    train(
+        model,
+        SirYesSirArDataset(alphabet_size=3, x_length=2, symbols=symbols, seed=7),
+        max_steps=45,
+        batch_size=8,
+        lr=2e-3,
+    )
+    eval_items = list(
+        itertools.islice(
+            SirYesSirArDataset(alphabet_size=3, x_length=2, symbols=symbols, seed=99),
+            40,
+        )
+    )
+    metrics = evaluate_ar(model, eval_items, num_problems=40, batch_size=7)
+    assert 0.0 < metrics.exact_match < 1.0
+
+    rollout_matches = 0
+    for item in eval_items:
+        alphabet, x, _ = _parse_example_input_ids(item.example.input_ids)
+        expected = [
+            tok for tok in item.labels if isinstance(tok, int) and tok != IGNORE_INDEX
+        ]
+        if greedy_generate_ar(model, alphabet, x) == expected:
+            rollout_matches += 1
+    assert rollout_matches / len(eval_items) == pytest.approx(metrics.exact_match)

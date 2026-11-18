@@ -141,14 +141,24 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     assert "[sir_yes_sir:ar] Starting run:" in out
 
 
+@pytest.mark.parametrize(
+    ("variant", "extra_args", "expected_tokens"),
+    [
+        ("cls", ["--d-position", "8"], [24, 48, 72, 96, 120]),
+        ("ar", [], [16, 32, 48, 64, 80]),
+    ],
+)
 def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_training(
     tmp_path: Path,
+    variant: str,
+    extra_args: list[str],
+    expected_tokens: list[int],
 ):
-    periodic_dir = tmp_path / "periodic"
-    final_only_dir = tmp_path / "final_only"
+    periodic_dir = tmp_path / f"periodic_{variant}"
+    final_only_dir = tmp_path / f"final_only_{variant}"
     common_args = [
         "sir_yes_sir",
-        "cls",
+        variant,
         "--max-steps",
         "5",
         "--batch-size",
@@ -161,12 +171,11 @@ def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_trai
         "4",
         "--d-ff",
         "32",
-        "--d-position",
-        "8",
         "--d-scratch",
         "0",
         "--seed",
         "123",
+        *extra_args,
     ]
     res_periodic = run_experiments_cli(
         EXPERIMENTS,
@@ -193,7 +202,7 @@ def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_trai
         )
     ]
     assert periodic_train == final_train
-    assert [toks for _, toks in periodic_train] == [24, 48, 72, 96, 120]
+    assert [toks for _, toks in periodic_train] == expected_tokens
 
     eval_rows = [
         json.loads(line)

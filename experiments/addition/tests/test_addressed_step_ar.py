@@ -809,3 +809,75 @@ def test_evaluate_addressed_step_ar_token_budget_subchunking_is_invariant(
         embedding_mode=EmbeddingMode.NOPE,
     )
     assert subchunked == baseline
+
+
+@pytest.mark.parametrize("embedding_mode", list(EmbeddingMode))
+def test_partially_trained_addressed_step_ar_transformer_exact_match_matches_rollout(
+    embedding_mode: EmbeddingMode,
+):
+    from yessir.training import train
+
+    seed_everything(7)
+    use_tt = embedding_mode != EmbeddingMode.NOPE
+    d_pos = 8 if embedding_mode == EmbeddingMode.TOKEN_TYPE_PE else 0
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=3,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=use_tt,
+        d_position=d_pos,
+        d_scratch=16,
+    )
+    train(
+        model,
+        AdditionAddressedStepArDataset(
+            bases=(2, 3),
+            min_length=1,
+            max_length=1,
+            p_prior=1.0,
+            step_order=StepOrder.CARRY_FIRST,
+            use_query_tokens=True,
+            embedding_mode=embedding_mode,
+            seed=7,
+        ),
+        max_steps=90,
+        batch_size=8,
+        lr=8e-4,
+    )
+    problems = list(
+        itertools.islice(
+            iter_problems(
+                bases=(2, 3), min_length=1, max_length=1, p_prior=1.0, seed=99
+            ),
+            30,
+        )
+    )
+    metrics = evaluate_addressed_step_ar(
+        model,
+        problems,
+        num_problems=30,
+        batch_size=7,
+        step_order=StepOrder.CARRY_FIRST,
+        use_query_tokens=True,
+        embedding_mode=embedding_mode,
+    )
+    assert 0.0 < metrics.exact_match < 1.0
+
+    rollout_matches = sum(
+        rollout_addressed_step_ar(
+            model,
+            p.alphabet,
+            p.a,
+            p.b,
+            step_order=StepOrder.CARRY_FIRST,
+            use_query_tokens=True,
+            embedding_mode=embedding_mode,
+        )
+        == [
+            (st.sum_digit, st.carry_out, int(st.flag))
+            for st in reference_add(p.alphabet, p.a, p.b)
+        ]
+        for p in problems
+    )
+    assert rollout_matches / len(problems) == pytest.approx(metrics.exact_match)

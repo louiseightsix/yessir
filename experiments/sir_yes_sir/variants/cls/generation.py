@@ -56,12 +56,17 @@ def greedy_generate_cls(
             embedding_mode=embedding_mode,
         )
         batch = collate([example]).to(device)
-        logits_o, logits_flag = model(
+        out = model(
             batch.input_ids,
             batch.lengths,
             token_type_ids=batch.token_type_ids,
             position_ids=batch.position_ids,
         )
+        if not isinstance(out, tuple) or len(out) != 2:
+            raise ValueError(
+                "greedy_generate_cls requires a Transformer with a 2-head ParallelClassificationHead"
+            )
+        logits_o, logits_flag = out
 
         o_k = int(logits_o[0].argmax(dim=-1).item())
         flag_k = int(logits_flag[0].argmax(dim=-1).item())
