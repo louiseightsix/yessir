@@ -22,6 +22,8 @@ export interface ConfigFile {
   experiment?: string;
   variant?: string;
   device?: string;
+  /** When the run started, as UTC ISO 8601 (written by `write_config_json` in `yessir/artefacts.py`). */
+  started_at?: string;
   git_commit_sha?: string;
   git_short_sha?: string;
   git_commit_date?: string;
@@ -80,7 +82,7 @@ export interface RunData {
   changed: ChangedSetting[];
   /** `config.max_steps` (or legacy `config.steps`), if the run recorded it. */
   totalSteps: number | null;
-  /** When `config.json` was written (ms since epoch), to order runs from the same day. */
+  /** When the run started (ms since epoch), to order runs from the same day: see `runStartMs`. */
   startedAtMs: number;
 }
 
@@ -211,8 +213,18 @@ export function loadRun(
         : typeof config.steps === "number"
           ? config.steps
           : null,
-    startedAtMs: fileMtimeMs(resolve(runDir, "config.json")),
+    startedAtMs: runStartMs(meta, resolve(runDir, "config.json")),
   };
+}
+
+/**
+ * The run's start time, from `started_at` in `config.json`. Runs written before
+ * that field existed fall back to the file's modification time, which a
+ * `git checkout` resets, so their order among same-day runs may be wrong.
+ */
+function runStartMs(meta: ConfigFile | null, configPath: string): number {
+  const parsed = meta?.started_at ? Date.parse(meta.started_at) : Number.NaN;
+  return Number.isNaN(parsed) ? fileMtimeMs(configPath) : parsed;
 }
 
 /** YYYY-MM-DD in local time, matching the dates in run names. */
