@@ -26,6 +26,20 @@ _PLACEHOLDERS = frozenset(
         "us-central1-docker.pkg.dev/your-gcp-project-id/yessir/runner:latest",
     }
 )
+_SCHEDULING_CHOICES = ("standard", "flex_start")
+
+
+def _normalise_scheduling(raw: str) -> str:
+    """Validate and normalise a scheduling strategy string to `'standard'` or `'flex_start'`."""
+    if not isinstance(raw, str):
+        raise TypeError(
+            f"scheduling must be a str in {_SCHEDULING_CHOICES}, got {raw!r}"
+        )
+    cleaned = raw.strip().lower()
+    if cleaned not in _SCHEDULING_CHOICES:
+        choices = ", ".join(repr(c) for c in _SCHEDULING_CHOICES)
+        raise ValueError(f"scheduling must be one of {choices}, got {raw!r}")
+    return cleaned
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,6 +54,7 @@ class VertexSettings:
     machine_type: str = "g2-standard-4"
     accelerator_type: str = "NVIDIA_L4"
     accelerator_count: int = 1
+    scheduling: str = "standard"
 
     def __post_init__(self) -> None:
         cleaned_bucket = self.bucket.removeprefix("gs://").strip("/")
@@ -56,6 +71,7 @@ class VertexSettings:
                 )
         if self.accelerator_count < 0:
             raise ValueError("vertex.toml: 'accelerator_count' must be >= 0")
+        object.__setattr__(self, "scheduling", _normalise_scheduling(self.scheduling))
 
 
 def load_vertex_settings(path: Path | None = None) -> VertexSettings:
@@ -99,6 +115,7 @@ class VertexJobRecord:
     accelerator_type: str
     accelerator_count: int
     submitted_at: str
+    scheduling: str = "standard"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise job metadata to a JSON-compatible dictionary."""
@@ -172,7 +189,7 @@ def build_custom_job_spec(
         machine_spec["acceleratorType"] = settings.accelerator_type
         machine_spec["acceleratorCount"] = settings.accelerator_count
 
-    return {
+    spec: dict[str, Any] = {
         "workerPoolSpecs": [
             {
                 "machineSpec": machine_spec,
@@ -201,11 +218,13 @@ def build_custom_job_spec(
                 },
             }
         ],
-        "scheduling": {
+    }
+    if settings.scheduling == "flex_start":
+        spec["scheduling"] = {
             "strategy": "FLEX_START",
             "maxWaitDuration": "86400s",
-        },
-    }
+        }
+    return spec
 
 
 def is_commit_pushed_to_remote(
@@ -383,6 +402,12 @@ def cmd_submit(
     wrapper.add_argument("--accelerator-type", default=None)
     wrapper.add_argument("--accelerator-count", type=int, default=None)
     wrapper.add_argument(
+        "--scheduling",
+        type=_normalise_scheduling,
+        choices=_SCHEDULING_CHOICES,
+        default=None,
+    )
+    wrapper.add_argument(
         "--allow-dirty",
         action="store_true",
         help="Allow submitting when the local git working tree has uncommitted changes",
@@ -408,6 +433,11 @@ def cmd_submit(
             vertex_args.accelerator_count
             if vertex_args.accelerator_count is not None
             else settings.accelerator_count
+        ),
+        scheduling=(
+            vertex_args.scheduling
+            if vertex_args.scheduling is not None
+            else settings.scheduling
         ),
     )
 
@@ -525,10 +555,12 @@ def cmd_submit(
         accelerator_type=effective_settings.accelerator_type,
         accelerator_count=effective_settings.accelerator_count,
         submitted_at=submitted_at,
+        scheduling=effective_settings.scheduling,
     )
     write_vertex_json(out_dir, record)
     print(
-        f"Submitted Vertex job {job_id} ({display_name}) in {effective_settings.region}"
+        f"Submitted Vertex job {job_id} ({display_name}) in {effective_settings.region} "
+        f"[{effective_settings.scheduling}]"
     )
     print(f"  local dir: {out_dir}")
     print(f"  gcs uri:   {gcs_run_uri}")

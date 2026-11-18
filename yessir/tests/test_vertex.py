@@ -83,6 +83,21 @@ image_uri = "us-central1-docker.pkg.dev/my-proj/yessir/runner:latest"
     assert settings.machine_type == "g2-standard-4"
     assert settings.accelerator_type == "NVIDIA_L4"
     assert settings.accelerator_count == 1
+    assert settings.scheduling == "standard"
+
+    bad_sched = tmp_path / "bad_sched.toml"
+    bad_sched.write_text(
+        """
+project = "my-proj"
+region = "us-central1"
+bucket = "my-bucket"
+image_uri = "us-central1-docker.pkg.dev/my-proj/yessir/runner:latest"
+scheduling = "bogus"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="scheduling must be one of"):
+        load_vertex_settings(bad_sched)
 
     # Placeholder rejection
     example_copy = tmp_path / "placeholder.toml"
@@ -159,7 +174,22 @@ def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
         "--device",
         "auto",
     ]
-    assert spec["scheduling"] == {
+    assert "scheduling" not in spec
+
+    flex_spec = build_custom_job_spec(
+        settings=VertexSettings(
+            project="test-gcp-project",
+            region="us-central1",
+            bucket="gs://test-yessir-bucket/",
+            image_uri="us-central1-docker.pkg.dev/test-gcp-project/yessir/runner:latest",
+            scheduling="flex_start",
+        ),
+        experiment_name="sir_yes_sir",
+        variant_name="cls",
+        run_name="2026-11-12-953e4d9-amber-falcon",
+        git_commit_sha="953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
+    )
+    assert flex_spec["scheduling"] == {
         "strategy": "FLEX_START",
         "maxWaitDuration": "86400s",
     }
@@ -264,6 +294,8 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
         [
             "--region",
             "us-east4",
+            "--scheduling",
+            "flex_start",
             "sir_yes_sir",
             "cls",
             "--max-steps",
@@ -281,6 +313,11 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
     assert record is not None
     assert record.job_id == "987654321"
     assert record.region == "us-east4"
+    assert record.scheduling == "flex_start"
+    assert submitted_specs[0]["scheduling"] == {
+        "strategy": "FLEX_START",
+        "maxWaitDuration": "86400s",
+    }
     assert record.experiment == "sir_yes_sir"
     assert record.variant == "cls"
     assert record.run_name.startswith("2026-11-12-953e4d9-")
