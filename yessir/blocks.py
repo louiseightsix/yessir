@@ -1,5 +1,7 @@
 """Pre-LN Transformer building blocks (`RMSNorm`, `SwiGLUFeedForward`, `MultiHeadSelfAttention`, `TransformerBlock`) and inference KV cache (`KVCache`, `build_causal_attention_mask`)."""
 
+from collections.abc import Sequence
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -125,6 +127,11 @@ class KVCache:
         self._end_pos = 0
 
     @property
+    def batch_size(self) -> int | None:
+        """Batch size bound to this cache (`None` before the first `prepare_step`)."""
+        return self._batch_size
+
+    @property
     def seq_len(self) -> int:
         """Number of token positions committed to the cache so far."""
         return self._seq_len
@@ -133,6 +140,107 @@ class KVCache:
     def start_pos(self) -> int:
         """Starting sequence offset of the active forward pass."""
         return self._start_pos
+
+    def truncate(self, seq_len: int) -> None:
+        """Rewind the committed cache length back to `seq_len` (`0 <= seq_len <= self.seq_len`).
+
+        Allows reusing a shared cached prefix across branched queries (e.g. `[S]`,
+        `[C]`, `[F]` in `step_fork`) or rewinding back to a static problem header
+        between step-harnessed columns without re-encoding the prefix.
+        """
+        if self._end_pos != self._seq_len:
+            raise RuntimeError("cannot truncate KVCache with an uncommitted step")
+        if not (0 <= seq_len <= self._seq_len):
+            raise ValueError(
+                f"truncate seq_len ({seq_len}) must lie in 0..{self._seq_len}"
+            )
+        self._seq_len = seq_len
+        self._start_pos = seq_len
+        self._end_pos = seq_len
+
+    def select_rows(
+        self,
+        row_indices: Sequence[int] | torch.Tensor,
+        *,
+        max_seq_len: int | None = None,
+    ) -> "KVCache":
+        """Return a new `KVCache` holding the committed `[:seq_len]` state for `row_indices`.
+
+        Used to drop finished problems from an active rollout batch or to branch a
+        subset of problems from a prefilled header cache (optionally expanding or
+        shrinking `max_seq_len` for the downstream rollout tail).
+        """
+        if self._batch_size is None:
+            raise RuntimeError("cannot select_rows from an uninitialised KVCache")
+        if self._end_pos != self._seq_len:
+            raise RuntimeError("cannot select_rows with an uncommitted step")
+
+        target_max_len = self.max_seq_len if max_seq_len is None else max_seq_len
+        if target_max_len <= 0 or target_max_len < self._seq_len:
+            raise ValueError(
+                f"max_seq_len ({target_max_len}) must be > 0 and >= current seq_len ({self._seq_len})"
+            )
+
+        ref_device = next(
+            (k.device for k in self._keys if k is not None),
+            self._key_mask.device
+            if self._key_mask is not None
+            else torch.device("cpu"),
+        )
+        if isinstance(row_indices, torch.Tensor):
+            if row_indices.dtype == torch.bool or torch.is_floating_point(row_indices):
+                raise ValueError(
+                    f"row_indices tensor must have integer dtype, got {row_indices.dtype}"
+                )
+            idx = row_indices.to(device=ref_device, dtype=torch.long)
+        else:
+            idx = torch.tensor(list(row_indices), dtype=torch.long, device=ref_device)
+
+        if idx.ndim != 1 or idx.numel() == 0:
+            raise ValueError("row_indices must be a non-empty 1D sequence of indices")
+        if bool(((idx < 0) | (idx >= self._batch_size)).any()):
+            raise IndexError(
+                f"row_indices out of range 0..{self._batch_size - 1}: {idx.tolist()}"
+            )
+
+        new_batch_size = int(idx.numel())
+        cloned = KVCache(n_layers=self._n_layers, max_seq_len=target_max_len)
+        cloned._batch_size = new_batch_size
+        cloned._seq_len = self._seq_len
+        cloned._start_pos = self._seq_len
+        cloned._end_pos = self._seq_len
+
+        for layer_idx in range(self._n_layers):
+            k_buf = self._keys[layer_idx]
+            v_buf = self._values[layer_idx]
+            if k_buf is not None and v_buf is not None:
+                _, n_heads, _, d_head = k_buf.shape
+                shape = (new_batch_size, n_heads, target_max_len, d_head)
+                new_k = torch.empty(shape, dtype=k_buf.dtype, device=k_buf.device)
+                new_v = torch.empty(shape, dtype=v_buf.dtype, device=v_buf.device)
+                if self._seq_len > 0:
+                    new_k[:, :, : self._seq_len, :] = k_buf[
+                        :, :, : self._seq_len, :
+                    ].index_select(0, idx)
+                    new_v[:, :, : self._seq_len, :] = v_buf[
+                        :, :, : self._seq_len, :
+                    ].index_select(0, idx)
+                cloned._keys[layer_idx] = new_k
+                cloned._values[layer_idx] = new_v
+
+        if self._key_mask is not None:
+            new_mask = torch.ones(
+                (new_batch_size, target_max_len),
+                dtype=torch.bool,
+                device=self._key_mask.device,
+            )
+            if self._seq_len > 0:
+                new_mask[:, : self._seq_len] = self._key_mask[
+                    :, : self._seq_len
+                ].index_select(0, idx)
+            cloned._key_mask = new_mask
+
+        return cloned
 
     def prepare_step(
         self,
