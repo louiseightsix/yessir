@@ -1,10 +1,12 @@
-"""Minimal training utilities (`resolve_device`, `seed_everything`, `build_optimizer`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
+"""Minimal training utilities (`resolve_device`, `dtype_name`, `resolve_dtype`, `autocast_context`, `seed_everything`, `build_optimizer`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
 
+import contextlib
 import itertools
 import math
 import os
 import random
 from collections.abc import Callable, Iterable, Sequence
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -18,6 +20,9 @@ from yessir.model import Transformer
 
 _CONCRETE_DEVICES = ("cpu", "mps", "cuda")
 _VALID_DEVICES = ("auto", *_CONCRETE_DEVICES)
+
+_CONCRETE_DTYPES = ("float32", "bfloat16")
+_VALID_DTYPES = ("auto", *_CONCRETE_DTYPES)
 
 
 def resolve_device(device: str | torch.device | None = None) -> torch.device:
@@ -58,6 +63,85 @@ def resolve_device(device: str | torch.device | None = None) -> torch.device:
             f"MPS (Metal) device requested ({str(device)!r}), but torch.backends.mps.is_available() is False"
         )
     return resolved
+
+
+def _has_hardware_bf16(device: torch.device) -> bool:
+    """Return `True` if `device` has native hardware `bfloat16` Tensor Core support.
+
+    Passes `including_emulation=False` to `torch.cuda.is_bf16_supported` because
+    PyTorch's default (`True`) counts software-emulated `bfloat16` on pre-Ampere
+    GPUs such as Turing (`Tesla T4`, `SM 7.5`), which lacks `bfloat16` Tensor Cores.
+    """
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return False
+    if device.index is not None:
+        with torch.cuda.device(device):
+            return bool(torch.cuda.is_bf16_supported(including_emulation=False))
+    return bool(torch.cuda.is_bf16_supported(including_emulation=False))
+
+
+def dtype_name(dtype: torch.dtype) -> str:
+    """Return the canonical CLI/JSON name (`'float32'` or `'bfloat16'`) for `dtype`."""
+    if dtype == torch.float32:
+        return "float32"
+    if dtype == torch.bfloat16:
+        return "bfloat16"
+    choices = ", ".join(repr(d) for d in _CONCRETE_DTYPES)
+    raise ValueError(f"unsupported dtype {dtype!r}; expected one of {choices}")
+
+
+def resolve_dtype(
+    device: str | torch.device,
+    dtype: str | torch.dtype | None = None,
+) -> torch.dtype:
+    """Resolve the compute `torch.dtype` (`torch.bfloat16` or `torch.float32`) for `device`.
+
+    - `'auto'` / `None`: selects `torch.bfloat16` when `device` has native hardware
+      `bfloat16` support (Ampere+ CUDA GPUs such as L4, A100, H100), and
+      `torch.float32` otherwise (`Tesla T4`, `mps`, `cpu`).
+    - `'float32'` / `torch.float32`: forces pure `float32` (`autocast` disabled).
+    - `'bfloat16'` / `torch.bfloat16`: requires hardware `bfloat16` support on
+      `device` and raises `ValueError` otherwise rather than silently falling back
+      to software emulation.
+    """
+    resolved_device = resolve_device(device)
+    if dtype is None or (isinstance(dtype, str) and dtype.strip().lower() == "auto"):
+        return torch.bfloat16 if _has_hardware_bf16(resolved_device) else torch.float32
+
+    if dtype == torch.float32 or (
+        isinstance(dtype, str) and dtype.strip().lower() == "float32"
+    ):
+        return torch.float32
+
+    if dtype == torch.bfloat16 or (
+        isinstance(dtype, str) and dtype.strip().lower() == "bfloat16"
+    ):
+        if not _has_hardware_bf16(resolved_device):
+            raise ValueError(
+                f"bfloat16 requested, but device {str(resolved_device)!r} does not have "
+                f"hardware bfloat16 support; use 'auto' or 'float32'"
+            )
+        return torch.bfloat16
+
+    choices = ", ".join(repr(d) for d in _VALID_DTYPES)
+    raise ValueError(f"unknown dtype {dtype!r}; expected one of {choices}")
+
+
+def autocast_context(
+    device: str | torch.device,
+    dtype: str | torch.dtype | None = None,
+) -> contextlib.AbstractContextManager[Any]:
+    """Return a mixed-precision `torch.autocast` context manager for `(device, dtype)`.
+
+    Validates `(device, dtype)` via `resolve_dtype`, returning a `bfloat16`
+    `torch.autocast` context when resolved to `torch.bfloat16` and a no-op
+    `contextlib.nullcontext()` when resolved to `torch.float32`.
+    """
+    resolved_device = resolve_device(device)
+    resolved_dtype = resolve_dtype(resolved_device, dtype)
+    if resolved_dtype == torch.float32:
+        return contextlib.nullcontext()
+    return torch.autocast(device_type=resolved_device.type, dtype=torch.bfloat16)
 
 
 def seed_everything(seed: int) -> None:
@@ -136,7 +220,9 @@ def parallel_classification_cross_entropy(
             f"labels shape {tuple(labels.shape)} must match (*leading_shape, num_targets) = {(*leading_shape, num_targets)}"
         )
 
-    total_loss = torch.zeros((), dtype=logits[0].dtype, device=logits[0].device)
+    # Upcast logits to float32 so log-sum-exp and head averaging do not suffer
+    # 7-bit mantissa rounding when linear heads run under bfloat16 autocast.
+    total_loss = torch.zeros((), dtype=torch.float32, device=logits[0].device)
     for h, head_logits in enumerate(logits):
         if head_logits.shape[:-1] != leading_shape:
             raise ValueError(
@@ -144,7 +230,7 @@ def parallel_classification_cross_entropy(
                 f"logits[0] leading shape {tuple(leading_shape)}"
             )
         total_loss = total_loss + F.cross_entropy(
-            head_logits.reshape(-1, head_logits.size(-1)),
+            head_logits.float().reshape(-1, head_logits.size(-1)),
             labels[..., h].reshape(-1),
             ignore_index=IGNORE_INDEX,
         )
@@ -160,15 +246,17 @@ def next_token_cross_entropy(
     Unlike Hugging Face causal LMs (which shift `labels` internally), `labels` here
     are already pre-shifted so `labels[b, t]` is the target token predicted by
     `logits[b, t]`. Positions where `labels == IGNORE_INDEX` (`-100`, e.g. prompt
-    prefix tokens and right-padding positions) are excluded from the mean.
+    prefix tokens and right-padding positions) are excluded from the mean. Logits
+    are upcast to `float32` so log-sum-exp stays full precision under `bfloat16`
+    autocast.
 
     Args:
-        logits: FloatTensor of shape `(batch_size, seq_len, vocab_size)`.
+        logits: Floating-point tensor of shape `(batch_size, seq_len, vocab_size)`.
         labels: Pre-shifted LongTensor of shape `(batch_size, seq_len)` with class
             indices in `0..vocab_size - 1` or `IGNORE_INDEX`.
 
     Returns:
-        Scalar loss tensor averaged over all non-ignored positions in the batch.
+        Scalar `float32` loss tensor averaged over all non-ignored positions in the batch.
     """
     if logits.ndim != 3:
         raise ValueError(
@@ -180,7 +268,7 @@ def next_token_cross_entropy(
             f"labels shape {tuple(labels.shape)} must match (batch_size, seq_len) = ({batch_size}, {seq_len})"
         )
     return F.cross_entropy(
-        logits.reshape(-1, vocab_size),
+        logits.float().reshape(-1, vocab_size),
         labels.reshape(-1),
         ignore_index=IGNORE_INDEX,
     )
@@ -204,50 +292,60 @@ def _train_step_with_tokens(
     model: Transformer,
     optimizer: torch.optim.Optimizer,
     items: Sequence[LabelledExample],
+    *,
+    resolved_dtype: torch.dtype = torch.float32,
 ) -> tuple[float, int]:
-    """Run one fp32 optimiser step and return `(step_loss, supervised_target_count)`."""
+    """Run one optimiser step and return `(step_loss, supervised_target_count)`."""
     if not items:
         raise ValueError("items must not be empty")
 
     model.train()
     optimizer.zero_grad()
     device = model.device
+    amp_ctx: contextlib.AbstractContextManager[Any] = (
+        contextlib.nullcontext()
+        if resolved_dtype == torch.float32
+        else torch.autocast(device_type=device.type, dtype=torch.bfloat16)
+    )
 
     if isinstance(model.head, SubspaceLMHead):
         batch, labels = collate_labelled(items)
         batch = batch.to(device)
         labels = labels.to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
-        assert isinstance(logits, torch.Tensor)
-        loss = next_token_cross_entropy(logits, labels)
+        with amp_ctx:
+            logits = model(
+                batch.input_ids,
+                batch.lengths,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+            )
+            assert isinstance(logits, torch.Tensor)
+            loss = next_token_cross_entropy(logits, labels)
     elif isinstance(items[0].labels[0], tuple):
         batch, labels = collate_labelled(items)
         batch = batch.to(device)
         labels = labels.to(device)
-        logits = model(
-            batch.input_ids,
-            lengths=None,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
-        assert isinstance(logits, tuple)
-        loss = parallel_classification_cross_entropy(logits, labels)
+        with amp_ctx:
+            logits = model(
+                batch.input_ids,
+                lengths=None,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+            )
+            assert isinstance(logits, tuple)
+            loss = parallel_classification_cross_entropy(logits, labels)
     else:
         batch = collate([item.example for item in items]).to(device)
         labels = pack_classification_labels(items).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
-        assert isinstance(logits, tuple)
-        loss = parallel_classification_cross_entropy(logits, labels)
+        with amp_ctx:
+            logits = model(
+                batch.input_ids,
+                batch.lengths,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+            )
+            assert isinstance(logits, tuple)
+            loss = parallel_classification_cross_entropy(logits, labels)
 
     supervised_targets = int((labels != IGNORE_INDEX).sum().item())
     loss.backward()
@@ -259,8 +357,15 @@ def train_step(
     model: Transformer,
     optimizer: torch.optim.Optimizer,
     items: Sequence[LabelledExample],
+    *,
+    dtype: str | torch.dtype | None = None,
 ) -> float:
-    """Run one fp32 forward/backward/optimiser step on a batch of `LabelledExample`s.
+    """Run one forward/backward/optimiser step on a batch of `LabelledExample`s.
+
+    Master model weights, `AdamW` moments, and cross-entropy reductions always stay
+    in `float32`; when `resolve_dtype(model.device, dtype)` selects `torch.bfloat16`
+    (the `'auto'` default on `bf16`-capable CUDA GPUs), the forward pass runs under
+    `torch.autocast`.
 
     Moves the collated `Batch` and `labels` onto `model.device` and dispatches on
     `model.head`:
@@ -277,7 +382,10 @@ def train_step(
     Returns:
         The scalar loss value (`float`, in `nats / target`) before the parameter update.
     """
-    loss_val, _ = _train_step_with_tokens(model, optimizer, items)
+    resolved_dtype = resolve_dtype(model.device, dtype)
+    loss_val, _ = _train_step_with_tokens(
+        model, optimizer, items, resolved_dtype=resolved_dtype
+    )
     return loss_val
 
 
@@ -289,6 +397,7 @@ def train(
     batch_size: int,
     lr: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
+    dtype: str | torch.dtype | None = None,
     on_step: Callable[[int, float], None] | None = None,
     on_step_tokens: Callable[[int, float, int], None] | None = None,
 ) -> list[float]:
@@ -311,6 +420,7 @@ def train(
     if on_step is not None and on_step_tokens is not None:
         raise ValueError("cannot specify both on_step and on_step_tokens")
 
+    resolved_dtype = resolve_dtype(model.device, dtype)
     if optimizer is None:
         optimizer = build_optimizer(model, lr=DEFAULT_LR if lr is None else lr)
     stream = iter(dataset)
@@ -322,7 +432,9 @@ def train(
             raise ValueError(
                 f"dataset exhausted early: needed {batch_size} examples, got {len(items)}"
             )
-        step_loss, step_tokens = _train_step_with_tokens(model, optimizer, items)
+        step_loss, step_tokens = _train_step_with_tokens(
+            model, optimizer, items, resolved_dtype=resolved_dtype
+        )
         losses.append(step_loss)
         if on_step is not None:
             on_step(step_idx, step_loss)

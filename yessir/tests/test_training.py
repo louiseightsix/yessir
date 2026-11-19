@@ -1,5 +1,6 @@
 """Tests for `yessir/training.py`."""
 
+import contextlib
 import itertools
 import math
 import random
@@ -15,11 +16,14 @@ from yessir.example import Example
 from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.training import (
+    autocast_context,
     build_optimizer,
+    dtype_name,
     next_token_cross_entropy,
     pack_classification_labels,
     parallel_classification_cross_entropy,
     resolve_device,
+    resolve_dtype,
     seed_everything,
     train,
     train_step,
@@ -418,3 +422,142 @@ def test_resolve_device_auto_and_explicit_validation(monkeypatch: pytest.MonkeyP
         match="unknown device 'meta'; expected one of 'auto', 'cpu', 'mps', 'cuda'",
     ):
         resolve_device("meta")
+
+
+def test_dtype_name_and_resolve_dtype_hardware_gating(monkeypatch: pytest.MonkeyPatch):
+    assert dtype_name(torch.float32) == "float32"
+    assert dtype_name(torch.bfloat16) == "bfloat16"
+    with pytest.raises(ValueError, match="unsupported dtype"):
+        dtype_name(torch.float16)
+
+    # CPU: auto -> float32; explicit bfloat16 rejected
+    assert resolve_dtype("cpu") == torch.float32
+    assert resolve_dtype("cpu", "auto") == torch.float32
+    assert resolve_dtype("cpu", "float32") == torch.float32
+    assert resolve_dtype(torch.device("cpu"), torch.float32) == torch.float32
+    with pytest.raises(ValueError, match="does not have hardware bfloat16 support"):
+        resolve_dtype("cpu", "bfloat16")
+    with pytest.raises(ValueError, match="does not have hardware bfloat16 support"):
+        resolve_dtype("cpu", torch.bfloat16)
+
+    # MPS: auto -> float32; explicit bfloat16 rejected
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    assert resolve_dtype("mps", "auto") == torch.float32
+    with pytest.raises(ValueError, match="does not have hardware bfloat16 support"):
+        resolve_dtype("mps", "bfloat16")
+
+    # Pre-Ampere CUDA (e.g. Tesla T4): software emulation exists (including_emulation=True),
+    # but hardware bfloat16 Tensor Cores do not (including_emulation=False).
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda,
+        "is_bf16_supported",
+        lambda including_emulation=True: bool(including_emulation),
+    )
+    assert resolve_dtype("cuda") == torch.float32
+    assert resolve_dtype("cuda", "auto") == torch.float32
+    assert resolve_dtype("cuda", "float32") == torch.float32
+    with pytest.raises(ValueError, match="does not have hardware bfloat16 support"):
+        resolve_dtype("cuda", "bfloat16")
+
+    # Ampere+ CUDA (e.g. L4 / A100 / H100): hardware bfloat16 supported
+    monkeypatch.setattr(
+        torch.cuda,
+        "is_bf16_supported",
+        lambda including_emulation=True: True,
+    )
+    assert resolve_dtype("cuda") == torch.bfloat16
+    assert resolve_dtype("cuda", "auto") == torch.bfloat16
+    assert resolve_dtype("cuda", " BFLOAT16 ") == torch.bfloat16
+    assert resolve_dtype("cuda", torch.bfloat16) == torch.bfloat16
+    assert resolve_dtype("cuda", "float32") == torch.float32
+    assert resolve_dtype("cuda", torch.float32) == torch.float32
+
+    # Unknown dtypes rejected
+    for bad_dtype in ("float16", "fp8", torch.float16):
+        with pytest.raises(
+            ValueError,
+            match="unknown dtype .*; expected one of 'auto', 'float32', 'bfloat16'",
+        ):
+            resolve_dtype("cpu", bad_dtype)
+
+
+def test_autocast_context_returns_nullcontext_or_bfloat16_autocast(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    assert isinstance(autocast_context("cpu", "auto"), contextlib.nullcontext)
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda,
+        "is_bf16_supported",
+        lambda including_emulation=True: True,
+    )
+    assert isinstance(autocast_context("cuda", "float32"), contextlib.nullcontext)
+    ctx = autocast_context("cuda", "auto")
+    assert isinstance(ctx, torch.autocast)
+    assert ctx.device == "cuda"
+    assert ctx.fast_dtype == torch.bfloat16
+
+
+def test_cross_entropy_losses_upcast_bfloat16_logits_to_float32():
+    torch.manual_seed(0)
+    bf16_lm_logits = torch.randn(2, 4, 16, dtype=torch.bfloat16, requires_grad=True)
+    lm_labels = torch.tensor(
+        [[IGNORE_INDEX, 3, 5, IGNORE_INDEX], [IGNORE_INDEX, 1, 2, 7]],
+        dtype=torch.long,
+    )
+    lm_loss = next_token_cross_entropy(bf16_lm_logits, lm_labels)
+    assert lm_loss.dtype == torch.float32
+    expected_lm = F.cross_entropy(
+        bf16_lm_logits.detach().float().reshape(-1, 16),
+        lm_labels.reshape(-1),
+        ignore_index=IGNORE_INDEX,
+    )
+    assert torch.allclose(lm_loss, expected_lm)
+    lm_loss.backward()
+    assert bf16_lm_logits.grad is not None
+    assert bf16_lm_logits.grad.dtype == torch.bfloat16
+
+    bf16_cls_0 = torch.randn(3, 10, dtype=torch.bfloat16, requires_grad=True)
+    bf16_cls_1 = torch.randn(3, 4, dtype=torch.bfloat16, requires_grad=True)
+    cls_labels = torch.tensor([[1, 0], [5, 3], [9, 1]], dtype=torch.long)
+    cls_loss = parallel_classification_cross_entropy(
+        (bf16_cls_0, bf16_cls_1), cls_labels
+    )
+    assert cls_loss.dtype == torch.float32
+    expected_cls = (
+        F.cross_entropy(bf16_cls_0.detach().float(), cls_labels[:, 0])
+        + F.cross_entropy(bf16_cls_1.detach().float(), cls_labels[:, 1])
+    ) / 2
+    assert torch.allclose(cls_loss, expected_cls)
+    cls_loss.backward()
+    assert bf16_cls_0.grad is not None
+    assert bf16_cls_1.grad is not None
+
+
+def test_train_and_train_step_validate_dtype_before_consuming_data():
+    seed_everything(0)
+    model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    dataset = _SyntheticDataset()
+    items = list(itertools.islice(_SyntheticDataset(), 4))
+    opt = build_optimizer(model)
+
+    with pytest.raises(ValueError, match="does not have hardware bfloat16 support"):
+        train_step(model, opt, items, dtype="bfloat16")
+
+    with pytest.raises(ValueError, match="does not have hardware bfloat16 support"):
+        train(model, dataset, max_steps=2, batch_size=4, dtype="bfloat16")
+    assert dataset.yielded == 0
+
+    losses = train(model, dataset, max_steps=2, batch_size=4, dtype="auto")
+    assert len(losses) == 2
+    assert all(p.dtype == torch.float32 for p in model.parameters())
