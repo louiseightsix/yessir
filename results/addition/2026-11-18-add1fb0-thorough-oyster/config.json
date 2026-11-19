@@ -3,13 +3,13 @@
   "variant": "ar",
   "device": "auto",
   "dtype": "auto",
-  "started_at": "2026-11-19T06:13:41.733991Z",
-  "git_commit_sha": "3a694568dc0229b435b5084f30ead0afd1dbf007",
-  "git_short_sha": "3a69456",
+  "started_at": "2026-11-19T06:23:18.255575Z",
+  "git_commit_sha": "add1fb0394b61f255ab7e37de4a85f333f818477",
+  "git_short_sha": "add1fb0",
   "git_commit_date": "2026-11-18",
   "git_dirty": false,
   "config": {
-    "bases": "2,4,8,10",
+    "bases": "2,10",
     "min_length": 1,
     "max_length": 20,
     "symbol_set": "all",
@@ -39,6 +39,6 @@
     "eval_extrap_max_length": 40,
     "eval_permuted_canonical": true,
     "step_order": "sum_first",
-    "use_query_tokens": true
+    "use_query_tokens": false
   }
 }

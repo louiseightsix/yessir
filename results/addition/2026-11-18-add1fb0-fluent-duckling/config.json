@@ -1,15 +1,15 @@
 {
   "experiment": "addition",
-  "variant": "ar",
+  "variant": "step_ar",
   "device": "auto",
   "dtype": "auto",
-  "started_at": "2026-11-19T06:13:46.682078Z",
-  "git_commit_sha": "3a694568dc0229b435b5084f30ead0afd1dbf007",
-  "git_short_sha": "3a69456",
+  "started_at": "2026-11-19T06:23:44.343086Z",
+  "git_commit_sha": "add1fb0394b61f255ab7e37de4a85f333f818477",
+  "git_short_sha": "add1fb0",
   "git_commit_date": "2026-11-18",
   "git_dirty": false,
   "config": {
-    "bases": "10",
+    "bases": "2,4,8,10",
     "min_length": 1,
     "max_length": 20,
     "symbol_set": "all",
@@ -19,8 +19,8 @@
     "n_layers": 6,
     "n_heads": 8,
     "d_ff": 1376,
-    "d_scratch": 256,
-    "max_steps": 100000,
+    "d_scratch": 208,
+    "max_steps": 200000,
     "batch_size": 256,
     "grad_accum_steps": 1,
     "lr": 0.0003,
@@ -38,7 +38,12 @@
     "eval_ood_bases": "3,12",
     "eval_extrap_max_length": 40,
     "eval_permuted_canonical": true,
-    "step_order": "sum_first",
-    "use_query_tokens": false
+    "embedding_mode": "nope",
+    "d_position": 32,
+    "fixed_d_model": true,
+    "p_terminal": 0.2,
+    "all_steps": false,
+    "step_order": "carry_first",
+    "use_query_tokens": true
   }
 }

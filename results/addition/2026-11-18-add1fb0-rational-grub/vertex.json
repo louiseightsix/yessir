@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/asia-southeast1/customJobs/3895316534658072576",
+  "job_id": "3895316534658072576",
+  "display_name": "addition-2026-11-18-add1fb0-rational-grub",
+  "project": "north-shore-software-ca",
+  "region": "asia-southeast1",
+  "experiment": "addition",
+  "variant": "cls",
+  "run_name": "2026-11-18-add1fb0-rational-grub",
+  "git_commit_sha": "add1fb0394b61f255ab7e37de4a85f333f818477",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://yessir-results-us/results/addition/2026-11-18-add1fb0-rational-grub",
+  "machine_type": "a2-highgpu-1g",
+  "accelerator_type": "NVIDIA_TESLA_A100",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-19T06:23:42.409979Z",
+  "scheduling": "standard"
+}
