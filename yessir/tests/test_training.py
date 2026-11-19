@@ -4,6 +4,7 @@ import contextlib
 import itertools
 import math
 import random
+import threading
 from collections.abc import Iterator
 
 import pytest
@@ -909,3 +910,101 @@ def test_chunked_train_with_scheduler_and_validation_errors():
     for bad_norm in (0.0, -1.0, math.nan, math.inf):
         with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
             train(m_single, ds, max_steps=1, batch_size=4, max_grad_norm=bad_norm)
+
+
+def test_train_prefetch_matches_synchronous_chunked_resumption():
+    def _run(use_prefetch: bool) -> tuple[list[float], list[int], int, Transformer]:
+        seed_everything(29)
+        model = Transformer(
+            head_type=HeadType.PARALLEL_CLASSIFICATION,
+            num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+            n_layers=1,
+            n_heads=4,
+            d_ff=32,
+            d_position=8,
+            d_scratch=0,
+        )
+        opt = build_optimizer(model, lr=1e-3, weight_decay=0.1)
+        sched = build_lr_scheduler(opt, max_steps=8, warmup_steps=2, min_lr_ratio=0.1)
+        ds = _SyntheticDataset()
+        stream = iter(ds)
+        tokens: list[int] = []
+        losses_1 = train(
+            model,
+            stream,
+            max_steps=4,
+            batch_size=4,
+            optimizer=opt,
+            scheduler=sched,
+            grad_accum_steps=2,
+            max_grad_norm=1.0,
+            prefetch=use_prefetch,
+            on_step_tokens=lambda _s, _l, n_tok: tokens.append(n_tok),
+        )
+        losses_2 = train(
+            model,
+            stream,
+            max_steps=4,
+            batch_size=4,
+            optimizer=opt,
+            scheduler=sched,
+            grad_accum_steps=2,
+            max_grad_norm=1.0,
+            prefetch=use_prefetch,
+            on_step_tokens=lambda _s, _l, n_tok: tokens.append(n_tok),
+        )
+        return losses_1 + losses_2, tokens, ds.yielded, model
+
+    losses_sync, tok_sync, yielded_sync, model_sync = _run(False)
+    losses_pref, tok_pref, yielded_pref, model_pref = _run(True)
+
+    # Background producer stops strictly at max_steps * batch_size per chunk (never over-reading stream)
+    assert yielded_sync == 32
+    assert yielded_pref == 32
+    assert tok_pref == tok_sync
+    assert losses_pref == losses_sync
+    for p_s, p_p in zip(model_sync.parameters(), model_pref.parameters(), strict=True):
+        assert torch.equal(p_s, p_p)
+
+
+def test_train_prefetch_propagates_errors_and_joins_worker_on_early_abort():
+    model = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+
+    ex = Example(input_ids=(1, 2), token_type_ids=(0, 3), position_ids=(0, 0))
+    short_ds = [LabelledExample(example=ex, labels=(1, 2, 3))]
+    with pytest.raises(ValueError, match="dataset exhausted early"):
+        train(model, short_ds, max_steps=2, batch_size=2, prefetch=True)
+
+    def _failing_stream() -> Iterator[LabelledExample]:
+        yield LabelledExample(example=ex, labels=(1, 2, 3))
+        raise RuntimeError("boom in generator")
+
+    with pytest.raises(RuntimeError, match="boom in generator"):
+        train(model, _failing_stream(), max_steps=2, batch_size=2, prefetch=True)
+
+    def _abort_on_step(step_idx: int, _loss: float) -> None:
+        if step_idx == 2:
+            raise KeyboardInterrupt("stop early")
+
+    with pytest.raises(KeyboardInterrupt, match="stop early"):
+        train(
+            model,
+            _SyntheticDataset(),
+            max_steps=20,
+            batch_size=2,
+            prefetch=True,
+            on_step=_abort_on_step,
+        )
+
+    assert not any(
+        t.name == "yessir-batch-prefetch" and t.is_alive()
+        for t in threading.enumerate()
+    )

@@ -4,8 +4,11 @@ import contextlib
 import itertools
 import math
 import os
+import queue
 import random
-from collections.abc import Callable, Iterable, Sequence
+import threading
+from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -13,7 +16,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim.lr_scheduler import LambdaLR, LRScheduler
 
-from yessir.batch import collate, collate_labelled
+from yessir.batch import Batch, collate, collate_labelled
 from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.defaults import DEFAULT_LR, DEFAULT_MIN_LR_RATIO
 from yessir.heads import SubspaceLMHead
@@ -376,72 +379,159 @@ def _validate_step_controls(
         )
 
 
-def _count_item_targets(items: Sequence[LabelledExample]) -> int:
-    """Count non-`IGNORE_INDEX` scalar targets across `items`."""
-    total = 0
-    for item in items:
-        if item.labels and isinstance(item.labels[0], tuple):
-            for pos_tuple in item.labels:
-                assert isinstance(pos_tuple, tuple)
-                for val in pos_tuple:
-                    if val != IGNORE_INDEX:
-                        total += 1
-        else:
-            for val in item.labels:
-                if val != IGNORE_INDEX:
-                    total += 1
-    return total
+_PREFETCH_QUEUE_SIZE = 2
 
 
-def _forward_micro_batch(
-    model: Transformer,
+@dataclass(frozen=True)
+class _PreparedMicroBatch:
+    """Collated CPU tensors and target count for one micro-batch."""
+
+    batch: Batch
+    labels: torch.Tensor
+    pass_lengths: bool
+    supervised_targets: int
+
+
+def _prepare_micro_batch(
     items: Sequence[LabelledExample],
+    *,
+    is_subspace_lm: bool,
+    pin_memory: bool = False,
+) -> _PreparedMicroBatch:
+    """Collate `items` on CPU, count supervised targets, and optionally pin host memory."""
+    if is_subspace_lm:
+        batch, labels = collate_labelled(items)
+        pass_lengths = True
+    elif isinstance(items[0].labels[0], tuple):
+        batch, labels = collate_labelled(items)
+        pass_lengths = False
+    else:
+        batch = collate([item.example for item in items])
+        labels = pack_classification_labels(items)
+        pass_lengths = True
+
+    supervised_targets = int((labels != IGNORE_INDEX).sum().item())
+    if pin_memory:
+        batch = batch.pin_memory()
+        labels = labels.pin_memory()
+    return _PreparedMicroBatch(
+        batch=batch,
+        labels=labels,
+        pass_lengths=pass_lengths,
+        supervised_targets=supervised_targets,
+    )
+
+
+def _prepare_step_batches(
+    items: Sequence[LabelledExample],
+    *,
+    is_subspace_lm: bool,
+    grad_accum_steps: int,
+    pin_memory: bool = False,
+) -> tuple[tuple[_PreparedMicroBatch, ...], int]:
+    """Prepare all `grad_accum_steps` micro-batches for one optimiser step on CPU."""
+    if grad_accum_steps == 1:
+        mb = _prepare_micro_batch(
+            items, is_subspace_lm=is_subspace_lm, pin_memory=pin_memory
+        )
+        return (mb,), mb.supervised_targets
+
+    micro_size = len(items) // grad_accum_steps
+    micro_batches = tuple(
+        _prepare_micro_batch(
+            items[start : start + micro_size],
+            is_subspace_lm=is_subspace_lm,
+            pin_memory=pin_memory,
+        )
+        for start in range(0, len(items), micro_size)
+    )
+    total_targets = sum(mb.supervised_targets for mb in micro_batches)
+    return micro_batches, total_targets
+
+
+def _forward_prepared_micro_batch(
+    model: Transformer,
+    mb: _PreparedMicroBatch,
     *,
     device: torch.device,
     amp_ctx: contextlib.AbstractContextManager[Any],
-) -> tuple[torch.Tensor, int]:
-    """Collate `items`, run a forward pass under `amp_ctx`, and return `(loss, supervised_targets)`."""
-    if isinstance(model.head, SubspaceLMHead):
-        batch, labels = collate_labelled(items)
-        batch = batch.to(device)
-        labels = labels.to(device)
-        with amp_ctx:
-            logits = model(
-                batch.input_ids,
-                batch.lengths,
-                token_type_ids=batch.token_type_ids,
-                position_ids=batch.position_ids,
-            )
-            assert isinstance(logits, torch.Tensor)
-            loss = next_token_cross_entropy(logits, labels)
-    elif isinstance(items[0].labels[0], tuple):
-        batch, labels = collate_labelled(items)
-        batch = batch.to(device)
-        labels = labels.to(device)
-        with amp_ctx:
-            logits = model(
-                batch.input_ids,
-                lengths=None,
-                token_type_ids=batch.token_type_ids,
-                position_ids=batch.position_ids,
-            )
-            assert isinstance(logits, tuple)
-            loss = parallel_classification_cross_entropy(logits, labels)
-    else:
-        batch = collate([item.example for item in items]).to(device)
-        labels = pack_classification_labels(items).to(device)
-        with amp_ctx:
-            logits = model(
-                batch.input_ids,
-                batch.lengths,
-                token_type_ids=batch.token_type_ids,
-                position_ids=batch.position_ids,
-            )
-            assert isinstance(logits, tuple)
-            loss = parallel_classification_cross_entropy(logits, labels)
+    non_blocking: bool = False,
+) -> torch.Tensor:
+    """Transfer one `_PreparedMicroBatch` to `device` and compute its scalar loss under `amp_ctx`."""
+    batch = mb.batch.to(device, non_blocking=non_blocking)
+    labels = mb.labels.to(device, non_blocking=non_blocking)
+    lengths = batch.lengths if mb.pass_lengths else None
+    with amp_ctx:
+        out = model(
+            batch.input_ids,
+            lengths,
+            token_type_ids=batch.token_type_ids,
+            position_ids=batch.position_ids,
+        )
+        if isinstance(model.head, SubspaceLMHead):
+            assert isinstance(out, torch.Tensor)
+            return next_token_cross_entropy(out, labels)
+        assert isinstance(out, tuple)
+        return parallel_classification_cross_entropy(out, labels)
 
-    supervised_targets = int((labels != IGNORE_INDEX).sum().item())
-    return loss, supervised_targets
+
+def _run_prepared_step(
+    model: Transformer,
+    optimizer: torch.optim.Optimizer,
+    micro_batches: Sequence[_PreparedMicroBatch],
+    total_targets: int,
+    *,
+    resolved_dtype: torch.dtype = torch.float32,
+    max_grad_norm: float | None = None,
+    non_blocking: bool = False,
+) -> tuple[float, int]:
+    """Run forward/backward/clip/step on pre-collated `micro_batches` and return `(step_loss, total_targets)`."""
+    model.train()
+    optimizer.zero_grad()
+    device = model.device
+    amp_ctx: contextlib.AbstractContextManager[Any] = (
+        contextlib.nullcontext()
+        if resolved_dtype == torch.float32
+        else torch.autocast(device_type=device.type, dtype=torch.bfloat16)
+    )
+
+    if len(micro_batches) == 1:
+        loss = _forward_prepared_micro_batch(
+            model,
+            micro_batches[0],
+            device=device,
+            amp_ctx=amp_ctx,
+            non_blocking=non_blocking,
+        )
+        loss.backward()
+        step_loss = loss.item()
+    else:
+        grad_accum_steps = len(micro_batches)
+        step_loss = 0.0
+        for mb in micro_batches:
+            micro_loss = _forward_prepared_micro_batch(
+                model,
+                mb,
+                device=device,
+                amp_ctx=amp_ctx,
+                non_blocking=non_blocking,
+            )
+            # Weight each micro-batch by its share of supervised targets so
+            # variable-length sequences produce the exact same mean loss and
+            # gradient as `grad_accum_steps = 1`.
+            weight = (
+                (mb.supervised_targets / total_targets)
+                if total_targets > 0
+                else (1.0 / grad_accum_steps)
+            )
+            if mb.supervised_targets > 0 or total_targets == 0:
+                (micro_loss * weight).backward()
+                step_loss += micro_loss.item() * weight
+
+    if max_grad_norm is not None:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
+    optimizer.step()
+    return step_loss, total_targets
 
 
 def _train_step_with_tokens(
@@ -461,48 +551,121 @@ def _train_step_with_tokens(
         grad_accum_steps=grad_accum_steps,
         max_grad_norm=max_grad_norm,
     )
-
-    model.train()
-    optimizer.zero_grad()
-    device = model.device
-    amp_ctx: contextlib.AbstractContextManager[Any] = (
-        contextlib.nullcontext()
-        if resolved_dtype == torch.float32
-        else torch.autocast(device_type=device.type, dtype=torch.bfloat16)
+    micro_batches, total_targets = _prepare_step_batches(
+        items,
+        is_subspace_lm=isinstance(model.head, SubspaceLMHead),
+        grad_accum_steps=grad_accum_steps,
+    )
+    return _run_prepared_step(
+        model,
+        optimizer,
+        micro_batches,
+        total_targets,
+        resolved_dtype=resolved_dtype,
+        max_grad_norm=max_grad_norm,
     )
 
-    if grad_accum_steps == 1:
-        loss, supervised_targets = _forward_micro_batch(
-            model, items, device=device, amp_ctx=amp_ctx
-        )
-        loss.backward()
-        step_loss = loss.item()
-    else:
-        micro_size = len(items) // grad_accum_steps
-        total_targets = _count_item_targets(items)
-        step_loss = 0.0
-        for start in range(0, len(items), micro_size):
-            micro_items = items[start : start + micro_size]
-            micro_loss, micro_targets = _forward_micro_batch(
-                model, micro_items, device=device, amp_ctx=amp_ctx
-            )
-            # Weight each micro-batch by its share of supervised targets so
-            # variable-length sequences produce the exact same mean loss and
-            # gradient as `grad_accum_steps = 1`.
-            weight = (
-                (micro_targets / total_targets)
-                if total_targets > 0
-                else (1.0 / grad_accum_steps)
-            )
-            if micro_targets > 0 or total_targets == 0:
-                (micro_loss * weight).backward()
-                step_loss += micro_loss.item() * weight
-        supervised_targets = total_targets
 
-    if max_grad_norm is not None:
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
-    optimizer.step()
-    return step_loss, supervised_targets
+def _slice_step_items(
+    stream: Iterator[LabelledExample], batch_size: int
+) -> list[LabelledExample]:
+    """Pull `batch_size` examples from `stream`, raising `ValueError` on early exhaustion."""
+    items = list(itertools.islice(stream, batch_size))
+    if len(items) < batch_size:
+        raise ValueError(
+            f"dataset exhausted early: needed {batch_size} examples, got {len(items)}"
+        )
+    return items
+
+
+@contextlib.contextmanager
+def _prepared_step_stream(
+    stream: Iterator[LabelledExample],
+    *,
+    max_steps: int,
+    batch_size: int,
+    is_subspace_lm: bool,
+    grad_accum_steps: int,
+    use_prefetch: bool,
+    pin_memory: bool,
+) -> Generator[Iterator[tuple[tuple[_PreparedMicroBatch, ...], int]]]:
+    """Yield an iterator of `max_steps` CPU-collated step batches, optionally prefetched on one background thread.
+
+    Why a single background thread rather than multi-process workers:
+    A single producer thread consumes the exact same `stream = iter(dataset)` in
+    strict sequential order (stopping after `max_steps` batches so chunked `train()`
+    calls resume at the exact next example), preserving 100% deterministic RNG order
+    while overlapping Python generation + collation + memory pinning with CUDA
+    kernels (which release the GIL).
+    """
+    if not use_prefetch:
+        yield (
+            _prepare_step_batches(
+                _slice_step_items(stream, batch_size),
+                is_subspace_lm=is_subspace_lm,
+                grad_accum_steps=grad_accum_steps,
+                pin_memory=pin_memory,
+            )
+            for _ in range(max_steps)
+        )
+        return
+
+    out_queue: queue.Queue[
+        tuple[tuple[_PreparedMicroBatch, ...], int] | BaseException
+    ] = queue.Queue(maxsize=_PREFETCH_QUEUE_SIZE)
+    stop_event = threading.Event()
+
+    def _put_or_abort(
+        payload: tuple[tuple[_PreparedMicroBatch, ...], int] | BaseException,
+    ) -> bool:
+        while not stop_event.is_set():
+            try:
+                out_queue.put(payload, timeout=0.02)
+            except queue.Full:
+                continue
+            else:
+                return True
+        return False
+
+    def _producer() -> None:
+        try:
+            for _ in range(max_steps):
+                if stop_event.is_set():
+                    return
+                items = _slice_step_items(stream, batch_size)
+                prepared = _prepare_step_batches(
+                    items,
+                    is_subspace_lm=is_subspace_lm,
+                    grad_accum_steps=grad_accum_steps,
+                    pin_memory=pin_memory,
+                )
+                if not _put_or_abort(prepared):
+                    return
+        except BaseException as exc:  # noqa: BLE001
+            _put_or_abort(exc)
+
+    worker = threading.Thread(
+        target=_producer, name="yessir-batch-prefetch", daemon=True
+    )
+    worker.start()
+
+    def _consumer() -> Iterator[tuple[tuple[_PreparedMicroBatch, ...], int]]:
+        for _ in range(max_steps):
+            payload = out_queue.get()
+            if isinstance(payload, BaseException):
+                raise payload
+            yield payload
+
+    try:
+        yield _consumer()
+    finally:
+        stop_event.set()
+        while worker.is_alive():
+            try:
+                out_queue.get_nowait()
+            except queue.Empty:
+                worker.join(timeout=0.01)
+        worker.join()
 
 
 def train_step(
@@ -561,6 +724,7 @@ def train(
     grad_accum_steps: int = 1,
     max_grad_norm: float | None = None,
     dtype: str | torch.dtype | None = None,
+    prefetch: bool | None = None,
     on_step: Callable[[int, float], None] | None = None,
     on_step_tokens: Callable[[int, float, int], None] | None = None,
 ) -> list[float]:
@@ -572,6 +736,11 @@ def train(
     schedule state. `scheduler.step()` runs after `on_step` / `on_step_tokens` so
     callbacks reading `optimizer.param_groups[0]['lr']` see the exact learning rate
     used on that step.
+
+    When `prefetch` is `None` (default), enables single-thread background batch
+    generation + collation + pinned host memory + `non_blocking=True` transfers
+    automatically on CUDA devices (`model.device.type == 'cuda'`) and runs
+    synchronously on CPU / MPS.
 
     Returns:
         List of per-step scalar training losses of length `max_steps`.
@@ -594,7 +763,8 @@ def train(
         max_grad_norm=max_grad_norm,
     )
 
-    resolved_dtype = resolve_dtype(model.device, dtype)
+    device = model.device
+    resolved_dtype = resolve_dtype(device, dtype)
     if optimizer is None:
         optimizer = build_optimizer(
             model,
@@ -602,27 +772,37 @@ def train(
             weight_decay=0.0 if weight_decay is None else weight_decay,
         )
     stream = iter(dataset)
+    is_cuda = device.type == "cuda"
+    use_prefetch = is_cuda if prefetch is None else prefetch
+    pin_and_async = is_cuda and use_prefetch
 
     losses: list[float] = []
-    for step_idx in range(1, max_steps + 1):
-        items = list(itertools.islice(stream, batch_size))
-        if len(items) < batch_size:
-            raise ValueError(
-                f"dataset exhausted early: needed {batch_size} examples, got {len(items)}"
+    with _prepared_step_stream(
+        stream,
+        max_steps=max_steps,
+        batch_size=batch_size,
+        is_subspace_lm=isinstance(model.head, SubspaceLMHead),
+        grad_accum_steps=grad_accum_steps,
+        use_prefetch=use_prefetch,
+        pin_memory=pin_and_async,
+    ) as prepared_steps:
+        for step_idx, (micro_batches, total_targets) in enumerate(
+            prepared_steps, start=1
+        ):
+            step_loss, step_tokens = _run_prepared_step(
+                model,
+                optimizer,
+                micro_batches,
+                total_targets,
+                resolved_dtype=resolved_dtype,
+                max_grad_norm=max_grad_norm,
+                non_blocking=pin_and_async,
             )
-        step_loss, step_tokens = _train_step_with_tokens(
-            model,
-            optimizer,
-            items,
-            resolved_dtype=resolved_dtype,
-            grad_accum_steps=grad_accum_steps,
-            max_grad_norm=max_grad_norm,
-        )
-        losses.append(step_loss)
-        if on_step is not None:
-            on_step(step_idx, step_loss)
-        elif on_step_tokens is not None:
-            on_step_tokens(step_idx, step_loss, step_tokens)
-        if scheduler is not None:
-            scheduler.step()
+            losses.append(step_loss)
+            if on_step is not None:
+                on_step(step_idx, step_loss)
+            elif on_step_tokens is not None:
+                on_step_tokens(step_idx, step_loss, step_tokens)
+            if scheduler is not None:
+                scheduler.step()
     return losses

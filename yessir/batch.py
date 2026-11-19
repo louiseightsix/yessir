@@ -34,18 +34,37 @@ class Batch:
     token_type_ids: torch.Tensor | None = None
     position_ids: torch.Tensor | None = None
 
-    def to(self, device: torch.device | str) -> "Batch":
+    def to(self, device: torch.device | str, *, non_blocking: bool = False) -> "Batch":
         """Return a `Batch` with all present tensors on `device`."""
         return Batch(
-            input_ids=self.input_ids.to(device),
-            lengths=self.lengths.to(device),
+            input_ids=self.input_ids.to(device, non_blocking=non_blocking),
+            lengths=self.lengths.to(device, non_blocking=non_blocking),
             token_type_ids=(
-                self.token_type_ids.to(device)
+                self.token_type_ids.to(device, non_blocking=non_blocking)
                 if self.token_type_ids is not None
                 else None
             ),
             position_ids=(
-                self.position_ids.to(device) if self.position_ids is not None else None
+                self.position_ids.to(device, non_blocking=non_blocking)
+                if self.position_ids is not None
+                else None
+            ),
+        )
+
+    def pin_memory(self) -> "Batch":
+        """Return a `Batch` with all present CPU tensors placed in pinned (page-locked) host memory."""
+        return Batch(
+            input_ids=self.input_ids.pin_memory(),
+            lengths=self.lengths.pin_memory(),
+            token_type_ids=(
+                self.token_type_ids.pin_memory()
+                if self.token_type_ids is not None
+                else None
+            ),
+            position_ids=(
+                self.position_ids.pin_memory()
+                if self.position_ids is not None
+                else None
             ),
         )
 
@@ -80,19 +99,25 @@ class LeftPaddedBatch:
     token_type_ids: torch.Tensor | None = None
     position_ids: torch.Tensor | None = None
 
-    def to(self, device: torch.device | str) -> "LeftPaddedBatch":
+    def to(
+        self, device: torch.device | str, *, non_blocking: bool = False
+    ) -> "LeftPaddedBatch":
         """Return a `LeftPaddedBatch` with all present tensors on `device`."""
         return LeftPaddedBatch(
-            input_ids=self.input_ids.to(device),
-            key_padding_mask=self.key_padding_mask.to(device),
-            lengths=self.lengths.to(device),
+            input_ids=self.input_ids.to(device, non_blocking=non_blocking),
+            key_padding_mask=self.key_padding_mask.to(
+                device, non_blocking=non_blocking
+            ),
+            lengths=self.lengths.to(device, non_blocking=non_blocking),
             token_type_ids=(
-                self.token_type_ids.to(device)
+                self.token_type_ids.to(device, non_blocking=non_blocking)
                 if self.token_type_ids is not None
                 else None
             ),
             position_ids=(
-                self.position_ids.to(device) if self.position_ids is not None else None
+                self.position_ids.to(device, non_blocking=non_blocking)
+                if self.position_ids is not None
+                else None
             ),
         )
 
