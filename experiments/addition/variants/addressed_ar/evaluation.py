@@ -27,6 +27,7 @@ from yessir.batch import collate, collate_left_padded
 from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 
 # Caps per-chunk KV-cache / teacher-forced token allocation (`chunk_len * max_seq_len <= 65_536`)
 # so default `eval_batch_size = 64` on `B = 2, L = 40` (`911` tokens -> `58,304`) runs
@@ -377,6 +378,7 @@ def evaluate_addressed_ar(
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
     per_base_metrics: dict[int, EvalMetrics] | None = None,
+    dtype: str | torch.dtype | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via KV-cached free-running rollout across `num_problems` `addressed_ar` problems.
 
@@ -393,6 +395,9 @@ def evaluate_addressed_ar(
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
     order = StepOrder(step_order)
     body_len = 4 if use_query_tokens else 2
+
+    device = model.device
+    amp_ctx = autocast_context(device, dtype)
 
     problem_list = list(itertools.islice(problems, num_problems))
     if len(problem_list) < num_problems:
@@ -426,40 +431,40 @@ def evaluate_addressed_ar(
     ]
 
     model.eval()
-    device = model.device
     emitted_per_problem: list[list[int]] = []
 
-    for start in range(0, num_problems, batch_size):
-        outer_end = min(num_problems, start + batch_size)
-        max_total_len = max(
-            prefix_lens_all[i] + max_tokens_all[i] for i in range(start, outer_end)
-        )
-        sub_size = max(
-            1,
-            min(outer_end - start, MAX_EVAL_CHUNK_TOKENS // max(1, max_total_len)),
-        )
-        for sub in range(start, outer_end, sub_size):
-            sub_end = min(outer_end, sub + sub_size)
-            emitted_per_problem.extend(
-                _rollout_addressed_ar_chunk(
-                    model,
-                    problem_list[sub:sub_end],
-                    max_tokens_all[sub:sub_end],
-                    include_alphabet=include_alphabet,
-                    device=device,
-                )
+    with amp_ctx:
+        for start in range(0, num_problems, batch_size):
+            outer_end = min(num_problems, start + batch_size)
+            max_total_len = max(
+                prefix_lens_all[i] + max_tokens_all[i] for i in range(start, outer_end)
             )
+            sub_size = max(
+                1,
+                min(outer_end - start, MAX_EVAL_CHUNK_TOKENS // max(1, max_total_len)),
+            )
+            for sub in range(start, outer_end, sub_size):
+                sub_end = min(outer_end, sub + sub_size)
+                emitted_per_problem.extend(
+                    _rollout_addressed_ar_chunk(
+                        model,
+                        problem_list[sub:sub_end],
+                        max_tokens_all[sub:sub_end],
+                        include_alphabet=include_alphabet,
+                        device=device,
+                    )
+                )
 
-    oracle_ok_counts = _compute_addressed_ar_oracle_counts(
-        model,
-        problem_list,
-        oracle_steps,
-        batch_size=batch_size,
-        step_order=order,
-        use_query_tokens=use_query_tokens,
-        include_alphabet=include_alphabet,
-        device=device,
-    )
+        oracle_ok_counts = _compute_addressed_ar_oracle_counts(
+            model,
+            problem_list,
+            oracle_steps,
+            batch_size=batch_size,
+            step_order=order,
+            use_query_tokens=use_query_tokens,
+            include_alphabet=include_alphabet,
+            device=device,
+        )
 
     evaluated: list[
         tuple[tuple[int, ...], tuple[ColumnStep, ...], tuple[StepPrediction, ...]]

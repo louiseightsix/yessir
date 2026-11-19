@@ -7,6 +7,7 @@ from experiments.addition.variants.ar.inputs import build_ar_example
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 from yessir.vocab import Token, TokenSequence
 
 
@@ -19,6 +20,7 @@ def rollout_ar(
     *,
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
+    dtype: str | torch.dtype | None = None,
 ) -> list[Token]:
     """Run free-running greedy `ar` generation on `(alphabet, a, b)` until `[EOS]` or length cap.
 
@@ -34,21 +36,25 @@ def rollout_ar(
     tokens_per_col = 4 if use_query_tokens else 2
     max_tokens = tokens_per_col * (max(len(a_tokens), len(b_tokens)) + 1) + 1
 
-    model.eval()
     device = model.device
+    amp_ctx = autocast_context(device, dtype)
+    model.eval()
     trace: list[Token] = []
     emitted: list[Token] = []
 
-    for _ in range(max_tokens):
-        example = build_ar_example(alphabet_tokens, a_tokens, b_tokens, trace)
-        batch = collate([example]).to(device)
-        logits = model(batch.input_ids, batch.lengths)
-        if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
-            raise ValueError("rollout_ar requires a Transformer with SubspaceLMHead")
-        next_tok = int(logits[0, -1, :].argmax(dim=-1).item())
-        emitted.append(next_tok)
-        if next_tok == SpecialToken.EOS:
-            break
-        trace.append(next_tok)
+    with amp_ctx:
+        for _ in range(max_tokens):
+            example = build_ar_example(alphabet_tokens, a_tokens, b_tokens, trace)
+            batch = collate([example]).to(device)
+            logits = model(batch.input_ids, batch.lengths)
+            if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+                raise ValueError(
+                    "rollout_ar requires a Transformer with SubspaceLMHead"
+                )
+            next_tok = int(logits[0, -1, :].argmax(dim=-1).item())
+            emitted.append(next_tok)
+            if next_tok == SpecialToken.EOS:
+                break
+            trace.append(next_tok)
 
     return emitted

@@ -13,7 +13,14 @@ from yessir.dataset import LabelledExample
 from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
-from yessir.training import build_optimizer, resolve_device, seed_everything, train
+from yessir.training import (
+    build_optimizer,
+    dtype_name,
+    resolve_device,
+    resolve_dtype,
+    seed_everything,
+    train,
+)
 
 
 def train_and_evaluate(
@@ -27,9 +34,12 @@ def train_and_evaluate(
     eval_dataset: Iterable[LabelledExample],
     evaluate_fn: Callable[..., EvalMetrics],
     device: str | torch.device | None = None,
+    dtype: str | torch.dtype | None = None,
 ) -> dict[str, Any]:
     """Run training, periodic/final evaluation, and artefact logging for one `sir_yes_sir` variant."""
     resolved_device = resolve_device(device)
+    resolved_dtype = resolve_dtype(resolved_device, dtype)
+    resolved_dtype_name = dtype_name(resolved_dtype)
     tag = f"[sir_yes_sir:{variant_name}]"
     dest = str(out_dir) if out_dir is not None else "no-save"
     interval = config.effective_eval_every
@@ -39,7 +49,7 @@ def train_and_evaluate(
         f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
         f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
-        f"device={resolved_device} -> {dest}",
+        f"device={resolved_device}, dtype={resolved_dtype_name} -> {dest}",
         flush=True,
     )
 
@@ -52,6 +62,7 @@ def train_and_evaluate(
             variant_name=variant_name,
             config=config,
             device=str(resolved_device),
+            dtype=resolved_dtype_name,
         )
         train_logger = MetricsLogger(out_dir / "train.jsonl")
         eval_logger = MetricsLogger(out_dir / "eval.jsonl")
@@ -103,6 +114,7 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=config.batch_size,
             optimizer=optimizer,
+            dtype=resolved_dtype,
             on_step_tokens=_make_on_step(completed_steps),
         )
         completed_steps += chunk_steps
@@ -112,6 +124,7 @@ def train_and_evaluate(
             eval_dataset,
             num_problems=config.num_eval_problems,
             batch_size=config.eval_batch_size,
+            dtype=resolved_dtype,
         )
         eval_results = {
             "exact_match": metrics.exact_match,

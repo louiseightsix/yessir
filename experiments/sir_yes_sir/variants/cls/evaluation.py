@@ -12,6 +12,7 @@ from yessir.dataset import IGNORE_INDEX, LabelledExample
 from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 
 
 def _validate_cls_item(item: LabelledExample) -> list[tuple[int, int]]:
@@ -218,6 +219,7 @@ def evaluate_cls(
     *,
     num_problems: int,
     batch_size: int = 64,
+    dtype: str | torch.dtype | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via batched free-running rollout on `num_problems` problems from `dataset`.
 
@@ -232,6 +234,9 @@ def evaluate_cls(
         raise ValueError(f"num_problems must be >= 1, got {num_problems}")
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+
+    device = model.device
+    amp_ctx = autocast_context(device, dtype)
 
     items = list(itertools.islice(dataset, num_problems))
     if len(items) < num_problems:
@@ -254,7 +259,6 @@ def evaluate_cls(
         max_steps_all.append(n_steps)
 
     model.eval()
-    device = model.device
     em_count = 0
     total_steps = 0
     step_ok_count = 0
@@ -262,38 +266,42 @@ def evaluate_cls(
     wrap_steps = 0
     wrap_ok_count = 0
 
-    for start in range(0, num_problems, batch_size):
-        emitted_chunk = _rollout_cls_chunk(
-            model,
-            prefixes[start : start + batch_size],
-            max_steps_all[start : start + batch_size],
-            device=device,
-        )
-        targets_chunk = targets_per_problem[start : start + batch_size]
-        ax_chunk = problems_ax[start : start + batch_size]
-
-        for emitted_steps, target_steps, (alphabet, x) in zip(
-            emitted_chunk, targets_chunk, ax_chunk, strict=True
-        ):
-            n_steps = len(target_steps)
-            total_steps += n_steps
-            last_sym = alphabet[-1]
-            for k in range(n_steps):
-                is_wrap = x[k] == last_sym
-                if is_wrap:
-                    wrap_steps += 1
-                if k < len(emitted_steps) and emitted_steps[k][0] == target_steps[k][0]:
-                    step_ok_count += 1
-                    if is_wrap:
-                        wrap_ok_count += 1
-
-            halt_ok = (len(emitted_steps) == n_steps) and all(
-                emitted_steps[k][1] == target_steps[k][1] for k in range(n_steps)
+    with amp_ctx:
+        for start in range(0, num_problems, batch_size):
+            emitted_chunk = _rollout_cls_chunk(
+                model,
+                prefixes[start : start + batch_size],
+                max_steps_all[start : start + batch_size],
+                device=device,
             )
-            if halt_ok:
-                halt_ok_count += 1
-            if emitted_steps == target_steps:
-                em_count += 1
+            targets_chunk = targets_per_problem[start : start + batch_size]
+            ax_chunk = problems_ax[start : start + batch_size]
+
+            for emitted_steps, target_steps, (alphabet, x) in zip(
+                emitted_chunk, targets_chunk, ax_chunk, strict=True
+            ):
+                n_steps = len(target_steps)
+                total_steps += n_steps
+                last_sym = alphabet[-1]
+                for k in range(n_steps):
+                    is_wrap = x[k] == last_sym
+                    if is_wrap:
+                        wrap_steps += 1
+                    if (
+                        k < len(emitted_steps)
+                        and emitted_steps[k][0] == target_steps[k][0]
+                    ):
+                        step_ok_count += 1
+                        if is_wrap:
+                            wrap_ok_count += 1
+
+                halt_ok = (len(emitted_steps) == n_steps) and all(
+                    emitted_steps[k][1] == target_steps[k][1] for k in range(n_steps)
+                )
+                if halt_ok:
+                    halt_ok_count += 1
+                if emitted_steps == target_steps:
+                    em_count += 1
 
     return EvalMetrics(
         exact_match=em_count / num_problems,

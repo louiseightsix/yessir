@@ -17,6 +17,7 @@ def run_addition_step_ar(
     out_dir: Path | None = None,
     *,
     device: str = "auto",
+    dtype: str = "auto",
 ) -> dict[str, Any]:
     """Train and evaluate the `step_ar` variant of `addition` according to `config`."""
     train_dataset = AdditionStepArDataset(
@@ -47,6 +48,7 @@ def run_addition_step_ar(
         train_dataset=train_dataset,
         evaluate_fn=evaluate_fn,
         device=device,
+        dtype=dtype,
     )
 
 

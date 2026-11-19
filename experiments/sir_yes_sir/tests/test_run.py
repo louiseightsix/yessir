@@ -70,6 +70,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
     assert config_payload["experiment"] == "sir_yes_sir"
     assert config_payload["variant"] == "cls"
     assert config_payload["device"] in ("cpu", "mps", "cuda")
+    assert config_payload["dtype"] in ("float32", "bfloat16")
     assert "git_commit_sha" in config_payload
     loaded_cfg = SirYesSirClsConfig.from_dict(config_payload["config"])
     assert loaded_cfg.max_steps == 2
@@ -90,7 +91,7 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
 
     out = capsys.readouterr().out
     assert "[sir_yes_sir:cls] Starting run: B=4, L=3" in out
-    assert f"device={config_payload['device']}" in out
+    assert f"device={config_payload['device']}, dtype={config_payload['dtype']}" in out
     assert "[sir_yes_sir:cls] step=1/2 loss=" in out
     assert "[sir_yes_sir:cls] step=2/2 loss=" in out
     assert "[sir_yes_sir:cls] eval (4 problems):" in out
@@ -135,10 +136,70 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     assert config_payload["experiment"] == "sir_yes_sir"
     assert config_payload["variant"] == "ar"
     assert config_payload["device"] in ("cpu", "mps", "cuda")
+    assert config_payload["dtype"] in ("float32", "bfloat16")
     loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
     assert loaded_cfg.max_steps == 2
     out = capsys.readouterr().out
     assert "[sir_yes_sir:ar] Starting run:" in out
+    assert f"dtype={config_payload['dtype']}" in out
+
+
+def test_sir_yes_sir_dtype_flag_float32_and_unsupported_bf16_on_cpu(
+    tmp_path: Path,
+):
+    fp32_dir = tmp_path / "cpu_fp32"
+    run_experiments_cli(
+        EXPERIMENTS,
+        [
+            "sir_yes_sir",
+            "ar",
+            "--device",
+            "cpu",
+            "--dtype",
+            "float32",
+            "--out-dir",
+            str(fp32_dir),
+            "--max-steps",
+            "1",
+            "--batch-size",
+            "2",
+            "--num-eval-problems",
+            "2",
+            "--n-layers",
+            "1",
+            "--n-heads",
+            "4",
+            "--d-ff",
+            "32",
+            "--d-scratch",
+            "0",
+        ],
+    )
+    cfg = json.loads((fp32_dir / "config.json").read_text())
+    assert cfg["device"] == "cpu"
+    assert cfg["dtype"] == "float32"
+
+    bf16_dir = tmp_path / "cpu_bf16_rejected"
+    with pytest.raises(
+        ValueError,
+        match="device 'cpu' does not have hardware bfloat16 support",
+    ):
+        run_experiments_cli(
+            EXPERIMENTS,
+            [
+                "sir_yes_sir",
+                "ar",
+                "--device",
+                "cpu",
+                "--dtype",
+                "bfloat16",
+                "--out-dir",
+                str(bf16_dir),
+                "--max-steps",
+                "1",
+            ],
+        )
+    assert not bf16_dir.exists()
 
 
 @pytest.mark.parametrize(

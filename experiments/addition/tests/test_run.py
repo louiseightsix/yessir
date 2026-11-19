@@ -121,6 +121,8 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     config_payload = json.loads(config_file.read_text())
     assert config_payload["experiment"] == "addition"
     assert config_payload["variant"] == "cls"
+    assert config_payload["device"] in ("cpu", "mps", "cuda")
+    assert config_payload["dtype"] in ("float32", "bfloat16")
     loaded_cfg = AdditionClsConfig.from_dict(config_payload["config"])
     assert loaded_cfg.max_steps == 5
     assert loaded_cfg.log_every == 2
@@ -174,6 +176,7 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
 
     out = capsys.readouterr().out
     assert "[addition:cls] Starting run:" in out
+    assert f"device={config_payload['device']}, dtype={config_payload['dtype']}" in out
     assert "[addition:cls] step=1/5 loss=" in out
     assert "[addition:cls] step=3/5" not in out
     assert "[addition:cls] step=5/5 loss=" in out
@@ -591,3 +594,29 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
     assert eval_rows[-1]["splits"] == json.loads(
         (periodic_dir / "eval_splits.json").read_text()
     )
+
+
+def test_addition_dtype_flag_rejects_unsupported_bf16_on_cpu_before_writing(
+    tmp_path: Path,
+):
+    bf16_dir = tmp_path / "cpu_bf16_rejected"
+    with pytest.raises(
+        ValueError,
+        match="device 'cpu' does not have hardware bfloat16 support",
+    ):
+        run_experiments_cli(
+            EXPERIMENTS,
+            [
+                "addition",
+                "ar",
+                "--device",
+                "cpu",
+                "--dtype",
+                "bfloat16",
+                "--out-dir",
+                str(bf16_dir),
+                "--max-steps",
+                "1",
+            ],
+        )
+    assert not bf16_dir.exists()

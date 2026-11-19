@@ -174,6 +174,7 @@ def build_custom_job_spec(
     run_name: str,
     git_commit_sha: str,
     device: str = "auto",
+    dtype: str = "auto",
 ) -> dict[str, Any]:
     """Build the Vertex AI `CustomJobSpec` payload (`workerPoolSpecs`) for `gcloud ai custom-jobs create`.
 
@@ -214,6 +215,8 @@ def build_custom_job_spec(
                         _CONTAINER_LOCAL_OUT_DIR,
                         "--device",
                         device,
+                        "--dtype",
+                        dtype,
                     ],
                 },
             }
@@ -360,10 +363,11 @@ def cmd_build_image(
 
 
 _VERTEX_DEVICES = ("auto", "cpu", "cuda")
+_VERTEX_DTYPES = ("auto", "float32", "bfloat16")
 
 
 def _check_no_disallowed_submit_flags(exp_argv: Sequence[str]) -> None:
-    """Reject `--out-dir`, `--no-save`, and unsupported `--device` values on `vertex submit`."""
+    """Reject `--out-dir`, `--no-save`, and unsupported `--device` / `--dtype` values on `vertex submit`."""
     for idx, token in enumerate(exp_argv):
         if token == "--no-save":
             raise ValueError("Cannot submit a Vertex job with --no-save")
@@ -381,6 +385,16 @@ def _check_no_disallowed_submit_flags(exp_argv: Sequence[str]) -> None:
             choices = ", ".join(repr(d) for d in _VERTEX_DEVICES)
             raise ValueError(
                 f"Unsupported --device {device_val!r} for `vertex submit`; expected one of {choices}"
+            )
+        dtype_val: str | None = None
+        if token == "--dtype" and idx + 1 < len(exp_argv):
+            dtype_val = exp_argv[idx + 1]
+        elif token.startswith("--dtype="):
+            dtype_val = token.split("=", 1)[1]
+        if dtype_val is not None and dtype_val.strip().lower() not in _VERTEX_DTYPES:
+            choices = ", ".join(repr(d) for d in _VERTEX_DTYPES)
+            raise ValueError(
+                f"Unsupported --dtype {dtype_val!r} for `vertex submit`; expected one of {choices}"
             )
 
 
@@ -487,6 +501,7 @@ def cmd_submit(
         run_name=run_name,
         git_commit_sha=info.commit_sha,
         device=resolved.device,
+        dtype=resolved.dtype,
     )
 
     with tempfile.TemporaryDirectory(prefix="yessir-vertex-stage-") as stage_str:
@@ -497,6 +512,7 @@ def cmd_submit(
             variant_name=resolved.variant.name,
             config=resolved.config,
             device=resolved.device,
+            dtype=resolved.dtype,
             git_info=info,
         )
         _run_checked(

@@ -15,7 +15,14 @@ from yessir.dataset import LabelledExample
 from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger, json_safe
 from yessir.model import Transformer
-from yessir.training import build_optimizer, resolve_device, seed_everything, train
+from yessir.training import (
+    build_optimizer,
+    dtype_name,
+    resolve_device,
+    resolve_dtype,
+    seed_everything,
+    train,
+)
 
 
 class EvaluateProblemsFn(Protocol):
@@ -29,6 +36,7 @@ class EvaluateProblemsFn(Protocol):
         num_problems: int,
         batch_size: int = 64,
         per_base_metrics: dict[int, EvalMetrics] | None = None,
+        dtype: str | torch.dtype | None = None,
     ) -> EvalMetrics: ...
 
 
@@ -58,6 +66,7 @@ def train_and_evaluate(
     train_batch_size: int | None = None,
     include_alphabet: bool = True,
     device: str | torch.device | None = None,
+    dtype: str | torch.dtype | None = None,
 ) -> dict[str, Any]:
     """Train one `Transformer` and evaluate it periodically and at `max_steps` across `config.eval_splits()`.
 
@@ -78,6 +87,8 @@ def train_and_evaluate(
       split name (plus `{split}_base{b}` per-base slices for multi-base splits).
     """
     resolved_device = resolve_device(device)
+    resolved_dtype = resolve_dtype(resolved_device, dtype)
+    resolved_dtype_name = dtype_name(resolved_dtype)
     tag = f"[addition:{variant_name}]"
     dest = str(out_dir) if out_dir is not None else "no-save"
     interval = config.effective_eval_every
@@ -87,7 +98,7 @@ def train_and_evaluate(
         f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
         f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
-        f"device={resolved_device} -> {dest}",
+        f"device={resolved_device}, dtype={resolved_dtype_name} -> {dest}",
         flush=True,
     )
 
@@ -100,6 +111,7 @@ def train_and_evaluate(
             variant_name=variant_name,
             config=config,
             device=str(resolved_device),
+            dtype=resolved_dtype_name,
         )
         train_logger = MetricsLogger(out_dir / "train.jsonl")
         eval_logger = MetricsLogger(out_dir / "eval.jsonl")
@@ -163,6 +175,7 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=effective_batch_size,
             optimizer=optimizer,
+            dtype=resolved_dtype,
             on_step_tokens=_make_on_step(completed_steps),
         )
         completed_steps += chunk_steps
@@ -191,6 +204,7 @@ def train_and_evaluate(
                     num_problems=config.num_eval_problems,
                     batch_size=config.eval_batch_size,
                     per_base_metrics=per_base,
+                    dtype=resolved_dtype,
                 )
             else:
                 metrics = evaluate_fn(
@@ -198,6 +212,7 @@ def train_and_evaluate(
                     problems,
                     num_problems=config.num_eval_problems,
                     batch_size=config.eval_batch_size,
+                    dtype=resolved_dtype,
                 )
             eval_results[f"{split.prefix}exact_match"] = metrics.exact_match
             eval_results[f"{split.prefix}step_accuracy"] = metrics.step_accuracy

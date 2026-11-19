@@ -17,6 +17,7 @@ def run_addition_step_fork(
     out_dir: Path | None = None,
     *,
     device: str = "auto",
+    dtype: str = "auto",
 ) -> dict[str, Any]:
     """Train and evaluate the `step_fork` variant of `addition` according to `config`.
 
@@ -46,6 +47,7 @@ def run_addition_step_fork(
         evaluate_fn=evaluate_fn,
         train_batch_size=AdditionStepForkDataset.BRANCHES_PER_STEP * config.batch_size,
         device=device,
+        dtype=dtype,
     )
 
 

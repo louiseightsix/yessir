@@ -248,13 +248,13 @@ def test_variant_switching_preserves_shared_values_and_swaps_schema():
         name="cls",
         description="Parallel classification.",
         config_cls=_SmallConfig,
-        run=lambda cfg, out=None, *, device="auto": {},
+        run=lambda cfg, out=None, *, device="auto", dtype="auto": {},
     )
     v_b = ExperimentVariant(
         name="ar",
         description="Autoregressive generation.",
         config_cls=_VariantBConfig,
-        run=lambda cfg, out=None, *, device="auto": {},
+        run=lambda cfg, out=None, *, device="auto", dtype="auto": {},
     )
 
     state = ConfigEditorState(

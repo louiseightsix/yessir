@@ -113,10 +113,11 @@ def write_config_json(
     variant_name: str,
     config: ExperimentConfig,
     device: str,
+    dtype: str = "auto",
     git_info: GitInfo | None = None,
     started_at: str | None = None,
 ) -> Path:
-    """Write experiment/variant names, device, start time, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`.
+    """Write experiment/variant names, device, dtype, start time, git provenance, and `config.to_dict()` to `out_dir / 'config.json'`.
 
     `started_at` is when the run started, as UTC ISO 8601 (`2026-11-17T15:55:13.123456Z`, the same
     format as `submitted_at` in `vertex.json`); it defaults to now. Together with `elapsed_sec` in
@@ -133,6 +134,7 @@ def write_config_json(
         "experiment": experiment_name,
         "variant": variant_name,
         "device": device,
+        "dtype": dtype,
         "started_at": started_at,
         "git_commit_sha": info.commit_sha,
         "git_short_sha": info.short_sha,

@@ -43,9 +43,18 @@ class _SampleConfig(ExperimentConfig):
 
 def _make_sample_experiment() -> Experiment:
     def _noop_run(
-        cfg: _SampleConfig, out_dir: Path | None = None, *, device: str = "auto"
+        cfg: _SampleConfig,
+        out_dir: Path | None = None,
+        *,
+        device: str = "auto",
+        dtype: str = "auto",
     ) -> dict[str, Any]:
-        return {"max_steps": cfg.max_steps, "out_dir": str(out_dir), "device": device}
+        return {
+            "max_steps": cfg.max_steps,
+            "out_dir": str(out_dir),
+            "device": device,
+            "dtype": dtype,
+        }
 
     return Experiment(
         name="sir_yes_sir",
@@ -180,6 +189,8 @@ def test_build_custom_job_spec_writes_locally_and_syncs_to_gcs():
         "/workspace/output",
         "--device",
         "auto",
+        "--dtype",
+        "auto",
     ]
     assert "scheduling" not in spec
 
@@ -313,6 +324,8 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
             "0.005",
             "--device",
             "cuda",
+            "--dtype",
+            "bfloat16",
         ],
         settings=settings,
         results_root=tmp_path,
@@ -344,11 +357,14 @@ def test_cmd_submit_writes_local_config_and_vertex_json(
 
     saved_cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     assert saved_cfg["device"] == "cuda"
+    assert saved_cfg["dtype"] == "bfloat16"
     assert saved_cfg["config"] == {"max_steps": 42, "lr": 0.005}
     assert saved_cfg["git_commit_sha"] == fake_git.commit_sha
-    assert submitted_specs[0]["workerPoolSpecs"][0]["containerSpec"]["args"][-2:] == [
+    assert submitted_specs[0]["workerPoolSpecs"][0]["containerSpec"]["args"][-4:] == [
         "--device",
         "cuda",
+        "--dtype",
+        "bfloat16",
     ]
 
     loaded_rec = read_vertex_json(run_dir)
@@ -506,6 +522,18 @@ def test_cmd_submit_rejects_out_dir_and_no_save(tmp_path: Path):
             cmd_submit(
                 [exp],
                 ["sir_yes_sir", "cls", "--max-steps", "10", *bad_device],
+                settings=settings,
+                results_root=tmp_path,
+                interactive=False,
+            )
+    for bad_dtype in (["--dtype", "fp16"], ["--dtype=float16"]):
+        with pytest.raises(
+            ValueError,
+            match="Unsupported --dtype .* for `vertex submit`; expected one of 'auto', 'float32', 'bfloat16'",
+        ):
+            cmd_submit(
+                [exp],
+                ["sir_yes_sir", "cls", "--max-steps", "10", *bad_dtype],
                 settings=settings,
                 results_root=tmp_path,
                 interactive=False,

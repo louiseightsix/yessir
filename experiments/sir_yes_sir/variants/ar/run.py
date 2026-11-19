@@ -19,6 +19,7 @@ def run_sir_yes_sir_ar(
     out_dir: Path | None = None,
     *,
     device: str | None = None,
+    dtype: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the pure-LM `ar` variant of `sir_yes_sir` according to `config`."""
     train_dataset = SirYesSirArDataset(
@@ -44,6 +45,7 @@ def run_sir_yes_sir_ar(
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_ar,
         device=device,
+        dtype=dtype,
     )
 
 

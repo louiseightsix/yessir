@@ -17,6 +17,7 @@ def run_addition_ar(
     out_dir: Path | None = None,
     *,
     device: str = "auto",
+    dtype: str = "auto",
 ) -> dict[str, Any]:
     """Train and evaluate the full-trace `ar` variant of `addition` according to `config`."""
     train_dataset = AdditionArDataset(
@@ -43,6 +44,7 @@ def run_addition_ar(
         train_dataset=train_dataset,
         evaluate_fn=evaluate_fn,
         device=device,
+        dtype=dtype,
     )
 
 
