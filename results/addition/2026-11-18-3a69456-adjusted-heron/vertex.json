@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/us-central1/customJobs/1767211306651222016",
+  "job_id": "1767211306651222016",
+  "display_name": "addition-2026-11-18-3a69456-adjusted-heron",
+  "project": "north-shore-software-ca",
+  "region": "us-central1",
+  "experiment": "addition",
+  "variant": "step_ar",
+  "run_name": "2026-11-18-3a69456-adjusted-heron",
+  "git_commit_sha": "3a694568dc0229b435b5084f30ead0afd1dbf007",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://yessir-results-us/results/addition/2026-11-18-3a69456-adjusted-heron",
+  "machine_type": "a2-highgpu-1g",
+  "accelerator_type": "NVIDIA_TESLA_A100",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-19T06:13:31.646755Z",
+  "scheduling": "standard"
+}
