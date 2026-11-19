@@ -1,0 +1,67 @@
+{
+  "id": {
+    "exact_match": 1.0,
+    "step_accuracy": 1.0,
+    "oracle_step_accuracy": 1.0,
+    "digit_accuracy": 1.0,
+    "carry_accuracy": 1.0,
+    "halt_accuracy": 1.0,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.0,
+    "syntax_malformation": 0.0
+  },
+  "ood_base3": {
+    "exact_match": 0.0,
+    "step_accuracy": 0.03610794374762448,
+    "oracle_step_accuracy": 0.07183580387685291,
+    "digit_accuracy": 0.09654123907259597,
+    "carry_accuracy": 0.05500450856627592,
+    "halt_accuracy": 0.015,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.495,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.41,
+    "syntax_malformation": 0.095
+  },
+  "ood_base12": {
+    "exact_match": 0.03,
+    "step_accuracy": 0.55650876538605,
+    "oracle_step_accuracy": 0.5826184259604625,
+    "digit_accuracy": 0.5580007459903021,
+    "carry_accuracy": 0.3951946975973488,
+    "halt_accuracy": 0.945,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.97,
+    "syntax_malformation": 0.0
+  },
+  "extrap_len": {
+    "exact_match": 0.015,
+    "step_accuracy": 0.15492749334122521,
+    "oracle_step_accuracy": 0.17460787215152412,
+    "digit_accuracy": 0.19680378810298904,
+    "carry_accuracy": 0.19571045576407506,
+    "halt_accuracy": 0.025,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.315,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.67,
+    "syntax_malformation": 0.0
+  },
+  "permuted": {
+    "exact_match": 1.0,
+    "step_accuracy": 1.0,
+    "oracle_step_accuracy": 1.0,
+    "digit_accuracy": 1.0,
+    "carry_accuracy": 1.0,
+    "halt_accuracy": 1.0,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.0,
+    "syntax_malformation": 0.0
+  }
+}

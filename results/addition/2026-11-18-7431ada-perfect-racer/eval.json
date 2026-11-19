@@ -1,0 +1,12 @@
+{
+  "exact_match": 0.79,
+  "step_accuracy": 0.9778650481970724,
+  "ood_base3_exact_match": 0.065,
+  "ood_base3_step_accuracy": 0.40364880273660203,
+  "ood_base12_exact_match": 0.025,
+  "ood_base12_step_accuracy": 0.30436404326743755,
+  "extrap_len_exact_match": 0.0,
+  "extrap_len_step_accuracy": 0.053061224489795916,
+  "permuted_exact_match": 0.725,
+  "permuted_step_accuracy": 0.9665375132088764
+}
