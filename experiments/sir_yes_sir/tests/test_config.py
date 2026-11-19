@@ -38,6 +38,7 @@ def test_default_config_is_valid():
     assert ar_cfg.warmup_steps == 50
     assert ar_cfg.min_lr_ratio == 0.1
     assert ar_cfg.max_grad_norm == 1.0
+    assert ar_cfg.log_every == 10
     assert ar_cfg.eval_every is None
     assert ar_cfg.effective_eval_every == 50
     assert (
@@ -191,6 +192,8 @@ def test_model_and_training_bounds():
         with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
             SirYesSirConfig(max_grad_norm=bad_norm)
     assert SirYesSirConfig(weight_decay=0.0, max_grad_norm=None).max_grad_norm is None
+    with pytest.raises(ValueError, match="log_every must be >= 1"):
+        SirYesSirConfig(log_every=0)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
         SirYesSirConfig(eval_every=-1)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):

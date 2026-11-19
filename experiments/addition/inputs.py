@@ -539,8 +539,8 @@ def iter_problem_steps(
     (`batch_size` distinct alphabets/operand pairs per optimiser step). When
     `all_steps=True`, all `K + 1` column steps of each problem are yielded
     consecutively (`k = 0 .. K`), so at fixed `batch_size` each optimiser step
-    sees only `~batch_size / E[K + 1]` distinct problems (`~4.5` on `L = 1..20`
-    at `batch_size = 64`), correlates consecutive batch rows on the same prompt
+    sees only `~batch_size / E[K + 1]` distinct problems (`~18` on `L = 1..20`
+    at `batch_size = 256`), correlates consecutive batch rows on the same prompt
     prefix, and ignores `p_terminal` (`FLAG_FINISHED` appears once per `K + 1`
     steps).
     """

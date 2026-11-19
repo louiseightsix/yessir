@@ -98,21 +98,26 @@ def train_and_evaluate(
             nonlocal tokens_seen
             tokens_seen += step_tokens
             global_step = step_offset + local_step
-            current_lr = float(optimizer.param_groups[0]["lr"])
-            if train_logger is not None:
-                train_logger.log(
-                    global_step,
-                    {
-                        "loss": step_loss,
-                        "lr": current_lr,
-                        "tokens_seen": tokens_seen,
-                    },
+            if (
+                global_step == 1
+                or global_step % config.log_every == 0
+                or global_step == config.max_steps
+            ):
+                current_lr = float(optimizer.param_groups[0]["lr"])
+                if train_logger is not None:
+                    train_logger.log(
+                        global_step,
+                        {
+                            "loss": step_loss,
+                            "lr": current_lr,
+                            "tokens_seen": tokens_seen,
+                        },
+                    )
+                print(
+                    f"{tag} step={global_step}/{config.max_steps} "
+                    f"loss={step_loss:.4f} lr={current_lr:.2e} tokens={tokens_seen}",
+                    flush=True,
                 )
-            print(
-                f"{tag} step={global_step}/{config.max_steps} "
-                f"loss={step_loss:.4f} lr={current_lr:.2e} tokens={tokens_seen}",
-                flush=True,
-            )
 
         return _on_step
 

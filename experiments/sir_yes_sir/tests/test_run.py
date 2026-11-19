@@ -224,6 +224,8 @@ def test_sir_yes_sir_periodic_eval_every_records_history_without_perturbing_trai
         variant,
         "--max-steps",
         "5",
+        "--log-every",
+        "1",
         "--batch-size",
         "4",
         "--num-eval-problems",

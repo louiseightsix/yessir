@@ -97,6 +97,7 @@ class SirYesSirConfig(ExperimentConfig):
         default=DEFAULT_MAX_GRAD_NORM,
         metadata={"domain": "float > 0 or None", "step": 0.5, "min": 0.1},
     )
+    log_every: int = field(default=10, metadata={"domain": "int >= 1", "step": 10})
     seed: int = field(default=42, metadata={"domain": "int (!= eval_seed)"})
     eval_every: int | None = field(
         default=None,
@@ -184,6 +185,8 @@ class SirYesSirConfig(ExperimentConfig):
             raise ValueError(
                 f"max_grad_norm must be > 0 and finite (or None), got {self.max_grad_norm}"
             )
+        if self.log_every < 1:
+            raise ValueError(f"log_every must be >= 1, got {self.log_every}")
         if self.eval_every is not None and (
             isinstance(self.eval_every, bool)
             or not isinstance(self.eval_every, int)
