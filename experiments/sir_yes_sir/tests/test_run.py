@@ -31,8 +31,6 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
             "--out-dir",
             str(run_dir),
             "--max-steps",
-            "5",
-            "--log-every",
             "2",
             "--batch-size",
             "4",
