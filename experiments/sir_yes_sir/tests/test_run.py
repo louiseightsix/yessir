@@ -31,6 +31,8 @@ def test_dispatch_sir_yes_sir_smoke_run_writes_artefacts(
             "--out-dir",
             str(run_dir),
             "--max-steps",
+            "5",
+            "--log-every",
             "2",
             "--batch-size",
             "4",
@@ -118,6 +120,8 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
             "--out-dir",
             str(run_dir),
             "--max-steps",
+            "5",
+            "--log-every",
             "2",
             "--batch-size",
             "4",
@@ -140,7 +144,13 @@ def test_dispatch_sir_yes_sir_ar_smoke_run_writes_artefacts(
     assert config_payload["device"] in ("cpu", "mps", "cuda")
     assert config_payload["dtype"] in ("float32", "bfloat16")
     loaded_cfg = SirYesSirConfig.from_dict(config_payload["config"])
-    assert loaded_cfg.max_steps == 2
+    assert loaded_cfg.max_steps == 5
+    assert loaded_cfg.log_every == 2
+    train_steps = [
+        json.loads(line)["step"]
+        for line in (run_dir / "train.jsonl").read_text().splitlines()
+    ]
+    assert train_steps == [1, 2, 4, 5]
     out = capsys.readouterr().out
     assert "[sir_yes_sir:ar] Starting run:" in out
     assert f"dtype={config_payload['dtype']}" in out
