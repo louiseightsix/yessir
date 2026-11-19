@@ -1,0 +1,67 @@
+{
+  "id": {
+    "exact_match": 0.005,
+    "step_accuracy": 0.469884025439581,
+    "oracle_step_accuracy": 0.5043022820800599,
+    "digit_accuracy": 0.5129068462401796,
+    "carry_accuracy": 0.0891891891891892,
+    "halt_accuracy": 0.945,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.995,
+    "syntax_malformation": 0.0
+  },
+  "ood_base3": {
+    "exact_match": 0.02,
+    "step_accuracy": 0.43291524135309767,
+    "oracle_step_accuracy": 0.508551881413911,
+    "digit_accuracy": 0.5332573166096541,
+    "carry_accuracy": 0.1776375112714157,
+    "halt_accuracy": 0.95,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.975,
+    "syntax_malformation": 0.005
+  },
+  "ood_base12": {
+    "exact_match": 0.0,
+    "step_accuracy": 0.4039537486012682,
+    "oracle_step_accuracy": 0.44461022006713913,
+    "digit_accuracy": 0.43565833644162627,
+    "carry_accuracy": 0.041425020712510356,
+    "halt_accuracy": 0.955,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.005,
+    "prior_intrusion": 0.0,
+    "procedural_error": 0.995,
+    "syntax_malformation": 0.0
+  },
+  "extrap_len": {
+    "exact_match": 0.0,
+    "step_accuracy": 0.050902633915359576,
+    "oracle_step_accuracy": 0.12755253033441846,
+    "digit_accuracy": 0.0844924533885765,
+    "carry_accuracy": 0.06970509383378017,
+    "halt_accuracy": 0.015,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.0,
+    "procedural_error": 1.0,
+    "syntax_malformation": 0.0
+  },
+  "permuted": {
+    "exact_match": 0.005,
+    "step_accuracy": 0.4815491413956887,
+    "oracle_step_accuracy": 0.514797223237121,
+    "digit_accuracy": 0.5235659481183778,
+    "carry_accuracy": 0.04904632152588556,
+    "halt_accuracy": 0.99,
+    "address_accuracy": null,
+    "out_of_alphabet": 0.0,
+    "prior_intrusion": 0.12,
+    "procedural_error": 0.875,
+    "syntax_malformation": 0.0
+  }
+}
