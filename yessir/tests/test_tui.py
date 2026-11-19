@@ -337,5 +337,22 @@ def test_float_stepping_clamps_probabilities_to_zero_and_one_while_keeping_lr_po
     for _ in range(10):
         state.handle_key("LEFT")
     assert state.values["lr"] == 1e-4
+
+    # weight_decay steps cleanly down to 0.0; max_grad_norm steps down to None and back to 1.0
+    wd_idx = next(i for i, s in enumerate(state.specs) if s.name == "weight_decay")
+    state.cursor = wd_idx
+    for _ in range(5):
+        state.handle_key("LEFT")
+    assert state.values["weight_decay"] == 0.0
+
+    gn_idx = next(i for i, s in enumerate(state.specs) if s.name == "max_grad_norm")
+    state.cursor = gn_idx
+    state.handle_key("LEFT")
+    assert state.values["max_grad_norm"] == 0.5
+    state.handle_key("LEFT")
+    assert state.values["max_grad_norm"] is None
+    state.handle_key("RIGHT")
+    assert state.values["max_grad_norm"] == 1.0
+
     cfg, err = state.validate()
     assert cfg is not None and err is None

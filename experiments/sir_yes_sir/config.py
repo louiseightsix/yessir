@@ -6,7 +6,12 @@ from enum import StrEnum, unique
 
 from experiments.sir_yes_sir.inputs import EmbeddingMode
 from yessir.alphabet import SymbolSetName
-from yessir.defaults import DEFAULT_LR
+from yessir.defaults import (
+    DEFAULT_LR,
+    DEFAULT_MAX_GRAD_NORM,
+    DEFAULT_MIN_LR_RATIO,
+    DEFAULT_WEIGHT_DECAY,
+)
 from yessir.experiment import ExperimentConfig
 from yessir.vocab import MAX_TOKEN_TYPES, VOCAB_SIZE
 
@@ -71,8 +76,26 @@ class SirYesSirConfig(ExperimentConfig):
     # Training & evaluation
     max_steps: int = field(default=1000, metadata={"domain": "int >= 1", "step": 100})
     batch_size: int = field(default=64, metadata={"domain": "int >= 1", "step": 8})
+    grad_accum_steps: int = field(
+        default=1, metadata={"domain": "int >= 1 (divides batch_size)", "min": 1}
+    )
     lr: float = field(
         default=DEFAULT_LR, metadata={"domain": "float > 0", "step": 1e-4}
+    )
+    weight_decay: float = field(
+        default=DEFAULT_WEIGHT_DECAY,
+        metadata={"domain": "float >= 0.0", "step": 0.05, "min": 0.0},
+    )
+    warmup_steps: int = field(
+        default=50, metadata={"domain": "int >= 0", "step": 10, "min": 0}
+    )
+    min_lr_ratio: float = field(
+        default=DEFAULT_MIN_LR_RATIO,
+        metadata={"domain": "float in 0.0..1.0", "step": 0.05, "min": 0.0, "max": 1.0},
+    )
+    max_grad_norm: float | None = field(
+        default=DEFAULT_MAX_GRAD_NORM,
+        metadata={"domain": "float > 0 or None", "step": 0.5, "min": 0.1},
     )
     seed: int = field(default=42, metadata={"domain": "int (!= eval_seed)"})
     eval_every: int | None = field(
@@ -132,8 +155,35 @@ class SirYesSirConfig(ExperimentConfig):
             raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
         if self.batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
+        if self.grad_accum_steps < 1:
+            raise ValueError(
+                f"grad_accum_steps must be >= 1, got {self.grad_accum_steps}"
+            )
+        if self.batch_size % self.grad_accum_steps != 0:
+            raise ValueError(
+                f"batch_size ({self.batch_size}) must be divisible by "
+                f"grad_accum_steps ({self.grad_accum_steps})"
+            )
         if not math.isfinite(self.lr) or self.lr <= 0:
             raise ValueError(f"lr must be > 0 and finite, got {self.lr}")
+        if not math.isfinite(self.weight_decay) or self.weight_decay < 0:
+            raise ValueError(
+                f"weight_decay must be >= 0 and finite, got {self.weight_decay}"
+            )
+        if self.warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {self.warmup_steps}")
+        if not math.isfinite(self.min_lr_ratio) or not (
+            0.0 <= self.min_lr_ratio <= 1.0
+        ):
+            raise ValueError(
+                f"min_lr_ratio must be in 0.0..1.0 and finite, got {self.min_lr_ratio}"
+            )
+        if self.max_grad_norm is not None and (
+            not math.isfinite(self.max_grad_norm) or self.max_grad_norm <= 0
+        ):
+            raise ValueError(
+                f"max_grad_norm must be > 0 and finite (or None), got {self.max_grad_norm}"
+            )
         if self.eval_every is not None and (
             isinstance(self.eval_every, bool)
             or not isinstance(self.eval_every, int)

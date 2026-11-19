@@ -14,6 +14,7 @@ from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger
 from yessir.model import Transformer
 from yessir.training import (
+    build_lr_scheduler,
     build_optimizer,
     dtype_name,
     resolve_device,
@@ -48,7 +49,8 @@ def train_and_evaluate(
         f"{tag} Starting run: B={config.alphabet_size}, L={config.x_length}, "
         f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
-        f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
+        f"batch_size={config.batch_size}, accum={config.grad_accum_steps}, lr={config.lr}, "
+        f"wd={config.weight_decay}, warmup={config.warmup_steps}, seed={config.seed}, "
         f"device={resolved_device}, dtype={resolved_dtype_name} -> {dest}",
         flush=True,
     )
@@ -80,7 +82,13 @@ def train_and_evaluate(
         d_scratch=config.effective_d_scratch,
     ).to(resolved_device)
 
-    optimizer = build_optimizer(model, lr=config.lr)
+    optimizer = build_optimizer(model, lr=config.lr, weight_decay=config.weight_decay)
+    scheduler = build_lr_scheduler(
+        optimizer,
+        max_steps=config.max_steps,
+        warmup_steps=config.warmup_steps,
+        min_lr_ratio=config.min_lr_ratio,
+    )
     train_stream = iter(train_dataset)
 
     tokens_seen = 0
@@ -90,14 +98,19 @@ def train_and_evaluate(
             nonlocal tokens_seen
             tokens_seen += step_tokens
             global_step = step_offset + local_step
+            current_lr = float(optimizer.param_groups[0]["lr"])
             if train_logger is not None:
                 train_logger.log(
                     global_step,
-                    {"loss": step_loss, "tokens_seen": tokens_seen},
+                    {
+                        "loss": step_loss,
+                        "lr": current_lr,
+                        "tokens_seen": tokens_seen,
+                    },
                 )
             print(
                 f"{tag} step={global_step}/{config.max_steps} "
-                f"loss={step_loss:.4f} tokens={tokens_seen}",
+                f"loss={step_loss:.4f} lr={current_lr:.2e} tokens={tokens_seen}",
                 flush=True,
             )
 
@@ -114,6 +127,9 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=config.batch_size,
             optimizer=optimizer,
+            scheduler=scheduler,
+            grad_accum_steps=config.grad_accum_steps,
+            max_grad_norm=config.max_grad_norm,
             dtype=resolved_dtype,
             on_step_tokens=_make_on_step(completed_steps),
         )
