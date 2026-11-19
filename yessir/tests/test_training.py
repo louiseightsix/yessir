@@ -17,6 +17,7 @@ from yessir.heads import HeadType
 from yessir.model import Transformer
 from yessir.training import (
     autocast_context,
+    build_lr_scheduler,
     build_optimizer,
     dtype_name,
     next_token_cross_entropy,
@@ -75,9 +76,38 @@ def test_build_optimizer_hyperparameters_and_validation():
     assert group["eps"] == 1e-8
     assert group["weight_decay"] == 0.0
 
+    # Decoupled weight decay applies to 2D+ matrices only, leaving 1D RMSNorm gains at 0.0.
+    tx = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    opt_wd = build_optimizer(tx, lr=3e-4, weight_decay=0.1)
+    assert len(opt_wd.param_groups) == 2
+    decay_group, no_decay_group = opt_wd.param_groups
+    assert decay_group["weight_decay"] == 0.1
+    assert all(p.ndim >= 2 for p in decay_group["params"])
+    assert no_decay_group["weight_decay"] == 0.0
+    assert all(p.ndim < 2 for p in no_decay_group["params"])
+    assert len(decay_group["params"]) + len(no_decay_group["params"]) == sum(
+        1 for p in tx.parameters() if p.requires_grad
+    )
+
     for bad_lr in (0.0, -1e-4, math.nan, math.inf, -math.inf):
         with pytest.raises(ValueError, match="lr must be > 0"):
             build_optimizer(model, lr=bad_lr)
+    for bad_wd in (-0.01, math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError, match="weight_decay must be >= 0"):
+            build_optimizer(model, weight_decay=bad_wd)
+
+    frozen = torch.nn.Linear(2, 2, bias=False)
+    frozen.weight.requires_grad_(False)
+    with pytest.raises(ValueError, match="no trainable parameters"):
+        build_optimizer(frozen)
 
 
 def test_parallel_classification_cross_entropy_matches_manual_mean():
@@ -561,3 +591,321 @@ def test_train_and_train_step_validate_dtype_before_consuming_data():
     losses = train(model, dataset, max_steps=2, batch_size=4, dtype="auto")
     assert len(losses) == 2
     assert all(p.dtype == torch.float32 for p in model.parameters())
+
+
+def test_build_lr_scheduler_warmup_cosine_and_edge_cases():
+    def _collect_lrs(
+        *,
+        base_lr: float,
+        max_steps: int,
+        warmup_steps: int,
+        min_lr_ratio: float,
+        run_steps: int | None = None,
+    ) -> list[float]:
+        layer = torch.nn.Linear(2, 2, bias=False)
+        opt = build_optimizer(layer, lr=base_lr)
+        sched = build_lr_scheduler(
+            opt,
+            max_steps=max_steps,
+            warmup_steps=warmup_steps,
+            min_lr_ratio=min_lr_ratio,
+        )
+        lrs: list[float] = []
+        n = max_steps if run_steps is None else run_steps
+        for _ in range(n):
+            opt.zero_grad()
+            (layer.weight.sum()).backward()
+            lrs.append(float(opt.param_groups[0]["lr"]))
+            opt.step()
+            sched.step()
+        return lrs
+
+    # 4-step linear warmup to peak 1.0, then 6-step cosine decay down to 0.1 on step 10
+    lrs = _collect_lrs(
+        base_lr=1.0,
+        max_steps=10,
+        warmup_steps=4,
+        min_lr_ratio=0.1,
+        run_steps=12,
+    )
+    assert lrs[:4] == pytest.approx([0.25, 0.50, 0.75, 1.00])
+    assert lrs[4] < 1.0  # No duplicate peak step after warmup
+    assert all(lrs[i] > lrs[i + 1] for i in range(3, 9))
+    assert lrs[9] == pytest.approx(0.1)  # Step 10 hits exact min_lr_ratio
+    assert lrs[10:] == pytest.approx([0.1, 0.1])  # Clamped past max_steps
+
+    # Zero warmup starts at 1.0 on step 1 and decays to min_lr_ratio on step max_steps
+    no_warmup = _collect_lrs(base_lr=1.0, max_steps=5, warmup_steps=0, min_lr_ratio=0.2)
+    assert no_warmup[0] == pytest.approx(1.0)
+    assert no_warmup[-1] == pytest.approx(0.2)
+
+    # Constant LR recovery: warmup_steps=0, min_lr_ratio=1.0
+    const_lrs = _collect_lrs(
+        base_lr=3e-4, max_steps=6, warmup_steps=0, min_lr_ratio=1.0
+    )
+    assert const_lrs == pytest.approx([3e-4] * 6)
+
+    # Short smoke runs where warmup_steps >= max_steps clamp cleanly
+    assert _collect_lrs(
+        base_lr=1.0, max_steps=1, warmup_steps=1000, min_lr_ratio=0.1
+    ) == pytest.approx([1.0])
+    assert _collect_lrs(
+        base_lr=1.0, max_steps=2, warmup_steps=1000, min_lr_ratio=0.1
+    ) == pytest.approx([1.0, 0.1])
+
+    opt = build_optimizer(torch.nn.Linear(2, 2))
+    with pytest.raises(ValueError, match="max_steps must be >= 1"):
+        build_lr_scheduler(opt, max_steps=0)
+    with pytest.raises(ValueError, match="warmup_steps must be >= 0"):
+        build_lr_scheduler(opt, max_steps=10, warmup_steps=-1)
+    for bad_ratio in (-0.1, 1.1, math.nan):
+        with pytest.raises(ValueError, match="min_lr_ratio must be in 0.0..1.0"):
+            build_lr_scheduler(opt, max_steps=10, min_lr_ratio=bad_ratio)
+
+
+def test_grad_accum_steps_matches_full_batch_across_variable_length_and_cls_modes():
+    # 1. SubspaceLMHead with unequal sequence lengths and unequal target counts (1, 4, 2, 5)
+    lm_items = [
+        LabelledExample(
+            example=Example(input_ids=(1, 10, 11)),
+            labels=(IGNORE_INDEX, IGNORE_INDEX, 12),
+        ),
+        LabelledExample(
+            example=Example(input_ids=(1, 10, 11, 12, 13, 14)),
+            labels=(IGNORE_INDEX, IGNORE_INDEX, 12, 13, 14, 15),
+        ),
+        LabelledExample(
+            example=Example(input_ids=(1, 20, 21, 22)),
+            labels=(IGNORE_INDEX, IGNORE_INDEX, 22, 23),
+        ),
+        LabelledExample(
+            example=Example(input_ids=(1, 30, 31, 32, 33, 34, 35)),
+            labels=(IGNORE_INDEX, IGNORE_INDEX, 32, 33, 34, 35, 36),
+        ),
+    ]
+    seed_everything(7)
+    lm_full = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=0,
+    )
+    seed_everything(7)
+    lm_accum = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=False,
+        d_position=0,
+        d_scratch=0,
+    )
+    # Use SGD (linear in .grad) so unused byte coordinates with ~1e-8 BLAS rounding
+    # are not magnified into +-lr steps by Adam's sign-like g / (|g| + 1e-8) on step 1.
+    opt_full = torch.optim.SGD(lm_full.parameters(), lr=1e-1)
+    opt_accum = torch.optim.SGD(lm_accum.parameters(), lr=1e-1)
+
+    loss_full = train_step(
+        lm_full, opt_full, lm_items, grad_accum_steps=1, max_grad_norm=0.5
+    )
+    toks_seen: list[int] = []
+    losses_accum = train(
+        lm_accum,
+        lm_items,
+        max_steps=1,
+        batch_size=4,
+        optimizer=opt_accum,
+        grad_accum_steps=2,
+        max_grad_norm=0.5,
+        on_step_tokens=lambda _s, _l, n: toks_seen.append(n),
+    )
+    assert losses_accum[0] == pytest.approx(loss_full, abs=1e-6)
+    assert toks_seen == [12]
+    # Also verify global gradient norm was clipped to max_grad_norm = 0.5
+    total_grad_norm = torch.linalg.vector_norm(
+        torch.stack(
+            [
+                torch.linalg.vector_norm(p.grad)
+                for p in lm_accum.parameters()
+                if p.grad is not None
+            ]
+        )
+    ).item()
+    assert total_grad_norm == pytest.approx(0.5, rel=1e-5)
+    for p_f, p_a in zip(lm_full.parameters(), lm_accum.parameters(), strict=True):
+        assert torch.allclose(p_f, p_a, atol=1e-6)
+
+    # 2. Per-position ParallelClassificationHead with unequal supervised counts
+    per_pos_items = [
+        LabelledExample(
+            example=Example(
+                input_ids=(1, 10, 2),
+                token_type_ids=(0, 1, 3),
+                position_ids=(0, 0, 0),
+            ),
+            labels=(
+                (IGNORE_INDEX, IGNORE_INDEX),
+                (IGNORE_INDEX, IGNORE_INDEX),
+                (11, 4),
+            ),
+        ),
+        LabelledExample(
+            example=Example(
+                input_ids=(1, 10, 2, 11, 12),
+                token_type_ids=(0, 1, 3, 3, 3),
+                position_ids=(0, 0, 0, 1, 2),
+            ),
+            labels=(
+                (IGNORE_INDEX, IGNORE_INDEX),
+                (IGNORE_INDEX, IGNORE_INDEX),
+                (11, 3),
+                (12, 3),
+                (13, 4),
+            ),
+        ),
+    ]
+    seed_everything(9)
+    cls_full = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    seed_everything(9)
+    cls_accum = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    loss_cls_f = train_step(
+        cls_full,
+        torch.optim.SGD(cls_full.parameters(), lr=1e-1),
+        per_pos_items,
+        grad_accum_steps=1,
+    )
+    loss_cls_a = train_step(
+        cls_accum,
+        torch.optim.SGD(cls_accum.parameters(), lr=1e-1),
+        per_pos_items,
+        grad_accum_steps=2,
+    )
+    assert loss_cls_a == pytest.approx(loss_cls_f, abs=1e-6)
+    for p_f, p_a in zip(cls_full.parameters(), cls_accum.parameters(), strict=True):
+        assert torch.allclose(p_f, p_a, atol=1e-6)
+
+
+def test_chunked_train_with_scheduler_and_validation_errors():
+    # Chunked train(..., optimizer=opt, scheduler=sched) matches unchunked run
+    seed_everything(11)
+    m_single = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    opt_single = build_optimizer(m_single, lr=1e-3, weight_decay=0.1)
+    sched_single = build_lr_scheduler(
+        opt_single, max_steps=6, warmup_steps=2, min_lr_ratio=0.1
+    )
+    lrs_single: list[float] = []
+    losses_single = train(
+        m_single,
+        iter(_SyntheticDataset()),
+        max_steps=6,
+        batch_size=4,
+        optimizer=opt_single,
+        scheduler=sched_single,
+        grad_accum_steps=2,
+        max_grad_norm=1.0,
+        on_step=lambda _s, _l: lrs_single.append(
+            float(opt_single.param_groups[0]["lr"])
+        ),
+    )
+
+    seed_everything(11)
+    m_chunked = Transformer(
+        head_type=HeadType.PARALLEL_CLASSIFICATION,
+        num_classes=(VOCAB_SIZE, VOCAB_SIZE, VOCAB_SIZE),
+        n_layers=1,
+        n_heads=4,
+        d_ff=32,
+        d_position=8,
+        d_scratch=0,
+    )
+    opt_chunked = build_optimizer(m_chunked, lr=1e-3, weight_decay=0.1)
+    sched_chunked = build_lr_scheduler(
+        opt_chunked, max_steps=6, warmup_steps=2, min_lr_ratio=0.1
+    )
+    stream = iter(_SyntheticDataset())
+    lrs_chunked: list[float] = []
+    losses_c1 = train(
+        m_chunked,
+        stream,
+        max_steps=3,
+        batch_size=4,
+        optimizer=opt_chunked,
+        scheduler=sched_chunked,
+        grad_accum_steps=2,
+        max_grad_norm=1.0,
+        on_step=lambda _s, _l: lrs_chunked.append(
+            float(opt_chunked.param_groups[0]["lr"])
+        ),
+    )
+    losses_c2 = train(
+        m_chunked,
+        stream,
+        max_steps=3,
+        batch_size=4,
+        optimizer=opt_chunked,
+        scheduler=sched_chunked,
+        grad_accum_steps=2,
+        max_grad_norm=1.0,
+        on_step=lambda _s, _l: lrs_chunked.append(
+            float(opt_chunked.param_groups[0]["lr"])
+        ),
+    )
+
+    assert losses_c1 + losses_c2 == pytest.approx(losses_single)
+    assert lrs_chunked == pytest.approx(lrs_single)
+    # Step 1 uses 0.5 * lr, Step 2 uses 1.0 * lr, Step 6 uses 0.1 * lr
+    assert lrs_single[0] == pytest.approx(5e-4)
+    assert lrs_single[1] == pytest.approx(1e-3)
+    assert lrs_single[5] == pytest.approx(1e-4)
+    for p_s, p_c in zip(m_single.parameters(), m_chunked.parameters(), strict=True):
+        assert torch.equal(p_s, p_c)
+
+    # Validation checks
+    ds = _SyntheticDataset()
+    with pytest.raises(
+        ValueError, match="cannot specify both weight_decay and optimizer"
+    ):
+        train(
+            m_single,
+            ds,
+            max_steps=1,
+            batch_size=4,
+            weight_decay=0.1,
+            optimizer=opt_single,
+        )
+    with pytest.raises(ValueError, match="cannot specify scheduler without optimizer"):
+        train(m_single, ds, max_steps=1, batch_size=4, scheduler=sched_single)
+    with pytest.raises(ValueError, match="grad_accum_steps must be >= 1"):
+        train(m_single, ds, max_steps=1, batch_size=4, grad_accum_steps=0)
+    with pytest.raises(ValueError, match="must be divisible by grad_accum_steps"):
+        train(m_single, ds, max_steps=1, batch_size=6, grad_accum_steps=4)
+    for bad_norm in (0.0, -1.0, math.nan, math.inf):
+        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
+            train(m_single, ds, max_steps=1, batch_size=4, max_grad_norm=bad_norm)

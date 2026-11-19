@@ -1,4 +1,4 @@
-"""Minimal training utilities (`resolve_device`, `dtype_name`, `resolve_dtype`, `autocast_context`, `seed_everything`, `build_optimizer`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
+"""Minimal training utilities (`resolve_device`, `dtype_name`, `resolve_dtype`, `autocast_context`, `seed_everything`, `build_optimizer`, `build_lr_scheduler`, `parallel_classification_cross_entropy`, `next_token_cross_entropy`, `pack_classification_labels`, `train_step`, `train`)."""
 
 import contextlib
 import itertools
@@ -11,10 +11,11 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.optim.lr_scheduler import LambdaLR, LRScheduler
 
 from yessir.batch import collate, collate_labelled
 from yessir.dataset import IGNORE_INDEX, LabelledExample
-from yessir.defaults import DEFAULT_LR
+from yessir.defaults import DEFAULT_LR, DEFAULT_MIN_LR_RATIO
 from yessir.heads import SubspaceLMHead
 from yessir.model import Transformer
 
@@ -167,17 +168,83 @@ def build_optimizer(
     model: nn.Module,
     *,
     lr: float = DEFAULT_LR,
+    weight_decay: float = 0.0,
 ) -> torch.optim.AdamW:
-    """Create an AdamW optimiser with `betas=(0.9, 0.95)`, `eps=1e-8` (GPT-3), and `weight_decay=0.0`."""
+    """Create an AdamW optimiser (`betas=(0.9, 0.95)`, `eps=1e-8`) with decoupled weight decay on 2D+ matrices only.
+
+    Splits trainable parameters by tensor rank:
+    - `param.ndim >= 2` (linear projection and classification head matrices): `weight_decay`.
+    - `param.ndim < 2` (`RMSNorm` gain vectors and biases): `0.0`, since decaying unit-initialised
+      multiplicative gains toward zero fights the adjacent linear projections.
+    """
     if not math.isfinite(lr) or lr <= 0:
         raise ValueError(f"lr must be > 0 and finite, got {lr}")
+    if not math.isfinite(weight_decay) or weight_decay < 0:
+        raise ValueError(f"weight_decay must be >= 0 and finite, got {weight_decay}")
+
+    decay_params = [p for p in model.parameters() if p.requires_grad and p.ndim >= 2]
+    no_decay_params = [p for p in model.parameters() if p.requires_grad and p.ndim < 2]
+    param_groups: list[dict[str, Any]] = []
+    if decay_params:
+        param_groups.append({"params": decay_params, "weight_decay": weight_decay})
+    if no_decay_params:
+        param_groups.append({"params": no_decay_params, "weight_decay": 0.0})
+    if not param_groups:
+        raise ValueError("model has no trainable parameters")
+
     return torch.optim.AdamW(
-        model.parameters(),
+        param_groups,
         lr=lr,
         betas=(0.9, 0.95),
         eps=1e-8,
-        weight_decay=0.0,
     )
+
+
+def build_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    *,
+    max_steps: int,
+    warmup_steps: int = 0,
+    min_lr_ratio: float = DEFAULT_MIN_LR_RATIO,
+) -> LambdaLR:
+    """Create a linear-warmup + cosine-decay learning-rate scheduler (`LambdaLR`).
+
+    Schedule across 1-based optimisation steps `s = 1 .. max_steps` (`step = s - 1`):
+    - **Linear warmup** (`s = 1 .. effective_warmup`, where
+      `effective_warmup = min(warmup_steps, max(max_steps - 1, 0))`): scales peak `lr`
+      by `s / effective_warmup`, reaching `1.0 * lr` on step `effective_warmup`.
+    - **Cosine decay** (`s = effective_warmup + 1 .. max_steps`, or `s = 1 .. max_steps`
+      when `effective_warmup == 0`): decays smoothly from `1.0 * lr` down to
+      `min_lr_ratio * lr` on step `max_steps` (clamped at `min_lr_ratio * lr` thereafter).
+      Setting `warmup_steps = 0` and `min_lr_ratio = 1.0` yields a constant learning rate.
+    """
+    if max_steps < 1:
+        raise ValueError(f"max_steps must be >= 1, got {max_steps}")
+    if warmup_steps < 0:
+        raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+    if not math.isfinite(min_lr_ratio) or not (0.0 <= min_lr_ratio <= 1.0):
+        raise ValueError(
+            f"min_lr_ratio must be in 0.0..1.0 and finite, got {min_lr_ratio}"
+        )
+
+    effective_warmup = min(warmup_steps, max(max_steps - 1, 0))
+
+    def _lr_lambda(step: int) -> float:
+        if effective_warmup > 0 and step < effective_warmup:
+            return (step + 1) / effective_warmup
+        if max_steps <= 1:
+            return 1.0
+        if effective_warmup == 0:
+            progress = min(step / (max_steps - 1), 1.0)
+        else:
+            progress = min(
+                (step + 1 - effective_warmup) / (max_steps - effective_warmup),
+                1.0,
+            )
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return min_lr_ratio + (1.0 - min_lr_ratio) * cosine
+
+    return LambdaLR(optimizer, _lr_lambda)
 
 
 def parallel_classification_cross_entropy(
@@ -288,26 +355,52 @@ def pack_classification_labels(items: Sequence[LabelledExample]) -> torch.Tensor
     return torch.tensor([item.labels for item in items], dtype=torch.long)
 
 
-def _train_step_with_tokens(
+def _validate_step_controls(
+    *,
+    batch_size: int,
+    grad_accum_steps: int,
+    max_grad_norm: float | None,
+) -> None:
+    """Validate `grad_accum_steps` divisibility and `max_grad_norm` positivity."""
+    if grad_accum_steps < 1:
+        raise ValueError(f"grad_accum_steps must be >= 1, got {grad_accum_steps}")
+    if batch_size % grad_accum_steps != 0:
+        raise ValueError(
+            f"batch_size ({batch_size}) must be divisible by grad_accum_steps ({grad_accum_steps})"
+        )
+    if max_grad_norm is not None and (
+        not math.isfinite(max_grad_norm) or max_grad_norm <= 0
+    ):
+        raise ValueError(
+            f"max_grad_norm must be > 0 and finite (or None), got {max_grad_norm}"
+        )
+
+
+def _count_item_targets(items: Sequence[LabelledExample]) -> int:
+    """Count non-`IGNORE_INDEX` scalar targets across `items`."""
+    total = 0
+    for item in items:
+        if item.labels and isinstance(item.labels[0], tuple):
+            for pos_tuple in item.labels:
+                assert isinstance(pos_tuple, tuple)
+                for val in pos_tuple:
+                    if val != IGNORE_INDEX:
+                        total += 1
+        else:
+            for val in item.labels:
+                if val != IGNORE_INDEX:
+                    total += 1
+    return total
+
+
+def _forward_micro_batch(
     model: Transformer,
-    optimizer: torch.optim.Optimizer,
     items: Sequence[LabelledExample],
     *,
-    resolved_dtype: torch.dtype = torch.float32,
-) -> tuple[float, int]:
-    """Run one optimiser step and return `(step_loss, supervised_target_count)`."""
-    if not items:
-        raise ValueError("items must not be empty")
-
-    model.train()
-    optimizer.zero_grad()
-    device = model.device
-    amp_ctx: contextlib.AbstractContextManager[Any] = (
-        contextlib.nullcontext()
-        if resolved_dtype == torch.float32
-        else torch.autocast(device_type=device.type, dtype=torch.bfloat16)
-    )
-
+    device: torch.device,
+    amp_ctx: contextlib.AbstractContextManager[Any],
+) -> tuple[torch.Tensor, int]:
+    """Collate `items`, run a forward pass under `amp_ctx`, and return `(loss, supervised_targets)`."""
     if isinstance(model.head, SubspaceLMHead):
         batch, labels = collate_labelled(items)
         batch = batch.to(device)
@@ -348,9 +441,68 @@ def _train_step_with_tokens(
             loss = parallel_classification_cross_entropy(logits, labels)
 
     supervised_targets = int((labels != IGNORE_INDEX).sum().item())
-    loss.backward()
+    return loss, supervised_targets
+
+
+def _train_step_with_tokens(
+    model: Transformer,
+    optimizer: torch.optim.Optimizer,
+    items: Sequence[LabelledExample],
+    *,
+    resolved_dtype: torch.dtype = torch.float32,
+    grad_accum_steps: int = 1,
+    max_grad_norm: float | None = None,
+) -> tuple[float, int]:
+    """Run one optimiser step (with optional micro-batch accumulation and grad clipping) and return `(step_loss, supervised_target_count)`."""
+    if not items:
+        raise ValueError("items must not be empty")
+    _validate_step_controls(
+        batch_size=len(items),
+        grad_accum_steps=grad_accum_steps,
+        max_grad_norm=max_grad_norm,
+    )
+
+    model.train()
+    optimizer.zero_grad()
+    device = model.device
+    amp_ctx: contextlib.AbstractContextManager[Any] = (
+        contextlib.nullcontext()
+        if resolved_dtype == torch.float32
+        else torch.autocast(device_type=device.type, dtype=torch.bfloat16)
+    )
+
+    if grad_accum_steps == 1:
+        loss, supervised_targets = _forward_micro_batch(
+            model, items, device=device, amp_ctx=amp_ctx
+        )
+        loss.backward()
+        step_loss = loss.item()
+    else:
+        micro_size = len(items) // grad_accum_steps
+        total_targets = _count_item_targets(items)
+        step_loss = 0.0
+        for start in range(0, len(items), micro_size):
+            micro_items = items[start : start + micro_size]
+            micro_loss, micro_targets = _forward_micro_batch(
+                model, micro_items, device=device, amp_ctx=amp_ctx
+            )
+            # Weight each micro-batch by its share of supervised targets so
+            # variable-length sequences produce the exact same mean loss and
+            # gradient as `grad_accum_steps = 1`.
+            weight = (
+                (micro_targets / total_targets)
+                if total_targets > 0
+                else (1.0 / grad_accum_steps)
+            )
+            if micro_targets > 0 or total_targets == 0:
+                (micro_loss * weight).backward()
+                step_loss += micro_loss.item() * weight
+        supervised_targets = total_targets
+
+    if max_grad_norm is not None:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
     optimizer.step()
-    return loss.item(), supervised_targets
+    return step_loss, supervised_targets
 
 
 def train_step(
@@ -359,6 +511,8 @@ def train_step(
     items: Sequence[LabelledExample],
     *,
     dtype: str | torch.dtype | None = None,
+    grad_accum_steps: int = 1,
+    max_grad_norm: float | None = None,
 ) -> float:
     """Run one forward/backward/optimiser step on a batch of `LabelledExample`s.
 
@@ -384,7 +538,12 @@ def train_step(
     """
     resolved_dtype = resolve_dtype(model.device, dtype)
     loss_val, _ = _train_step_with_tokens(
-        model, optimizer, items, resolved_dtype=resolved_dtype
+        model,
+        optimizer,
+        items,
+        resolved_dtype=resolved_dtype,
+        grad_accum_steps=grad_accum_steps,
+        max_grad_norm=max_grad_norm,
     )
     return loss_val
 
@@ -396,7 +555,11 @@ def train(
     max_steps: int,
     batch_size: int,
     lr: float | None = None,
+    weight_decay: float | None = None,
     optimizer: torch.optim.Optimizer | None = None,
+    scheduler: LRScheduler | None = None,
+    grad_accum_steps: int = 1,
+    max_grad_norm: float | None = None,
     dtype: str | torch.dtype | None = None,
     on_step: Callable[[int, float], None] | None = None,
     on_step_tokens: Callable[[int, float, int], None] | None = None,
@@ -404,9 +567,11 @@ def train(
     """Train `model` on batches drawn from `dataset` for `max_steps` optimisation steps.
 
     Pass a persistent iterator `stream = iter(dataset)` and an existing `optimizer`
-    to resume training across multiple `train(...)` calls (e.g. between evaluations)
-    without restarting the data stream or resetting Adam state. Cannot specify both
-    `lr` and `optimizer`, nor both `on_step` and `on_step_tokens`.
+    (and optional `scheduler`) to resume training across multiple `train(...)` calls
+    (e.g. between evaluations) without restarting the data stream or resetting Adam /
+    schedule state. `scheduler.step()` runs after `on_step` / `on_step_tokens` so
+    callbacks reading `optimizer.param_groups[0]['lr']` see the exact learning rate
+    used on that step.
 
     Returns:
         List of per-step scalar training losses of length `max_steps`.
@@ -417,12 +582,25 @@ def train(
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
     if optimizer is not None and lr is not None:
         raise ValueError("cannot specify both lr and optimizer")
+    if optimizer is not None and weight_decay is not None:
+        raise ValueError("cannot specify both weight_decay and optimizer")
+    if scheduler is not None and optimizer is None:
+        raise ValueError("cannot specify scheduler without optimizer")
     if on_step is not None and on_step_tokens is not None:
         raise ValueError("cannot specify both on_step and on_step_tokens")
+    _validate_step_controls(
+        batch_size=batch_size,
+        grad_accum_steps=grad_accum_steps,
+        max_grad_norm=max_grad_norm,
+    )
 
     resolved_dtype = resolve_dtype(model.device, dtype)
     if optimizer is None:
-        optimizer = build_optimizer(model, lr=DEFAULT_LR if lr is None else lr)
+        optimizer = build_optimizer(
+            model,
+            lr=DEFAULT_LR if lr is None else lr,
+            weight_decay=0.0 if weight_decay is None else weight_decay,
+        )
     stream = iter(dataset)
 
     losses: list[float] = []
@@ -433,11 +611,18 @@ def train(
                 f"dataset exhausted early: needed {batch_size} examples, got {len(items)}"
             )
         step_loss, step_tokens = _train_step_with_tokens(
-            model, optimizer, items, resolved_dtype=resolved_dtype
+            model,
+            optimizer,
+            items,
+            resolved_dtype=resolved_dtype,
+            grad_accum_steps=grad_accum_steps,
+            max_grad_norm=max_grad_norm,
         )
         losses.append(step_loss)
         if on_step is not None:
             on_step(step_idx, step_loss)
         elif on_step_tokens is not None:
             on_step_tokens(step_idx, step_loss, step_tokens)
+        if scheduler is not None:
+            scheduler.step()
     return losses
