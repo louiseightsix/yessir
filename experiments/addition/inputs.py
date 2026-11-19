@@ -8,8 +8,8 @@ from enum import IntEnum, StrEnum, unique
 
 from experiments.addition.reference import (
     ColumnStep,
+    _reference_add_trusted,
     _validate_inputs,
-    reference_add,
 )
 from yessir.alphabet import SymbolSet, SymbolSetName, create_alphabet
 from yessir.example import Example
@@ -48,6 +48,8 @@ ADDITION_TOKEN_LABELS: dict[int, str] = {
     int(AdditionToken.QUERY_FLAG): "[F]",
     int(AdditionToken.IDX): "[IDX]",
 }
+
+_HEX_SYMBOLS: tuple[int, ...] = tuple(SymbolSet.HEX)
 
 
 @unique
@@ -135,8 +137,8 @@ def encode_address(j: int, alphabet: TokenSequence) -> tuple[Token, ...]:
     if base < 2:
         raise ValueError(f"Alphabet must contain at least 2 symbols, got {base}")
 
-    if j == 0:
-        return (alphabet[0],)
+    if j < base:
+        return (alphabet[j],)
 
     digits: list[Token] = []
     remaining = j
@@ -215,12 +217,17 @@ def build_prefix_tokens(
     alphabet: TokenSequence,
     a: TokenSequence,
     b: TokenSequence,
+    *,
+    validate: bool = True,
 ) -> tuple[list[int], list[TokenTypeId], list[int]]:
     """Build mutable `(input_ids, token_type_ids, position_ids)` lists for `[BOS] alphabet [SEP] a [SEP] b [SEP]`.
 
     Shared by `cls`, `step_fork`, `step_ar`, and `ar` (`spec/task.md` §2).
     """
-    alphabet_tokens, a_tokens, b_tokens = validate_problem(alphabet, a, b)
+    if validate:
+        alphabet_tokens, a_tokens, b_tokens = validate_problem(alphabet, a, b)
+    else:
+        alphabet_tokens, a_tokens, b_tokens = tuple(alphabet), tuple(a), tuple(b)
 
     input_ids: list[int] = [
         int(SpecialToken.BOS),
@@ -288,15 +295,19 @@ def build_addressed_prefix_tokens(
     b: TokenSequence,
     *,
     include_alphabet: bool = True,
+    validate: bool = True,
 ) -> tuple[list[int], list[TokenTypeId], list[int]]:
     """Build mutable `(input_ids, token_type_ids, position_ids)` lists for the addressed problem prefix.
 
     Shared by `addressed_step_ar` and `addressed_ar`:
     `[BOS] (alphabet [SEP])? [IDX] addr(0) a_0 ... [SEP] [IDX] addr(0) b_0 ... [SEP]`.
     """
-    alphabet_tokens, a_tokens, b_tokens = validate_problem(
-        alphabet, a, b, include_alphabet=include_alphabet
-    )
+    if validate:
+        alphabet_tokens, a_tokens, b_tokens = validate_problem(
+            alphabet, a, b, include_alphabet=include_alphabet
+        )
+    else:
+        alphabet_tokens, a_tokens, b_tokens = tuple(alphabet), tuple(a), tuple(b)
 
     input_ids: list[int] = [int(SpecialToken.BOS)]
     token_type_ids: list[TokenTypeId] = [TokenType.SPECIAL]
@@ -427,14 +438,14 @@ def sample_problem(
         # A shuffle returns the ascending order 1 time in B! (half the time in
         # base 2), which would not be a permuted alphabet at all, so redraw
         # until the order differs from the canonical one.
-        canonical = create_alphabet(SymbolSet.HEX[:base])
+        canonical = _HEX_SYMBOLS[:base]
         alphabet = canonical
         while alphabet == canonical:
-            alphabet = create_alphabet(SymbolSet.HEX[:base], rng=rng)
+            alphabet = tuple(rng.sample(canonical, base))
     elif p_prior > 0.0 and rng.random() < p_prior:
-        alphabet = create_alphabet(SymbolSet.HEX[:base])
+        alphabet = _HEX_SYMBOLS[:base]
     else:
-        alphabet = create_alphabet(symbol_pool, sample_size=base, rng=rng)
+        alphabet = tuple(rng.sample(symbol_pool, base))
 
     eff_min = max(min_length, base) if not include_alphabet else min_length
     len_a = rng.randint(eff_min, max_length)
@@ -551,7 +562,7 @@ def iter_problem_steps(
     def _stream() -> Iterator[tuple[AdditionProblem, tuple[ColumnStep, ...], int]]:
         step_rng = random.Random(f"{seed}:step")
         for problem in problems:
-            steps = reference_add(problem.alphabet, problem.a, problem.b)
+            steps = _reference_add_trusted(problem.alphabet, problem.a, problem.b)
             if all_steps:
                 for k in range(len(steps)):
                     yield problem, steps, k

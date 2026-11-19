@@ -85,6 +85,7 @@ class AdditionClsDataset:
                 k,
                 steps=steps,
                 embedding_mode=self._embedding_mode,
+                validate=False,
             )
 
 

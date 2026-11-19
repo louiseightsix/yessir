@@ -1,7 +1,10 @@
 """Batched model inputs (`Batch`, `LeftPaddedBatch`) and padding collation (`collate`, `collate_left_padded`, `collate_labelled`)."""
 
+import array
+import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 
@@ -47,21 +50,17 @@ class Batch:
         )
 
 
-def _pad_sequences(
-    rows: Sequence[Sequence[int]], pad_value: int, max_len: int
+def _scatter_sequences(
+    rows: Sequence[Sequence[int]],
+    pad_value: int,
+    max_len: int,
+    mask: torch.Tensor,
 ) -> torch.Tensor:
+    """Pack unpadded `rows` into a `(len(rows), max_len)` LongTensor at `mask` positions."""
     out = torch.full((len(rows), max_len), pad_value, dtype=torch.long)
-    for i, row in enumerate(rows):
-        out[i, : len(row)] = torch.tensor(row, dtype=torch.long)
-    return out
-
-
-def _left_pad_sequences(
-    rows: Sequence[Sequence[int]], pad_value: int, max_len: int
-) -> torch.Tensor:
-    out = torch.full((len(rows), max_len), pad_value, dtype=torch.long)
-    for i, row in enumerate(rows):
-        out[i, max_len - len(row) :] = torch.tensor(row, dtype=torch.long)
+    buf = array.array("q", itertools.chain.from_iterable(rows))
+    if buf:
+        out[mask] = torch.frombuffer(buf, dtype=torch.long)
     return out
 
 
@@ -124,15 +123,24 @@ def collate_left_padded(examples: Sequence[Example]) -> LeftPaddedBatch:
     key_padding_mask = col_indices >= pad_counts
 
     return LeftPaddedBatch(
-        input_ids=_left_pad_sequences(
-            [ex.input_ids for ex in examples], SpecialToken.PAD, max_len
+        input_ids=_scatter_sequences(
+            [ex.input_ids for ex in examples],
+            SpecialToken.PAD,
+            max_len,
+            key_padding_mask,
         ),
         key_padding_mask=key_padding_mask,
         lengths=lengths_tensor,
         token_type_ids=(
-            _left_pad_sequences(type_rows, 0, max_len) if type_rows else None
+            _scatter_sequences(type_rows, 0, max_len, key_padding_mask)
+            if type_rows
+            else None
         ),
-        position_ids=_left_pad_sequences(pos_rows, 0, max_len) if pos_rows else None,
+        position_ids=(
+            _scatter_sequences(pos_rows, 0, max_len, key_padding_mask)
+            if pos_rows
+            else None
+        ),
     )
 
 
@@ -168,13 +176,22 @@ def collate(examples: Sequence[Example]) -> Batch:
             "all examples in a batch must either provide position_ids or omit them"
         )
 
+    lengths_tensor = torch.tensor(lengths, dtype=torch.long)
+    mask = torch.arange(max_len, dtype=torch.long).unsqueeze(
+        0
+    ) < lengths_tensor.unsqueeze(1)
+
     return Batch(
-        input_ids=_pad_sequences(
-            [ex.input_ids for ex in examples], SpecialToken.PAD, max_len
+        input_ids=_scatter_sequences(
+            [ex.input_ids for ex in examples], SpecialToken.PAD, max_len, mask
         ),
-        lengths=torch.tensor(lengths, dtype=torch.long),
-        token_type_ids=_pad_sequences(type_rows, 0, max_len) if type_rows else None,
-        position_ids=_pad_sequences(pos_rows, 0, max_len) if pos_rows else None,
+        lengths=lengths_tensor,
+        token_type_ids=(
+            _scatter_sequences(type_rows, 0, max_len, mask) if type_rows else None
+        ),
+        position_ids=(
+            _scatter_sequences(pos_rows, 0, max_len, mask) if pos_rows else None
+        ),
     )
 
 
@@ -219,16 +236,22 @@ def collate_labelled(items: Sequence[LabelledExample]) -> tuple[Batch, torch.Ten
             "all per-position items in a batch must share the same label dimensionality"
         )
 
+    mask = torch.arange(max_len, dtype=torch.long).unsqueeze(
+        0
+    ) < batch.lengths.unsqueeze(1)
     num_targets = label_shapes[0]
     if num_targets > 0:
         labels = torch.full(
             (len(items), max_len, num_targets), IGNORE_INDEX, dtype=torch.long
         )
-        for i, item in enumerate(items):
-            labels[i, : len(item.labels)] = torch.tensor(item.labels, dtype=torch.long)
+        rows_2d = (cast("Sequence[Sequence[int]]", item.labels) for item in items)
+        buf = array.array(
+            "q",
+            itertools.chain.from_iterable(itertools.chain.from_iterable(rows_2d)),
+        )
+        if buf:
+            labels[mask] = torch.frombuffer(buf, dtype=torch.long).view(-1, num_targets)
         return batch, labels
 
-    labels_1d: list[Sequence[int]] = [
-        tuple(t for t in item.labels if isinstance(t, int)) for item in items
-    ]
-    return batch, _pad_sequences(labels_1d, IGNORE_INDEX, max_len)
+    labels_1d = [cast("Sequence[int]", item.labels) for item in items]
+    return batch, _scatter_sequences(labels_1d, IGNORE_INDEX, max_len, mask)

@@ -10,6 +10,7 @@ from experiments.addition.inputs import (
     iter_problems,
     validate_sampling_params,
 )
+from experiments.addition.reference import _reference_add_trusted
 from experiments.addition.variants.addressed_ar.inputs import (
     build_addressed_ar_labelled_example,
 )
@@ -77,13 +78,16 @@ class AdditionAddressedArDataset:
             include_alphabet=self._include_alphabet,
             seed=self._seed,
         ):
+            steps = _reference_add_trusted(problem.alphabet, problem.a, problem.b)
             yield build_addressed_ar_labelled_example(
                 problem.alphabet,
                 problem.a,
                 problem.b,
+                steps=steps,
                 step_order=self._step_order,
                 use_query_tokens=self._use_query_tokens,
                 include_alphabet=self._include_alphabet,
+                validate=False,
             )
 
 

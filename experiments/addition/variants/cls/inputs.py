@@ -23,6 +23,7 @@ def build_cls_example(
     output: TokenSequence = (),
     *,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> Example:
     """Build the step-`k` (`k = len(output)`) `Example` for `cls` (`spec/variants/cls.md` §1).
 
@@ -37,7 +38,9 @@ def build_cls_example(
     `position_id = k`. In both cases, the predicting position, `c_k` (`CARRY`),
     `a_k` (`OPERAND_A`), and `b_k` (`OPERAND_B`) all share `position_id = k`.
     """
-    input_ids, token_type_ids, position_ids = build_prefix_tokens(alphabet, a, b)
+    input_ids, token_type_ids, position_ids = build_prefix_tokens(
+        alphabet, a, b, validate=validate
+    )
     out_tokens = tuple(output)
     k = len(out_tokens)
 
@@ -63,6 +66,7 @@ def build_cls_step_labelled_example(
     *,
     steps: Sequence[ColumnStep] | None = None,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> LabelledExample:
     """Build a teacher-forced single-step `LabelledExample` for column `k` (`0 <= k <= K`).
 
@@ -82,6 +86,7 @@ def build_cls_step_labelled_example(
         step.carry_in,
         output_prefix,
         embedding_mode=embedding_mode,
+        validate=validate,
     )
     return LabelledExample(
         example=example,

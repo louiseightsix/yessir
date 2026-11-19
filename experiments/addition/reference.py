@@ -161,6 +161,25 @@ def reference_step(
     return _compute_step(alphabet_tokens, rank, a, b, k, carry)
 
 
+def _reference_add_trusted(
+    alphabet_tokens: tuple[int, ...],
+    a: TokenSequence,
+    b: TokenSequence,
+) -> tuple[ColumnStep, ...]:
+    """Run all `K + 1` ground-truth column steps on already-validated `(alphabet_tokens, a, b)`."""
+    rank = {symbol: idx for idx, symbol in enumerate(alphabet_tokens)}
+    steps: list[ColumnStep] = []
+    carry: Token = alphabet_tokens[0]
+    k = 0
+    while True:
+        step = _compute_step(alphabet_tokens, rank, a, b, k, carry)
+        steps.append(step)
+        if step.flag == SpecialToken.FLAG_FINISHED:
+            return tuple(steps)
+        carry = step.carry_out
+        k += 1
+
+
 def reference_add(
     alphabet: TokenSequence,
     a: TokenSequence,
@@ -173,14 +192,5 @@ def reference_add(
     no final carry overflow (`c_N == s_0`) or `max(len(a), len(b)) + 1` steps
     when column `N - 1` overflows (`c_N == s_1`).
     """
-    alphabet_tokens, rank = _validate_inputs(alphabet, a, b)
-    steps: list[ColumnStep] = []
-    carry: Token = alphabet_tokens[0]
-    k = 0
-    while True:
-        step = _compute_step(alphabet_tokens, rank, a, b, k, carry)
-        steps.append(step)
-        if step.flag == SpecialToken.FLAG_FINISHED:
-            return tuple(steps)
-        carry = step.carry_out
-        k += 1
+    alphabet_tokens, _ = _validate_inputs(alphabet, a, b)
+    return _reference_add_trusted(alphabet_tokens, a, b)

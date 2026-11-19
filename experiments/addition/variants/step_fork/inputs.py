@@ -28,9 +28,13 @@ def _build_step_fork_base_tokens(
     b: TokenSequence,
     carry: Token,
     output: TokenSequence,
+    *,
+    validate: bool = True,
 ) -> tuple[list[Token], list[int], list[int]]:
     """Build the shared `step_fork` prefix + state lists prior to the trailing `[S]`/`[C]`/`[F]` query token."""
-    input_ids, token_type_ids, position_ids = build_prefix_tokens(alphabet, a, b)
+    input_ids, token_type_ids, position_ids = build_prefix_tokens(
+        alphabet, a, b, validate=validate
+    )
     out_tokens = tuple(output)
     k = len(out_tokens)
 
@@ -81,6 +85,7 @@ def build_step_fork_examples(
     output: TokenSequence = (),
     *,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> tuple[Example, Example, Example]:
     """Build the 3 parallel `(sum, carry, flag)` query `Example`s for column `k = len(output)`.
 
@@ -97,7 +102,7 @@ def build_step_fork_examples(
     column `j`.
     """
     base_ids, base_tt, base_pos = _build_step_fork_base_tokens(
-        alphabet, a, b, carry, output
+        alphabet, a, b, carry, output, validate=validate
     )
     k = len(tuple(output))
     sum_ex, carry_ex, flag_ex = (
@@ -120,6 +125,7 @@ def build_step_fork_step_labelled_examples(
     *,
     steps: Sequence[ColumnStep] | None = None,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> tuple[LabelledExample, LabelledExample, LabelledExample]:
     """Build the 3 teacher-forced `(sum, carry, flag)` `LabelledExample`s for column `k` (`0 <= k <= K`).
 
@@ -140,6 +146,7 @@ def build_step_fork_step_labelled_examples(
         step.carry_in,
         output_prefix,
         embedding_mode=embedding_mode,
+        validate=validate,
     )
     masked_prefix = (IGNORE_INDEX,) * (len(sum_ex) - 1)
     return (

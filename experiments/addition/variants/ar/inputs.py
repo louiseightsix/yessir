@@ -39,9 +39,11 @@ def build_ar_example(
     a: TokenSequence,
     b: TokenSequence,
     trace: TokenSequence = (),
+    *,
+    validate: bool = True,
 ) -> Example:
     """Build a pure-LM (`input_ids`-only) `ar` `Example` appending `trace` tokens to `[BOS] alphabet [SEP] a [SEP] b [SEP]`."""
-    input_ids, _, _ = build_prefix_tokens(alphabet, a, b)
+    input_ids, _, _ = build_prefix_tokens(alphabet, a, b, validate=validate)
     input_ids.extend(int(tok) for tok in trace)
     return Example(input_ids=tuple(input_ids))
 
@@ -54,6 +56,7 @@ def build_ar_labelled_example(
     steps: Sequence[ColumnStep] | None = None,
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
+    validate: bool = True,
 ) -> LabelledExample:
     """Build the full-trace teacher-forced `LabelledExample` for `(alphabet, a, b)` (`spec/variants/ar.md` §3).
 
@@ -66,7 +69,7 @@ def build_ar_labelled_example(
     trace = build_ar_trace_tokens(
         oracle_steps, step_order=order, use_query_tokens=use_query_tokens
     )
-    example = build_ar_example(alphabet, a, b, trace)
+    example = build_ar_example(alphabet, a, b, trace, validate=validate)
     prefix_len = len(example) - len(trace)
     labels = (IGNORE_INDEX,) * (prefix_len - 1) + (*trace, int(SpecialToken.EOS))
     return LabelledExample(example=example, labels=labels)
