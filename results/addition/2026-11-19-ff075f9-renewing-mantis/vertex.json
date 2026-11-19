@@ -1,0 +1,19 @@
+{
+  "job_name": "projects/295887947850/locations/asia-northeast3/customJobs/7277241403493580800",
+  "job_id": "7277241403493580800",
+  "display_name": "addition-2026-11-19-ff075f9-renewing-mantis",
+  "project": "north-shore-software-ca",
+  "region": "asia-northeast3",
+  "experiment": "addition",
+  "variant": "ar",
+  "run_name": "2026-11-19-ff075f9-renewing-mantis",
+  "git_commit_sha": "ff075f9165eecef0676a58bb072862491495c567",
+  "repo_url": "https://github.com/louiseightsix/yessir.git",
+  "image_uri": "us-docker.pkg.dev/north-shore-software-ca/yessir-us/runner:latest",
+  "gcs_run_uri": "gs://yessir-results-us/results/addition/2026-11-19-ff075f9-renewing-mantis",
+  "machine_type": "g2-standard-4",
+  "accelerator_type": "NVIDIA_L4",
+  "accelerator_count": 1,
+  "submitted_at": "2026-11-19T22:27:28.728004Z",
+  "scheduling": "standard"
+}
