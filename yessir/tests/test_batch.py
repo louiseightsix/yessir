@@ -262,3 +262,37 @@ def test_collate_left_padded_aligns_final_tokens_and_builds_key_mask():
         collate_left_padded(
             [Example(input_ids=(1, 2), position_ids=(0, 1)), Example(input_ids=(1, 2))]
         )
+
+
+def test_batch_pin_memory_and_non_blocking_to(monkeypatch: pytest.MonkeyPatch):
+    pinned_ids: list[int] = []
+
+    def _fake_pin(t: torch.Tensor) -> torch.Tensor:
+        cloned = t.clone()
+        pinned_ids.append(id(cloned))
+        return cloned
+
+    monkeypatch.setattr(torch.Tensor, "pin_memory", _fake_pin)
+
+    full = collate(
+        [Example(input_ids=(1, 2), token_type_ids=(0, 1), position_ids=(0, 1))]
+    )
+    pinned_full = full.pin_memory()
+    assert len(pinned_ids) == 4
+    assert torch.equal(pinned_full.input_ids, full.input_ids)
+    assert torch.equal(pinned_full.lengths, full.lengths)
+    assert pinned_full.token_type_ids is not None
+    assert pinned_full.position_ids is not None
+
+    moved = pinned_full.to("cpu", non_blocking=True)
+    assert torch.equal(moved.input_ids, full.input_ids)
+
+    pinned_ids.clear()
+    minimal = collate([Example(input_ids=(1, 2))])
+    pinned_min = minimal.pin_memory()
+    assert len(pinned_ids) == 2
+    assert pinned_min.token_type_ids is None
+    assert pinned_min.position_ids is None
+
+    left = collate_left_padded([Example(input_ids=(1, 2))])
+    assert torch.equal(left.to("cpu", non_blocking=True).input_ids, left.input_ids)

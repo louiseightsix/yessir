@@ -121,6 +121,8 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     config_payload = json.loads(config_file.read_text())
     assert config_payload["experiment"] == "addition"
     assert config_payload["variant"] == "cls"
+    assert config_payload["device"] in ("cpu", "mps", "cuda")
+    assert config_payload["dtype"] in ("float32", "bfloat16")
     loaded_cfg = AdditionClsConfig.from_dict(config_payload["config"])
     assert loaded_cfg.max_steps == 5
     assert loaded_cfg.log_every == 2
@@ -133,6 +135,7 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
     assert [row["tokens_seen"] for row in train_lines] == [12, 24, 48, 60]
     for row in train_lines:
         assert isinstance(row["loss"], float)
+        assert isinstance(row["lr"], float)
 
     loaded_eval = json.loads(eval_file.read_text())
     assert list(loaded_eval.keys()) == expected_headline_keys
@@ -174,6 +177,7 @@ def test_dispatch_addition_cls_smoke_run_writes_headline_and_diagnostic_artefact
 
     out = capsys.readouterr().out
     assert "[addition:cls] Starting run:" in out
+    assert f"device={config_payload['device']}, dtype={config_payload['dtype']}" in out
     assert "[addition:cls] step=1/5 loss=" in out
     assert "[addition:cls] step=3/5" not in out
     assert "[addition:cls] step=5/5 loss=" in out
@@ -206,7 +210,11 @@ def test_dispatch_addition_step_fork_smoke_run_writes_artefacts(
             "--max-steps",
             "2",
             "--batch-size",
+            "4",
+            "--grad-accum-steps",
             "2",
+            "--max-grad-norm",
+            "none",
             "--num-eval-problems",
             "3",
             "--eval-batch-size",
@@ -238,7 +246,9 @@ def test_dispatch_addition_step_fork_smoke_run_writes_artefacts(
     assert config_payload["experiment"] == "addition"
     assert config_payload["variant"] == "step_fork"
     loaded_cfg = AdditionStepForkConfig.from_dict(config_payload["config"])
-    assert loaded_cfg.batch_size == 2
+    assert loaded_cfg.batch_size == 4
+    assert loaded_cfg.grad_accum_steps == 2
+    assert loaded_cfg.max_grad_norm is None
     assert (run_dir / "eval.json").is_file()
     assert (run_dir / "eval_splits.json").is_file()
 
@@ -537,23 +547,23 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
     )
     assert res_periodic == res_final
 
-    # Training steps, losses, and cumulative `tokens_seen` must be identical regardless of mid-training evaluations.
+    # Training steps, losses, LRs, and cumulative `tokens_seen` must be identical regardless of mid-training evaluations.
     periodic_train = [
-        (row["step"], row["loss"], row["tokens_seen"])
+        (row["step"], row["loss"], row["lr"], row["tokens_seen"])
         for row in (
             json.loads(line)
             for line in (periodic_dir / "train.jsonl").read_text().splitlines()
         )
     ]
     final_train = [
-        (row["step"], row["loss"], row["tokens_seen"])
+        (row["step"], row["loss"], row["lr"], row["tokens_seen"])
         for row in (
             json.loads(line)
             for line in (final_only_dir / "train.jsonl").read_text().splitlines()
         )
     ]
-    assert [step for step, _, _ in periodic_train] == [1, 2, 4, 5]
-    assert [toks for _, _, toks in periodic_train] == [6, 12, 24, 30]
+    assert [step for step, _, _, _ in periodic_train] == [1, 2, 4, 5]
+    assert [toks for _, _, _, toks in periodic_train] == [6, 12, 24, 30]
     assert periodic_train == final_train
     assert json.loads((periodic_dir / "eval_splits.json").read_text()) == json.loads(
         (final_only_dir / "eval_splits.json").read_text()
@@ -591,3 +601,29 @@ def test_addition_periodic_eval_every_records_eval_jsonl_without_perturbing_trai
     assert eval_rows[-1]["splits"] == json.loads(
         (periodic_dir / "eval_splits.json").read_text()
     )
+
+
+def test_addition_dtype_flag_rejects_unsupported_bf16_on_cpu_before_writing(
+    tmp_path: Path,
+):
+    bf16_dir = tmp_path / "cpu_bf16_rejected"
+    with pytest.raises(
+        ValueError,
+        match="device 'cpu' does not have hardware bfloat16 support",
+    ):
+        run_experiments_cli(
+            EXPERIMENTS,
+            [
+                "addition",
+                "ar",
+                "--device",
+                "cpu",
+                "--dtype",
+                "bfloat16",
+                "--out-dir",
+                str(bf16_dir),
+                "--max-steps",
+                "1",
+            ],
+        )
+    assert not bf16_dir.exists()

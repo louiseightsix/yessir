@@ -15,7 +15,15 @@ from yessir.dataset import LabelledExample
 from yessir.heads import HeadType
 from yessir.metrics import MetricsLogger, json_safe
 from yessir.model import Transformer
-from yessir.training import build_optimizer, resolve_device, seed_everything, train
+from yessir.training import (
+    build_lr_scheduler,
+    build_optimizer,
+    dtype_name,
+    resolve_device,
+    resolve_dtype,
+    seed_everything,
+    train,
+)
 
 
 class EvaluateProblemsFn(Protocol):
@@ -29,6 +37,7 @@ class EvaluateProblemsFn(Protocol):
         num_problems: int,
         batch_size: int = 64,
         per_base_metrics: dict[int, EvalMetrics] | None = None,
+        dtype: str | torch.dtype | None = None,
     ) -> EvalMetrics: ...
 
 
@@ -58,6 +67,7 @@ def train_and_evaluate(
     train_batch_size: int | None = None,
     include_alphabet: bool = True,
     device: str | torch.device | None = None,
+    dtype: str | torch.dtype | None = None,
 ) -> dict[str, Any]:
     """Train one `Transformer` and evaluate it periodically and at `max_steps` across `config.eval_splits()`.
 
@@ -78,6 +88,8 @@ def train_and_evaluate(
       split name (plus `{split}_base{b}` per-base slices for multi-base splits).
     """
     resolved_device = resolve_device(device)
+    resolved_dtype = resolve_dtype(resolved_device, dtype)
+    resolved_dtype_name = dtype_name(resolved_dtype)
     tag = f"[addition:{variant_name}]"
     dest = str(out_dir) if out_dir is not None else "no-save"
     interval = config.effective_eval_every
@@ -86,8 +98,9 @@ def train_and_evaluate(
         f"{tag} Starting run: bases={config.bases}, L={config.min_length}..{config.max_length}, "
         f"mode={config.embedding_mode_label}, layers={config.n_layers}, heads={config.n_heads}, "
         f"d_model={config.d_model}, max_steps={config.max_steps}, eval_every={eval_every_str}, "
-        f"batch_size={config.batch_size}, lr={config.lr}, seed={config.seed}, "
-        f"device={resolved_device} -> {dest}",
+        f"batch_size={config.batch_size}, accum={config.grad_accum_steps}, lr={config.lr}, "
+        f"wd={config.weight_decay}, warmup={config.warmup_steps}, seed={config.seed}, "
+        f"device={resolved_device}, dtype={resolved_dtype_name} -> {dest}",
         flush=True,
     )
 
@@ -100,6 +113,7 @@ def train_and_evaluate(
             variant_name=variant_name,
             config=config,
             device=str(resolved_device),
+            dtype=resolved_dtype_name,
         )
         train_logger = MetricsLogger(out_dir / "train.jsonl")
         eval_logger = MetricsLogger(out_dir / "eval.jsonl")
@@ -117,7 +131,13 @@ def train_and_evaluate(
         d_scratch=config.effective_d_scratch,
     ).to(resolved_device)
 
-    optimizer = build_optimizer(model, lr=config.lr)
+    optimizer = build_optimizer(model, lr=config.lr, weight_decay=config.weight_decay)
+    scheduler = build_lr_scheduler(
+        optimizer,
+        max_steps=config.max_steps,
+        warmup_steps=config.warmup_steps,
+        min_lr_ratio=config.min_lr_ratio,
+    )
     train_stream = iter(train_dataset)
     splits = config.eval_splits()
 
@@ -133,14 +153,19 @@ def train_and_evaluate(
                 or global_step % config.log_every == 0
                 or global_step == config.max_steps
             ):
+                current_lr = float(optimizer.param_groups[0]["lr"])
                 if train_logger is not None:
                     train_logger.log(
                         global_step,
-                        {"loss": step_loss, "tokens_seen": tokens_seen},
+                        {
+                            "loss": step_loss,
+                            "lr": current_lr,
+                            "tokens_seen": tokens_seen,
+                        },
                     )
                 print(
                     f"{tag} step={global_step}/{config.max_steps} "
-                    f"loss={step_loss:.4f} tokens={tokens_seen}",
+                    f"loss={step_loss:.4f} lr={current_lr:.2e} tokens={tokens_seen}",
                     flush=True,
                 )
 
@@ -163,6 +188,10 @@ def train_and_evaluate(
             max_steps=chunk_steps,
             batch_size=effective_batch_size,
             optimizer=optimizer,
+            scheduler=scheduler,
+            grad_accum_steps=config.grad_accum_steps,
+            max_grad_norm=config.max_grad_norm,
+            dtype=resolved_dtype,
             on_step_tokens=_make_on_step(completed_steps),
         )
         completed_steps += chunk_steps
@@ -191,6 +220,7 @@ def train_and_evaluate(
                     num_problems=config.num_eval_problems,
                     batch_size=config.eval_batch_size,
                     per_base_metrics=per_base,
+                    dtype=resolved_dtype,
                 )
             else:
                 metrics = evaluate_fn(
@@ -198,6 +228,7 @@ def train_and_evaluate(
                     problems,
                     num_problems=config.num_eval_problems,
                     batch_size=config.eval_batch_size,
+                    dtype=resolved_dtype,
                 )
             eval_results[f"{split.prefix}exact_match"] = metrics.exact_match
             eval_results[f"{split.prefix}step_accuracy"] = metrics.step_accuracy

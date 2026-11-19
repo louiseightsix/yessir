@@ -143,17 +143,26 @@ class _AltDummyConfig(_DummyConfig):
 
 def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
     def _dummy_run(
-        cfg: _DummyConfig, out_dir: Path | None = None, *, device: str = "auto"
+        cfg: _DummyConfig,
+        out_dir: Path | None = None,
+        *,
+        device: str = "auto",
+        dtype: str = "auto",
     ) -> dict[str, Any]:
         return {
             "variant": "v1",
             "max_steps": cfg.max_steps,
             "out_dir": str(out_dir),
             "device": device,
+            "dtype": dtype,
         }
 
     def _alt_run(
-        cfg: _AltDummyConfig, out_dir: Path | None = None, *, device: str = "auto"
+        cfg: _AltDummyConfig,
+        out_dir: Path | None = None,
+        *,
+        device: str = "auto",
+        dtype: str = "auto",
     ) -> dict[str, Any]:
         return {
             "variant": "v2",
@@ -161,6 +170,7 @@ def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
             "extra_flag": cfg.extra_flag,
             "out_dir": str(out_dir),
             "device": device,
+            "dtype": dtype,
         }
 
     v1 = ExperimentVariant(
@@ -193,6 +203,7 @@ def test_experiment_and_variant_descriptor_binding(tmp_path: Path):
         "max_steps": 10,
         "out_dir": str(tmp_path),
         "device": "auto",
+        "dtype": "auto",
     }
 
     with pytest.raises(ValueError, match="at least one ExperimentVariant"):
@@ -205,7 +216,11 @@ def test_run_experiment_cli_and_run_experiments_cli(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
     def _v1_run(
-        cfg: _DummyConfig, out_dir: Path | None = None, *, device: str = "auto"
+        cfg: _DummyConfig,
+        out_dir: Path | None = None,
+        *,
+        device: str = "auto",
+        dtype: str = "auto",
     ) -> dict[str, Any]:
         return {
             "variant": "cls",
@@ -213,10 +228,15 @@ def test_run_experiment_cli_and_run_experiments_cli(
             "mode": cfg.mode.value,
             "out_dir": out_dir,
             "device": device,
+            "dtype": dtype,
         }
 
     def _v2_run(
-        cfg: _AltDummyConfig, out_dir: Path | None = None, *, device: str = "auto"
+        cfg: _AltDummyConfig,
+        out_dir: Path | None = None,
+        *,
+        device: str = "auto",
+        dtype: str = "auto",
     ) -> dict[str, Any]:
         return {
             "variant": "ar",
@@ -224,6 +244,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
             "extra_flag": cfg.extra_flag,
             "out_dir": out_dir,
             "device": device,
+            "dtype": dtype,
         }
 
     v_cls = ExperimentVariant(
@@ -254,6 +275,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         "mode": "fast",
         "out_dir": tmp_path,
         "device": "auto",
+        "dtype": "auto",
     }
 
     nosave_res = run_experiment_cli(exp, ["cls", "--max-steps", "12", "--no-save"])
@@ -263,6 +285,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         "mode": "fast",
         "out_dir": None,
         "device": "auto",
+        "dtype": "auto",
     }
 
     # Default out_dir uses results/<experiment>/<date>-<sha>-<adj>-<noun>.
@@ -305,6 +328,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         "mode": "accurate",
         "out_dir": tmp_path,
         "device": "auto",
+        "dtype": "auto",
     }
 
     dispatched_ar = run_experiments_cli(
@@ -318,6 +342,8 @@ def test_run_experiment_cli_and_run_experiments_cli(
             "custom_tag",
             "--device",
             "mps",
+            "--dtype",
+            "bfloat16",
             "--no-save",
         ],
     )
@@ -327,6 +353,7 @@ def test_run_experiment_cli_and_run_experiments_cli(
         "extra_flag": "custom_tag",
         "out_dir": None,
         "device": "mps",
+        "dtype": "bfloat16",
     }
 
     # Empty or duplicate experiment lists are rejected.

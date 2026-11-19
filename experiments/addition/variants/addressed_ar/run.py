@@ -22,6 +22,7 @@ def run_addition_addressed_ar(
     out_dir: Path | None = None,
     *,
     device: str = "auto",
+    dtype: str = "auto",
 ) -> dict[str, Any]:
     """Train and evaluate the full-trace `addressed_ar` variant of `addition` according to `config`."""
     train_dataset = AdditionAddressedArDataset(
@@ -51,6 +52,7 @@ def run_addition_addressed_ar(
         evaluate_fn=evaluate_fn,
         include_alphabet=config.include_alphabet,
         device=device,
+        dtype=dtype,
     )
 
 

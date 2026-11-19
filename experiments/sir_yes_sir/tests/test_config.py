@@ -32,6 +32,13 @@ def test_default_config_is_valid():
     assert ar_cfg.effective_d_position == 0
     assert ar_cfg.effective_d_scratch == 256
     assert ar_cfg.d_model == 256 + 256 == 512
+    assert ar_cfg.batch_size == 64
+    assert ar_cfg.grad_accum_steps == 1
+    assert ar_cfg.weight_decay == 0.1
+    assert ar_cfg.warmup_steps == 50
+    assert ar_cfg.min_lr_ratio == 0.1
+    assert ar_cfg.max_grad_norm == 1.0
+    assert ar_cfg.log_every == 10
     assert ar_cfg.eval_every is None
     assert ar_cfg.effective_eval_every == 50
     assert (
@@ -166,9 +173,27 @@ def test_model_and_training_bounds():
         SirYesSirConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         SirYesSirConfig(batch_size=0)
+    with pytest.raises(ValueError, match="grad_accum_steps must be >= 1"):
+        SirYesSirConfig(grad_accum_steps=0)
+    with pytest.raises(ValueError, match="must be divisible by grad_accum_steps"):
+        SirYesSirConfig(batch_size=64, grad_accum_steps=3)
     for bad_lr in (0.0, -1e-4, float("nan"), float("inf"), float("-inf")):
         with pytest.raises(ValueError, match="lr must be > 0"):
             SirYesSirConfig(lr=bad_lr)
+    for bad_wd in (-0.05, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="weight_decay must be >= 0"):
+            SirYesSirConfig(weight_decay=bad_wd)
+    with pytest.raises(ValueError, match="warmup_steps must be >= 0"):
+        SirYesSirConfig(warmup_steps=-1)
+    for bad_ratio in (-0.1, 1.1, float("nan")):
+        with pytest.raises(ValueError, match="min_lr_ratio must be in 0.0..1.0"):
+            SirYesSirConfig(min_lr_ratio=bad_ratio)
+    for bad_norm in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
+            SirYesSirConfig(max_grad_norm=bad_norm)
+    assert SirYesSirConfig(weight_decay=0.0, max_grad_norm=None).max_grad_norm is None
+    with pytest.raises(ValueError, match="log_every must be >= 1"):
+        SirYesSirConfig(log_every=0)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
         SirYesSirConfig(eval_every=-1)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
@@ -197,7 +222,12 @@ def test_json_round_trip():
         fixed_d_model=False,
         max_steps=600,
         batch_size=24,
+        grad_accum_steps=2,
         lr=1e-3,
+        weight_decay=0.05,
+        warmup_steps=20,
+        min_lr_ratio=0.2,
+        max_grad_norm=None,
         seed=7,
         num_eval_problems=50,
         eval_batch_size=32,

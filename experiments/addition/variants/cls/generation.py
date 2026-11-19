@@ -7,6 +7,7 @@ from experiments.addition.variants.cls.inputs import build_cls_example
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 from yessir.vocab import Token, TokenSequence
 
 
@@ -18,6 +19,7 @@ def rollout_cls(
     b: TokenSequence,
     *,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    dtype: str | torch.dtype | None = None,
 ) -> list[tuple[Token, Token, Token]]:
     """Run free-running greedy `cls` execution step by step on `(alphabet, a, b)`.
 
@@ -28,41 +30,43 @@ def rollout_cls(
     alphabet_tokens, a_tokens, b_tokens = validate_problem(alphabet, a, b)
     max_columns = max(len(a_tokens), len(b_tokens)) + 1
 
-    model.eval()
     device = model.device
+    amp_ctx = autocast_context(device, dtype)
+    model.eval()
     carry: Token = alphabet_tokens[0]
     output: list[Token] = []
     emitted_steps: list[tuple[Token, Token, Token]] = []
 
-    for _ in range(max_columns):
-        example = build_cls_example(
-            alphabet_tokens,
-            a_tokens,
-            b_tokens,
-            carry,
-            output,
-            embedding_mode=embedding_mode,
-        )
-        batch = collate([example]).to(device)
-        logits = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
-        if not isinstance(logits, tuple) or len(logits) != 3:
-            raise ValueError(
-                "rollout_cls requires a Transformer with a 3-head ParallelClassificationHead"
+    with amp_ctx:
+        for _ in range(max_columns):
+            example = build_cls_example(
+                alphabet_tokens,
+                a_tokens,
+                b_tokens,
+                carry,
+                output,
+                embedding_mode=embedding_mode,
             )
-        logits_o, logits_c, logits_flag = logits
-        o_k = int(logits_o[0].argmax(dim=-1).item())
-        c_next = int(logits_c[0].argmax(dim=-1).item())
-        flag_k = int(logits_flag[0].argmax(dim=-1).item())
-        emitted_steps.append((o_k, c_next, flag_k))
+            batch = collate([example]).to(device)
+            logits = model(
+                batch.input_ids,
+                batch.lengths,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+            )
+            if not isinstance(logits, tuple) or len(logits) != 3:
+                raise ValueError(
+                    "rollout_cls requires a Transformer with a 3-head ParallelClassificationHead"
+                )
+            logits_o, logits_c, logits_flag = logits
+            o_k = int(logits_o[0].argmax(dim=-1).item())
+            c_next = int(logits_c[0].argmax(dim=-1).item())
+            flag_k = int(logits_flag[0].argmax(dim=-1).item())
+            emitted_steps.append((o_k, c_next, flag_k))
 
-        if flag_k == SpecialToken.FLAG_FINISHED:
-            break
-        carry = c_next
-        output.append(o_k)
+            if flag_k == SpecialToken.FLAG_FINISHED:
+                break
+            carry = c_next
+            output.append(o_k)
 
     return emitted_steps

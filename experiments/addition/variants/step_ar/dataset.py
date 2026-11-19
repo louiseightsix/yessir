@@ -91,6 +91,7 @@ class AdditionStepArDataset:
                 step_order=self._step_order,
                 use_query_tokens=self._use_query_tokens,
                 embedding_mode=self._embedding_mode,
+                validate=False,
             )
 
 

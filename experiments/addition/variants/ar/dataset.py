@@ -10,6 +10,7 @@ from experiments.addition.inputs import (
     iter_problems,
     validate_sampling_params,
 )
+from experiments.addition.reference import _reference_add_trusted
 from experiments.addition.variants.ar.inputs import build_ar_labelled_example
 from yessir.alphabet import SymbolSet, resolve_symbol_pool_slice
 from yessir.dataset import LabelledExample
@@ -70,12 +71,15 @@ class AdditionArDataset:
             p_chain=self._p_chain,
             seed=self._seed,
         ):
+            steps = _reference_add_trusted(problem.alphabet, problem.a, problem.b)
             yield build_ar_labelled_example(
                 problem.alphabet,
                 problem.a,
                 problem.b,
+                steps=steps,
                 step_order=self._step_order,
                 use_query_tokens=self._use_query_tokens,
+                validate=False,
             )
 
 

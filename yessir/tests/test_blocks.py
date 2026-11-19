@@ -235,3 +235,159 @@ def test_kv_cache_incremental_block_decoding_and_validation():
     fresh.prepare_step(1, 1, device=x.device)
     with pytest.raises(IndexError, match="layer_idx"):
         fresh.update(1, dummy_kv, dummy_kv)
+
+
+@torch.no_grad()
+def test_kv_cache_truncate_and_select_rows_match_uncached_transformer():
+    from yessir.batch import collate_left_padded
+    from yessir.example import Example
+    from yessir.heads import HeadType
+    from yessir.model import Transformer
+
+    torch.manual_seed(13)
+    model = Transformer(
+        head_type=HeadType.SUBSPACE_LM,
+        n_layers=2,
+        n_heads=4,
+        d_ff=32,
+        use_token_type=True,
+        d_position=8,
+        d_scratch=0,
+    )
+    model.eval()
+
+    # Prefill 3 variable-length headers into a compact header_cache
+    headers = [
+        Example(input_ids=(1, 10, 2), token_type_ids=(0, 1, 0), position_ids=(0, 0, 0)),
+        Example(
+            input_ids=(1, 20, 21, 22, 2),
+            token_type_ids=(0, 1, 1, 1, 0),
+            position_ids=(0, 0, 1, 2, 0),
+        ),
+        Example(
+            input_ids=(1, 30, 31, 2),
+            token_type_ids=(0, 1, 1, 0),
+            position_ids=(0, 0, 1, 0),
+        ),
+    ]
+    prefill = collate_left_padded(headers)
+    header_len = int(prefill.input_ids.size(1))
+    header_cache = model.init_kv_cache(header_len)
+    assert header_cache.batch_size is None
+    model(
+        prefill.input_ids,
+        token_type_ids=prefill.token_type_ids,
+        position_ids=prefill.position_ids,
+        key_padding_mask=prefill.key_padding_mask,
+        kv_cache=header_cache,
+    )
+    assert header_cache.batch_size == 3
+    assert header_cache.seq_len == header_len
+
+    # Select rows [2, 0] with expanded max_seq_len and run two alternate tails via truncate()
+    work_cache = header_cache.select_rows([2, 0], max_seq_len=header_len + 4)
+    assert work_cache.batch_size == 2
+    assert work_cache.seq_len == header_len
+
+    # Tail A (left-padded across the 2 selected rows: lengths 3 and 2)
+    tails_a = [
+        Example(
+            input_ids=(40, 41, 42), token_type_ids=(4, 0, 5), position_ids=(1, 0, 1)
+        ),
+        Example(input_ids=(50, 51), token_type_ids=(4, 0), position_ids=(0, 0)),
+    ]
+    lp_a = collate_left_padded(tails_a)
+    logits_a = model(
+        lp_a.input_ids,
+        token_type_ids=lp_a.token_type_ids,
+        position_ids=lp_a.position_ids,
+        key_padding_mask=lp_a.key_padding_mask,
+        kv_cache=work_cache,
+    )
+    assert isinstance(logits_a, torch.Tensor)
+    assert work_cache.seq_len == header_len + 3
+
+    # Rewind back to header_len and run Tail B (unpadded 2-token tail + 2 branched 1-token queries)
+    work_cache.truncate(header_len)
+    assert work_cache.seq_len == header_len
+    tail_b_ids = torch.tensor([[60, 61], [70, 71]], dtype=torch.long)
+    tail_b_tt = torch.tensor([[4, 0], [4, 0]], dtype=torch.long)
+    tail_b_pos = torch.tensor([[2, 0], [2, 0]], dtype=torch.long)
+    model(
+        tail_b_ids,
+        token_type_ids=tail_b_tt,
+        position_ids=tail_b_pos,
+        kv_cache=work_cache,
+    )
+    base_len = work_cache.seq_len
+    assert base_len == header_len + 2
+
+    q_s = torch.tensor([[5], [5]], dtype=torch.long)
+    q_c = torch.tensor([[6], [6]], dtype=torch.long)
+    q_tt = torch.zeros((2, 1), dtype=torch.long)
+    q_pos = torch.tensor([[2], [2]], dtype=torch.long)
+    logits_s = model(q_s, token_type_ids=q_tt, position_ids=q_pos, kv_cache=work_cache)
+    work_cache.truncate(base_len)
+    logits_c = model(q_c, token_type_ids=q_tt, position_ids=q_pos, kv_cache=work_cache)
+    assert isinstance(logits_s, torch.Tensor) and isinstance(logits_c, torch.Tensor)
+
+    # Compare every cached output against fresh uncached full-sequence forward passes
+    for out_idx, orig_idx in enumerate([2, 0]):
+        hdr = headers[orig_idx]
+        ta = tails_a[out_idx]
+        full_a = Example(
+            input_ids=hdr.input_ids + ta.input_ids,
+            token_type_ids=tuple(hdr.token_type_ids or ())
+            + tuple(ta.token_type_ids or ()),
+            position_ids=tuple(hdr.position_ids or ()) + tuple(ta.position_ids or ()),
+        )
+        ref_a = model(
+            torch.tensor([full_a.input_ids]),
+            token_type_ids=torch.tensor([full_a.token_type_ids]),
+            position_ids=torch.tensor([full_a.position_ids]),
+        )
+        assert isinstance(ref_a, torch.Tensor)
+        assert torch.allclose(logits_a[out_idx, -1], ref_a[0, -1], atol=1e-5)
+
+        for q_tok, cached_q_logits in ((5, logits_s), (6, logits_c)):
+            full_b_ids = (*hdr.input_ids, *tail_b_ids[out_idx].tolist(), q_tok)
+            full_b_tt = (
+                *(hdr.token_type_ids or ()),
+                *tail_b_tt[out_idx].tolist(),
+                0,
+            )
+            full_b_pos = (
+                *(hdr.position_ids or ()),
+                *tail_b_pos[out_idx].tolist(),
+                2,
+            )
+            ref_b = model(
+                torch.tensor([full_b_ids]),
+                token_type_ids=torch.tensor([full_b_tt]),
+                position_ids=torch.tensor([full_b_pos]),
+            )
+            assert isinstance(ref_b, torch.Tensor)
+            assert torch.allclose(cached_q_logits[out_idx, 0], ref_b[0, -1], atol=1e-5)
+
+    # Validation checks on truncate and select_rows
+    with pytest.raises(ValueError, match="truncate seq_len"):
+        work_cache.truncate(-1)
+    with pytest.raises(ValueError, match="truncate seq_len"):
+        work_cache.truncate(work_cache.seq_len + 1)
+    with pytest.raises(ValueError, match="max_seq_len"):
+        header_cache.select_rows([0], max_seq_len=header_len - 1)
+    with pytest.raises(ValueError, match="non-empty 1D"):
+        header_cache.select_rows([])
+    with pytest.raises(ValueError, match="integer dtype"):
+        header_cache.select_rows(torch.tensor([True, False, True]))
+    with pytest.raises(IndexError, match="row_indices out of range"):
+        header_cache.select_rows([3])
+
+    uninit = KVCache(n_layers=1, max_seq_len=4)
+    with pytest.raises(RuntimeError, match="uninitialised"):
+        uninit.select_rows([0])
+    uninit.prepare_step(1, 2, device=torch.device("cpu"))
+    with pytest.raises(RuntimeError, match="uncommitted"):
+        uninit.truncate(0)
+    with pytest.raises(RuntimeError, match="uncommitted"):
+        uninit.select_rows([0])

@@ -877,6 +877,26 @@ def test_partially_trained_addressed_step_ar_transformer_exact_match_matches_rol
         embedding_mode=embedding_mode,
     )
 
+    class _UncachedProxy:
+        device = model.device
+
+        def eval(self) -> "_UncachedProxy":
+            model.eval()
+            return self
+
+        def __call__(self, *args: object, **kwargs: object) -> object:
+            return model(*args, **kwargs)
+
+    assert metrics == evaluate_addressed_step_ar(
+        _UncachedProxy(),  # ty: ignore[invalid-argument-type]
+        problems,
+        num_problems=30,
+        batch_size=7,
+        step_order=StepOrder.CARRY_FIRST,
+        use_query_tokens=True,
+        embedding_mode=embedding_mode,
+    )
+
     rollout_matches = 0
     for p in problems:
         expected = [

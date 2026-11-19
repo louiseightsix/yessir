@@ -18,6 +18,7 @@ def run_addition_cls(
     out_dir: Path | None = None,
     *,
     device: str = "auto",
+    dtype: str = "auto",
 ) -> dict[str, Any]:
     """Train and evaluate the `cls` variant of `addition` according to `config`."""
     train_dataset = AdditionClsDataset(
@@ -42,6 +43,7 @@ def run_addition_cls(
         train_dataset=train_dataset,
         evaluate_fn=evaluate_fn,
         device=device,
+        dtype=dtype,
     )
 
 

@@ -51,6 +51,7 @@ def build_addressed_step_ar_example(
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> Example:
     """Build a step-`k` (`k = len(output)`) `Example` for `addressed_step_ar` (`spec/variants/addressed_step_ar.md` §1, §3).
 
@@ -70,7 +71,7 @@ def build_addressed_step_ar_example(
         )
 
     input_ids, token_type_ids, position_ids = build_addressed_prefix_tokens(
-        alphabet, a, b, include_alphabet=include_alphabet
+        alphabet, a, b, include_alphabet=include_alphabet, validate=validate
     )
     alphabet_tokens = tuple(alphabet)
     out_tokens = tuple(int(t) for t in output)
@@ -127,6 +128,7 @@ def build_addressed_step_ar_step_labelled_example(
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> LabelledExample:
     """Build the teacher-forced `LabelledExample` for column `k` (`0 <= k <= K`; `spec/variants/addressed_step_ar.md` §3).
 
@@ -156,6 +158,7 @@ def build_addressed_step_ar_step_labelled_example(
         use_query_tokens=use_query_tokens,
         include_alphabet=include_alphabet,
         embedding_mode=embedding_mode,
+        validate=validate,
     )
     if not use_query_tokens:
         masked_len = len(example) - 3

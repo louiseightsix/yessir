@@ -51,10 +51,11 @@ def build_addressed_ar_example(
     trace: TokenSequence = (),
     *,
     include_alphabet: bool = True,
+    validate: bool = True,
 ) -> Example:
     """Build a pure-LM (`input_ids`-only) `addressed_ar` `Example` appending `trace` tokens to the addressed prefix."""
     input_ids, _, _ = build_addressed_prefix_tokens(
-        alphabet, a, b, include_alphabet=include_alphabet
+        alphabet, a, b, include_alphabet=include_alphabet, validate=validate
     )
     input_ids.extend(int(raw_tok) for raw_tok in trace)
     return Example(input_ids=tuple(input_ids))
@@ -69,6 +70,7 @@ def build_addressed_ar_labelled_example(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
+    validate: bool = True,
 ) -> LabelledExample:
     """Build the full-trace teacher-forced `LabelledExample` for `(alphabet, a, b)` (`spec/variants/addressed_ar.md` §3).
 
@@ -90,6 +92,7 @@ def build_addressed_ar_labelled_example(
         b,
         trace,
         include_alphabet=include_alphabet,
+        validate=validate,
     )
     prefix_len = len(example) - len(trace)
     labels = (IGNORE_INDEX,) * (prefix_len - 1) + (*trace, int(SpecialToken.EOS))

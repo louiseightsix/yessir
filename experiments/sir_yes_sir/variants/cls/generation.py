@@ -10,6 +10,7 @@ from experiments.sir_yes_sir.inputs import (
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 from yessir.vocab import Token, TokenSequence
 
 
@@ -20,6 +21,7 @@ def greedy_generate_cls(
     x: TokenSequence,
     *,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    dtype: str | torch.dtype | None = None,
 ) -> list[tuple[Token, Token]]:
     """Run free-running `cls` greedy generation step by step on `(alphabet, x)`.
 
@@ -37,43 +39,46 @@ def greedy_generate_cls(
         alphabet: Ordered problem alphabet of `B >= 2` distinct byte symbols.
         x: Input sequence of `L >= 1` symbols drawn from `alphabet`.
         embedding_mode: Which of `token_type_ids` and `position_ids` to attach.
+        dtype: Compute dtype (`'auto'` / `None`, `'float32'`, or `'bfloat16'`).
 
     Returns:
         List of generated `(o_k, flag_k)` step tuples.
     """
     alphabet_tokens, x_tokens = validate_problem(alphabet, x)
 
-    model.eval()
     device = model.device
+    amp_ctx = autocast_context(device, dtype)
+    model.eval()
     output: list[Token] = []
     steps: list[tuple[Token, Token]] = []
 
-    for _ in range(len(x_tokens)):
-        example = build_example(
-            alphabet_tokens,
-            x_tokens,
-            output,
-            embedding_mode=embedding_mode,
-        )
-        batch = collate([example]).to(device)
-        out = model(
-            batch.input_ids,
-            batch.lengths,
-            token_type_ids=batch.token_type_ids,
-            position_ids=batch.position_ids,
-        )
-        if not isinstance(out, tuple) or len(out) != 2:
-            raise ValueError(
-                "greedy_generate_cls requires a Transformer with a 2-head ParallelClassificationHead"
+    with amp_ctx:
+        for _ in range(len(x_tokens)):
+            example = build_example(
+                alphabet_tokens,
+                x_tokens,
+                output,
+                embedding_mode=embedding_mode,
             )
-        logits_o, logits_flag = out
+            batch = collate([example]).to(device)
+            out = model(
+                batch.input_ids,
+                batch.lengths,
+                token_type_ids=batch.token_type_ids,
+                position_ids=batch.position_ids,
+            )
+            if not isinstance(out, tuple) or len(out) != 2:
+                raise ValueError(
+                    "greedy_generate_cls requires a Transformer with a 2-head ParallelClassificationHead"
+                )
+            logits_o, logits_flag = out
 
-        o_k = int(logits_o[0].argmax(dim=-1).item())
-        flag_k = int(logits_flag[0].argmax(dim=-1).item())
-        steps.append((o_k, flag_k))
+            o_k = int(logits_o[0].argmax(dim=-1).item())
+            flag_k = int(logits_flag[0].argmax(dim=-1).item())
+            steps.append((o_k, flag_k))
 
-        if flag_k == SpecialToken.FLAG_FINISHED:
-            break
-        output.append(o_k)
+            if flag_k == SpecialToken.FLAG_FINISHED:
+                break
+            output.append(o_k)
 
     return steps

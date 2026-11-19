@@ -25,6 +25,7 @@ from yessir.batch import collate, collate_left_padded
 from yessir.example import Example
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 
 
 @torch.no_grad()
@@ -250,6 +251,7 @@ def evaluate_ar(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     per_base_metrics: dict[int, EvalMetrics] | None = None,
+    dtype: str | torch.dtype | None = None,
 ) -> EvalMetrics:
     """Evaluate `model` via KV-cached free-running rollout across `num_problems` full-trace `ar` problems.
 
@@ -267,6 +269,9 @@ def evaluate_ar(
     order = StepOrder(step_order)
     tokens_per_col = 4 if use_query_tokens else 2
 
+    device = model.device
+    amp_ctx = autocast_context(device, dtype)
+
     problem_list = list(itertools.islice(problems, num_problems))
     if len(problem_list) < num_problems:
         raise ValueError(
@@ -282,28 +287,28 @@ def evaluate_ar(
     ]
 
     model.eval()
-    device = model.device
     emitted_per_problem: list[list[int]] = []
 
-    for start in range(0, num_problems, batch_size):
-        emitted_per_problem.extend(
-            _rollout_ar_chunk(
-                model,
-                problem_list[start : start + batch_size],
-                max_tokens_all[start : start + batch_size],
-                device=device,
+    with amp_ctx:
+        for start in range(0, num_problems, batch_size):
+            emitted_per_problem.extend(
+                _rollout_ar_chunk(
+                    model,
+                    problem_list[start : start + batch_size],
+                    max_tokens_all[start : start + batch_size],
+                    device=device,
+                )
             )
-        )
 
-    oracle_ok_counts = _compute_ar_oracle_counts(
-        model,
-        problem_list,
-        oracle_steps,
-        batch_size=batch_size,
-        step_order=order,
-        use_query_tokens=use_query_tokens,
-        device=device,
-    )
+        oracle_ok_counts = _compute_ar_oracle_counts(
+            model,
+            problem_list,
+            oracle_steps,
+            batch_size=batch_size,
+            step_order=order,
+            use_query_tokens=use_query_tokens,
+            device=device,
+        )
 
     evaluated: list[
         tuple[tuple[int, ...], tuple[ColumnStep, ...], tuple[StepPrediction, ...]]

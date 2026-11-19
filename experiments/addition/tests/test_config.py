@@ -57,6 +57,12 @@ def test_default_configs_and_derived_properties():
     assert cfg.effective_d_position == 0
     assert cfg.effective_d_scratch == 256
     assert cfg.d_model == 256 + 256 == 512
+    assert cfg.batch_size == 256
+    assert cfg.grad_accum_steps == 1
+    assert cfg.weight_decay == 0.1
+    assert cfg.warmup_steps == 1000
+    assert cfg.min_lr_ratio == 0.1
+    assert cfg.max_grad_norm == 1.0
     assert cfg.log_every == 100
     assert cfg.eval_every is None
     assert cfg.eval_permuted_canonical is True
@@ -399,9 +405,25 @@ def test_config_validation_rejections():
         AdditionConfig(max_steps=0)
     with pytest.raises(ValueError, match="batch_size must be >= 1"):
         AdditionConfig(batch_size=0)
+    with pytest.raises(ValueError, match="grad_accum_steps must be >= 1"):
+        AdditionConfig(grad_accum_steps=0)
+    with pytest.raises(ValueError, match="must be divisible by grad_accum_steps"):
+        AdditionConfig(batch_size=256, grad_accum_steps=3)
     for bad_lr in (0.0, -1e-4, float("nan"), float("inf"), float("-inf")):
         with pytest.raises(ValueError, match="lr must be > 0"):
             AdditionConfig(lr=bad_lr)
+    for bad_wd in (-0.05, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="weight_decay must be >= 0"):
+            AdditionConfig(weight_decay=bad_wd)
+    with pytest.raises(ValueError, match="warmup_steps must be >= 0"):
+        AdditionConfig(warmup_steps=-1)
+    for bad_ratio in (-0.1, 1.1, float("nan")):
+        with pytest.raises(ValueError, match="min_lr_ratio must be in 0.0..1.0"):
+            AdditionConfig(min_lr_ratio=bad_ratio)
+    for bad_norm in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
+            AdditionConfig(max_grad_norm=bad_norm)
+    assert AdditionConfig(weight_decay=0.0, max_grad_norm=None).max_grad_norm is None
     with pytest.raises(ValueError, match="log_every must be >= 1"):
         AdditionConfig(log_every=0)
     with pytest.raises(ValueError, match="eval_every must be an int >= 0 or None"):
@@ -455,7 +477,12 @@ def test_json_round_trip():
         fixed_d_model=False,
         max_steps=500,
         batch_size=32,
+        grad_accum_steps=4,
         lr=1e-3,
+        weight_decay=0.05,
+        warmup_steps=25,
+        min_lr_ratio=0.2,
+        max_grad_norm=None,
         log_every=50,
         seed=7,
         num_eval_problems=40,

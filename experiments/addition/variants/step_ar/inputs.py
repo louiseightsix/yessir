@@ -49,6 +49,7 @@ def build_step_ar_example(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> Example:
     """Build a step-`k` (`k = len(output)`) `Example` for `step_ar` (`spec/variants/step_ar.md` §1, §3).
 
@@ -66,7 +67,9 @@ def build_step_ar_example(
             f"step_tokens may contain at most 2 tokens (t_0, t_1), got {len(emitted)}"
         )
 
-    input_ids, token_type_ids, position_ids = build_prefix_tokens(alphabet, a, b)
+    input_ids, token_type_ids, position_ids = build_prefix_tokens(
+        alphabet, a, b, validate=validate
+    )
     out_tokens = tuple(output)
     k = len(out_tokens)
 
@@ -115,6 +118,7 @@ def build_step_ar_step_labelled_example(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     embedding_mode: EmbeddingMode = EmbeddingMode.TOKEN_TYPE_PE,
+    validate: bool = True,
 ) -> LabelledExample:
     """Build the teacher-forced `LabelledExample` for column `k` (`0 <= k <= K`; `spec/variants/step_ar.md` §3).
 
@@ -143,6 +147,7 @@ def build_step_ar_step_labelled_example(
         step_order=step_order,
         use_query_tokens=use_query_tokens,
         embedding_mode=embedding_mode,
+        validate=validate,
     )
     if not use_query_tokens:
         masked_len = len(example) - 3

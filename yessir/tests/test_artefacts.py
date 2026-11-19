@@ -103,6 +103,7 @@ def test_config_and_eval_writers(tmp_path: Path):
         variant_name="cls",
         config=cfg,
         device="mps",
+        dtype="float32",
         git_info=fake_git,
         started_at="2026-11-12T13:36:00Z",
     )
@@ -112,6 +113,7 @@ def test_config_and_eval_writers(tmp_path: Path):
         "experiment": "sir_yes_sir",
         "variant": "cls",
         "device": "mps",
+        "dtype": "float32",
         "started_at": "2026-11-12T13:36:00Z",
         "git_commit_sha": "953e4d9abe8aaa741cb41ecb831b173f59b30f8a",
         "git_short_sha": "953e4d9",

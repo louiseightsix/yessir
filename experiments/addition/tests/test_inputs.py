@@ -2,6 +2,7 @@
 
 import argparse
 import itertools
+import random
 
 import pytest
 
@@ -21,7 +22,7 @@ from experiments.addition.inputs import (
     validate_problem,
 )
 from experiments.addition.reference import reference_add
-from yessir.alphabet import SymbolSet
+from yessir.alphabet import SymbolSet, create_alphabet
 from yessir.special_tokens import SpecialToken
 from yessir.vocab import EXPERIMENT_SPECIAL_RANGE, TOKEN_TYPE_RANGE
 
@@ -355,6 +356,58 @@ def test_iter_problem_steps_decouples_problem_stream_and_oversamples_terminal():
         isinstance(p, AdditionProblem) and p == base_problems[0]
         for p, _, _ in seq_items
     )
+
+
+@pytest.mark.parametrize(
+    ("p_prior", "permuted_canonical"),
+    [(0.0, False), (0.5, False), (0.0, True)],
+)
+def test_iter_problems_matches_create_alphabet_rng_stream_and_validated_oracle(
+    p_prior: float, permuted_canonical: bool
+):
+    bases = (2, 4, 8, 10)
+    symbol_pool = create_alphabet(SymbolSet.ALL)
+    rng = random.Random(123)
+
+    stream = iter_problem_steps(
+        bases=bases,
+        min_length=1,
+        max_length=12,
+        p_prior=p_prior,
+        permuted_canonical=permuted_canonical,
+        p_chain=0.25,
+        seed=123,
+    )
+    for problem, steps, _ in itertools.islice(stream, 40):
+        base = rng.choice(bases)
+        if permuted_canonical:
+            canonical = create_alphabet(SymbolSet.HEX[:base])
+            expected_alpha = canonical
+            while expected_alpha == canonical:
+                expected_alpha = create_alphabet(SymbolSet.HEX[:base], rng=rng)
+        elif p_prior > 0.0 and rng.random() < p_prior:
+            expected_alpha = create_alphabet(SymbolSet.HEX[:base])
+        else:
+            expected_alpha = create_alphabet(symbol_pool, sample_size=base, rng=rng)
+
+        len_a = rng.randint(1, 12)
+        len_b = rng.randint(1, 12)
+        a_vals = [rng.randrange(base) for _ in range(len_a)]
+        b_vals = [rng.randrange(base) for _ in range(len_b)]
+        n_shared = min(len_a, len_b)
+        if n_shared >= 2 and rng.random() < 0.25:
+            m = rng.randint(1, n_shared - 1)
+            i = rng.randint(0, n_shared - 1 - m)
+            a_vals[i] = rng.randint(1, base - 1)
+            b_vals[i] = rng.randint(base - a_vals[i], base - 1)
+            for j in range(i + 1, i + 1 + m):
+                a_vals[j] = rng.randrange(base)
+                b_vals[j] = base - 1 - a_vals[j]
+
+        assert problem.alphabet == expected_alpha
+        assert problem.a == tuple(expected_alpha[v] for v in a_vals)
+        assert problem.b == tuple(expected_alpha[v] for v in b_vals)
+        assert steps == reference_add(problem.alphabet, problem.a, problem.b)
 
 
 def test_iter_problems_eagerly_rejects_invalid_sampling_params():

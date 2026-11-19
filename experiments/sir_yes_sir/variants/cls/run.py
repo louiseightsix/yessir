@@ -21,6 +21,7 @@ def run_sir_yes_sir_cls(
     out_dir: Path | None = None,
     *,
     device: str | None = None,
+    dtype: str | None = None,
 ) -> dict[str, Any]:
     """Train and evaluate the `cls` variant of `sir_yes_sir` according to `config`."""
     train_dataset = SirYesSirClsDataset(
@@ -51,6 +52,7 @@ def run_sir_yes_sir_cls(
         eval_dataset=eval_dataset,
         evaluate_fn=evaluate_cls,
         device=device,
+        dtype=dtype,
     )
 
 

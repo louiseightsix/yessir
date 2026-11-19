@@ -499,6 +499,24 @@ def test_partially_trained_step_fork_transformer_exact_match_matches_rollout(
         model, problems, num_problems=30, batch_size=1, embedding_mode=embedding_mode
     )
 
+    class _UncachedProxy:
+        device = model.device
+
+        def eval(self) -> "_UncachedProxy":
+            model.eval()
+            return self
+
+        def __call__(self, *args: object, **kwargs: object) -> object:
+            return model(*args, **kwargs)
+
+    assert metrics == evaluate_step_fork(
+        _UncachedProxy(),  # ty: ignore[invalid-argument-type]
+        problems,
+        num_problems=30,
+        batch_size=7,
+        embedding_mode=embedding_mode,
+    )
+
     rollout_matches = 0
     for p in problems:
         expected = [

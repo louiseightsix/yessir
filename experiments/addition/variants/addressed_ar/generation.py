@@ -19,6 +19,7 @@ from experiments.addition.variants.addressed_ar.inputs import (
 from yessir.batch import collate
 from yessir.model import Transformer
 from yessir.special_tokens import SpecialToken
+from yessir.training import autocast_context
 from yessir.vocab import SYMBOL_RANGE, Token, TokenSequence
 
 
@@ -103,6 +104,7 @@ def rollout_addressed_ar(
     step_order: StepOrder = StepOrder.SUM_FIRST,
     use_query_tokens: bool = False,
     include_alphabet: bool = True,
+    dtype: str | torch.dtype | None = None,
 ) -> list[Token]:
     """Run free-running greedy `addressed_ar` generation on `(alphabet, a, b)` until `[EOS]` or length cap.
 
@@ -127,29 +129,31 @@ def rollout_addressed_ar(
         + 1
     )
 
-    model.eval()
     device = model.device
+    amp_ctx = autocast_context(device, dtype)
+    model.eval()
     trace: list[Token] = []
     emitted: list[Token] = []
 
-    for _ in range(max_tokens):
-        example = build_addressed_ar_example(
-            alphabet_tokens,
-            a_tokens,
-            b_tokens,
-            trace,
-            include_alphabet=include_alphabet,
-        )
-        batch = collate([example]).to(device)
-        logits = model(batch.input_ids, batch.lengths)
-        if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
-            raise ValueError(
-                "rollout_addressed_ar requires a Transformer with SubspaceLMHead"
+    with amp_ctx:
+        for _ in range(max_tokens):
+            example = build_addressed_ar_example(
+                alphabet_tokens,
+                a_tokens,
+                b_tokens,
+                trace,
+                include_alphabet=include_alphabet,
             )
-        next_tok = int(logits[0, -1, :].argmax(dim=-1).item())
-        emitted.append(next_tok)
-        if next_tok == SpecialToken.EOS:
-            break
-        trace.append(next_tok)
+            batch = collate([example]).to(device)
+            logits = model(batch.input_ids, batch.lengths)
+            if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+                raise ValueError(
+                    "rollout_addressed_ar requires a Transformer with SubspaceLMHead"
+                )
+            next_tok = int(logits[0, -1, :].argmax(dim=-1).item())
+            emitted.append(next_tok)
+            if next_tok == SpecialToken.EOS:
+                break
+            trace.append(next_tok)
 
     return emitted

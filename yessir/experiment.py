@@ -47,6 +47,7 @@ class VariantRunFn[ConfigT: ExperimentConfig](Protocol):
         /,
         *,
         device: str = "auto",
+        dtype: str = "auto",
     ) -> dict[str, Any]: ...
 
 
@@ -225,7 +226,7 @@ def _add_run_control_args(
     *,
     suppress_defaults: bool = False,
 ) -> None:
-    """Attach `--interactive`, `--out-dir`, `--no-save`, and `--device` flags to `parser`."""
+    """Attach `--interactive`, `--out-dir`, `--no-save`, `--device`, and `--dtype` flags to `parser`."""
     parser.add_argument(
         "-i",
         "--interactive",
@@ -250,6 +251,12 @@ def _add_run_control_args(
         type=str,
         default=argparse.SUPPRESS if suppress_defaults else "auto",
         help="Compute device to run on, e.g. auto, cpu, mps, cuda (default: auto)",
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default=argparse.SUPPRESS if suppress_defaults else "auto",
+        help="Compute dtype to run in: auto, float32, bfloat16 (default: auto)",
     )
 
 
@@ -276,13 +283,14 @@ def _configure_experiment_parser(
 
 @dataclass(frozen=True, kw_only=True)
 class ResolvedExperimentRun:
-    """Resolved `(experiment, variant, config, out_dir, device)` from CLI arguments or the interactive TUI."""
+    """Resolved `(experiment, variant, config, out_dir, device, dtype)` from CLI arguments or the interactive TUI."""
 
     experiment: Experiment
     variant: ExperimentVariant[Any]
     config: ExperimentConfig
     out_dir: Path | None
     device: str = "auto"
+    dtype: str = "auto"
 
 
 def _resolve_experiment(
@@ -360,6 +368,7 @@ def _resolve_experiment(
         config=chosen_config,
         out_dir=out_dir,
         device=str(getattr(args, "device", "auto")),
+        dtype=str(getattr(args, "dtype", "auto")),
     )
 
 
@@ -391,7 +400,10 @@ def run_experiment_cli(
     if resolved is None:
         return None
     return resolved.variant.run(
-        resolved.config, resolved.out_dir, device=resolved.device
+        resolved.config,
+        resolved.out_dir,
+        device=resolved.device,
+        dtype=resolved.dtype,
     )
 
 
@@ -474,5 +486,8 @@ def run_experiments_cli(
     if resolved is None:
         return None
     return resolved.variant.run(
-        resolved.config, resolved.out_dir, device=resolved.device
+        resolved.config,
+        resolved.out_dir,
+        device=resolved.device,
+        dtype=resolved.dtype,
     )

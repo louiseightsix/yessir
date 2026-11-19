@@ -96,6 +96,7 @@ class AdditionAddressedStepArDataset:
                 use_query_tokens=self._use_query_tokens,
                 include_alphabet=self._include_alphabet,
                 embedding_mode=self._embedding_mode,
+                validate=False,
             )
 
 
