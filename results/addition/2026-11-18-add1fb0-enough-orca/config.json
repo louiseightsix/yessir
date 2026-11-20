@@ -1,9 +1,9 @@
 {
   "experiment": "addition",
   "variant": "addressed_ar",
-  "device": "auto",
-  "dtype": "auto",
-  "started_at": "2026-11-19T06:23:28.791206Z",
+  "device": "cuda",
+  "dtype": "bfloat16",
+  "started_at": "2026-11-19T06:25:51.950197Z",
   "git_commit_sha": "add1fb0394b61f255ab7e37de4a85f333f818477",
   "git_short_sha": "add1fb0",
   "git_commit_date": "2026-11-18",
